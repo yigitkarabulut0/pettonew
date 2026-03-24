@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5ede3;
+  --foreground: #161514;
+  --petto-primary: #e6694a;
+  --petto-primary-soft: #f7c9bc;
+  --petto-secondary: #21433c;
+  --petto-accent: #f7b267;
+  --petto-ink: #161514;
+  --petto-muted: #6e6a65;
+  --petto-card: #fff8f1;
+  --petto-canvas: #f5ede3;
+  --petto-surface: #fffcf8;
+  --petto-border: rgba(22, 21, 20, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(247, 178, 103, 0.25), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(230, 105, 74, 0.18), transparent 34%),
+    var(--petto-canvas);
+  color: var(--foreground);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+

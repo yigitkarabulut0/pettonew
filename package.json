@@ -1,0 +1,25 @@
+{
+  "name": "petto",
+  "private": true,
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:mobile": "node scripts/with-root-env.mjs pnpm --filter @petto/mobile dev",
+    "dev:admin": "node scripts/with-root-env.mjs pnpm --filter @petto/admin dev",
+    "dev:api": "node scripts/with-root-env.mjs pnpm --dir apps/api run dev",
+    "migrate:api": "node scripts/with-root-env.mjs pnpm --dir apps/api exec go run ./cmd/migrate",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "eslint": "^9.37.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}

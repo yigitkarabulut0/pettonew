@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: petto-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: petto
+      POSTGRES_PASSWORD: petto123
+      POSTGRES_DB: petto
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petto -d petto"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

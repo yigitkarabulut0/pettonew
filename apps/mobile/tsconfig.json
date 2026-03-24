@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@petto/contracts": [
+        "../../packages/contracts/src"
+      ],
+      "@petto/design-tokens": [
+        "../../packages/design-tokens/src"
+      ]
+    },
+    "types": [
+      "react",
+      "react-native"
+    ]
+  },
+  "include": [
+    "app",
+    "components",
+    "lib",
+    "store",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ]
+}

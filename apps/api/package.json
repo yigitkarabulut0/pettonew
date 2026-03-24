@@ -1,0 +1,10 @@
+{
+  "name": "@petto/api",
+  "private": true,
+  "scripts": {
+    "dev": "go run ./cmd/api",
+    "test": "go test ./...",
+    "fmt": "gofmt -w ./cmd ./internal"
+  }
+}
+

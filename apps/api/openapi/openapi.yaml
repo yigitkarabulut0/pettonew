@@ -1,0 +1,265 @@
+openapi: 3.1.0
+info:
+  title: Petto API
+  version: 0.1.0
+  description: REST and WebSocket contract for the Petto mobile and admin applications.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: API is healthy
+  /v1/auth/register:
+    post:
+      summary: Register an app user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Pending verification user created
+  /v1/auth/login:
+    post:
+      summary: Log in an app user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionEnvelope"
+  /v1/me:
+    get:
+      summary: Fetch current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+  /v1/me/profile:
+    put:
+      summary: Upsert current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Profile updated
+  /v1/me/pets:
+    get:
+      summary: List current user's pets
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pets listed
+    post:
+      summary: Create a pet
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Pet created
+  /v1/discovery/feed:
+    get:
+      summary: List discovery cards in the current city
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Feed returned
+  /v1/swipes:
+    post:
+      summary: Submit a swipe decision
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Swipe processed
+  /v1/matches:
+    get:
+      summary: List pet-level matches for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Matches listed
+  /v1/conversations:
+    get:
+      summary: List conversations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Conversations listed
+  /v1/messages:
+    get:
+      summary: List messages in a conversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: conversationId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages listed
+    post:
+      summary: Send a message
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Message sent
+  /v1/ws:
+    get:
+      summary: WebSocket endpoint for live chat events
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: conversationId
+          required: true
+          schema:
+            type: string
+      responses:
+        "101":
+          description: Switching protocols
+  /v1/admin/auth/login:
+    post:
+      summary: Log in an admin
+      responses:
+        "200":
+          description: Admin session issued
+  /v1/admin/dashboard:
+    get:
+      summary: Fetch admin dashboard metrics
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Dashboard snapshot
+  /v1/admin/users:
+    get:
+      summary: List app users
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Users listed
+  /v1/admin/pets:
+    get:
+      summary: List pets for moderation
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Pets listed
+  /v1/admin/taxonomies/{kind}:
+    get:
+      summary: List a taxonomy group
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Taxonomy listed
+    post:
+      summary: Create or update taxonomy item
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Taxonomy upserted
+  /v1/admin/reports:
+    get:
+      summary: List moderation reports
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Reports listed
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    adminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    SessionEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user:
+              $ref: "#/components/schemas/UserProfile"
+            tokens:
+              type: object
+              properties:
+                accessToken:
+                  type: string
+                refreshToken:
+                  type: string
+                expiresInSeconds:
+                  type: integer
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        cityLabel:
+          type: string

@@ -1,0 +1,561 @@
+import type {
+  Conversation,
+  DiscoveryCard,
+  ExploreEvent,
+  ExploreVenue,
+  HomePost,
+  MatchPreview,
+  Message,
+  Pet,
+  SessionPayload,
+  TaxonomyItem,
+  TaxonomyKind,
+  UploadedAsset,
+  UserProfile
+} from "@petto/contracts";
+
+const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+
+function getApiBaseUrl() {
+  if (!apiBaseUrl) {
+    throw new Error("EXPO_PUBLIC_API_BASE_URL is not configured.");
+  }
+
+  return apiBaseUrl;
+}
+
+async function parseError(response: Response) {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  return payload?.error ?? "Request failed";
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, init);
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  const payload = (await response.json()) as { data: T };
+  return payload.data;
+}
+
+function authHeaders(accessToken: string, headers?: HeadersInit) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    ...(headers ?? {})
+  };
+}
+
+function normalizeUser(
+  user: Partial<UserProfile> | null | undefined
+): UserProfile {
+  return {
+    id: user?.id ?? "",
+    email: user?.email ?? "",
+    firstName: user?.firstName ?? "",
+    lastName: user?.lastName ?? "",
+    birthDate: user?.birthDate ?? "",
+    gender: (user?.gender ?? "prefer-not-to-say") as UserProfile["gender"],
+    cityId: user?.cityId ?? "",
+    cityLabel: user?.cityLabel ?? "",
+    avatarUrl: user?.avatarUrl,
+    bio: user?.bio,
+    status: (user?.status ?? "active") as UserProfile["status"],
+    createdAt: user?.createdAt ?? new Date(0).toISOString()
+  };
+}
+
+function normalizeSession(
+  session: Partial<SessionPayload> | null | undefined
+): SessionPayload {
+  return {
+    user: normalizeUser(session?.user),
+    tokens: {
+      accessToken: session?.tokens?.accessToken ?? "",
+      refreshToken: session?.tokens?.refreshToken ?? "",
+      expiresInSeconds:
+        typeof session?.tokens?.expiresInSeconds === "number"
+          ? session.tokens.expiresInSeconds
+          : 0
+    }
+  };
+}
+
+function normalizePet(pet: Partial<Pet> | null | undefined): Pet {
+  return {
+    id: pet?.id ?? "",
+    ownerId: pet?.ownerId ?? "",
+    name: pet?.name ?? "",
+    ageYears: typeof pet?.ageYears === "number" ? pet.ageYears : 0,
+    speciesId: pet?.speciesId ?? "",
+    speciesLabel: pet?.speciesLabel ?? "",
+    breedId: pet?.breedId ?? "",
+    breedLabel: pet?.breedLabel ?? "",
+    activityLevel: ([1, 2, 3, 4, 5].includes(pet?.activityLevel as number)
+      ? pet?.activityLevel
+      : 3) as 1 | 2 | 3 | 4 | 5,
+    hobbies: Array.isArray(pet?.hobbies)
+      ? pet.hobbies.filter((item): item is string => typeof item === "string")
+      : [],
+    goodWith: Array.isArray(pet?.goodWith)
+      ? pet.goodWith.filter((item): item is string => typeof item === "string")
+      : [],
+    isNeutered: Boolean(pet?.isNeutered),
+    bio: pet?.bio ?? "",
+    photos: Array.isArray(pet?.photos)
+      ? pet.photos
+          .filter((photo): photo is NonNullable<Pet["photos"][number]> =>
+            Boolean(photo && typeof photo === "object")
+          )
+          .map((photo, index) => ({
+            id: photo.id ?? `photo-${index}`,
+            url: photo.url ?? "",
+            isPrimary: Boolean(photo.isPrimary)
+          }))
+      : [],
+    cityLabel: pet?.cityLabel ?? "",
+    isHidden: Boolean(pet?.isHidden)
+  };
+}
+
+function normalizeExploreVenue(
+  venue: Partial<ExploreVenue> | null | undefined
+): ExploreVenue {
+  return {
+    id: venue?.id ?? "",
+    name: venue?.name ?? "",
+    category: (venue?.category ?? "other") as ExploreVenue["category"],
+    description: venue?.description ?? "",
+    cityLabel: venue?.cityLabel ?? "",
+    address: venue?.address ?? "",
+    latitude: Number.isFinite(venue?.latitude) ? Number(venue?.latitude) : 0,
+    longitude: Number.isFinite(venue?.longitude) ? Number(venue?.longitude) : 0,
+    imageUrl: venue?.imageUrl,
+    currentCheckIns: Array.isArray(venue?.currentCheckIns)
+      ? venue.currentCheckIns.map((checkIn) => ({
+          userId: checkIn?.userId ?? "",
+          userName: checkIn?.userName ?? "",
+          avatarUrl: checkIn?.avatarUrl,
+          petIds: Array.isArray(checkIn?.petIds)
+            ? checkIn.petIds.filter(
+                (item): item is string => typeof item === "string"
+              )
+            : [],
+          petNames: Array.isArray(checkIn?.petNames)
+            ? checkIn.petNames.filter(
+                (item): item is string => typeof item === "string"
+              )
+            : [],
+          petCount:
+            typeof checkIn?.petCount === "number" ? checkIn.petCount : 0,
+          checkedInAt: checkIn?.checkedInAt ?? ""
+        }))
+      : []
+  };
+}
+
+function normalizeExploreEvent(
+  event: Partial<ExploreEvent> | null | undefined
+): ExploreEvent {
+  return {
+    id: event?.id ?? "",
+    title: event?.title ?? "",
+    description: event?.description ?? "",
+    cityLabel: event?.cityLabel ?? "",
+    venueId: event?.venueId,
+    venueName: event?.venueName,
+    startsAt: event?.startsAt ?? new Date(0).toISOString(),
+    audience: (event?.audience ?? "everyone") as ExploreEvent["audience"],
+    petFocus: (event?.petFocus ?? "all-pets") as ExploreEvent["petFocus"],
+    attendeeCount:
+      typeof event?.attendeeCount === "number" ? event.attendeeCount : 0,
+    attendees: Array.isArray(event?.attendees)
+      ? event.attendees.map((checkIn) => ({
+          userId: checkIn?.userId ?? "",
+          userName: checkIn?.userName ?? "",
+          avatarUrl: checkIn?.avatarUrl,
+          petIds: Array.isArray(checkIn?.petIds)
+            ? checkIn.petIds.filter(
+                (item): item is string => typeof item === "string"
+              )
+            : [],
+          petNames: Array.isArray(checkIn?.petNames)
+            ? checkIn.petNames.filter(
+                (item): item is string => typeof item === "string"
+              )
+            : [],
+          petCount:
+            typeof checkIn?.petCount === "number" ? checkIn.petCount : 0,
+          checkedInAt: checkIn?.checkedInAt ?? ""
+        }))
+      : []
+  };
+}
+
+function normalizeHomePost(
+  post: Partial<HomePost> | null | undefined
+): HomePost {
+  return {
+    id: post?.id ?? "",
+    author: {
+      id: post?.author?.id ?? "",
+      firstName: post?.author?.firstName ?? "",
+      lastName: post?.author?.lastName ?? "",
+      avatarUrl: post?.author?.avatarUrl,
+      cityLabel: post?.author?.cityLabel ?? ""
+    },
+    body: post?.body ?? "",
+    imageUrl: post?.imageUrl,
+    taggedPets: Array.isArray(post?.taggedPets)
+      ? post.taggedPets.map((pet) => normalizePet(pet))
+      : [],
+    likeCount: typeof post?.likeCount === "number" ? post.likeCount : 0,
+    likedByMe: Boolean(post?.likedByMe),
+    createdAt: post?.createdAt ?? new Date(0).toISOString()
+  };
+}
+
+function normalizeMatch(
+  match: Partial<MatchPreview> | null | undefined
+): MatchPreview {
+  return {
+    id: match?.id ?? "",
+    pet: normalizePet(match?.pet),
+    matchedPet: normalizePet(match?.matchedPet),
+    matchedOwnerName: match?.matchedOwnerName ?? "",
+    lastMessagePreview: match?.lastMessagePreview ?? "",
+    unreadCount: typeof match?.unreadCount === "number" ? match.unreadCount : 0,
+    createdAt: match?.createdAt ?? new Date(0).toISOString(),
+    status: (match?.status ?? "active") as MatchPreview["status"]
+  };
+}
+
+export async function signIn(
+  email: string,
+  password: string
+): Promise<SessionPayload> {
+  const session = await request<SessionPayload>("/v1/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email, password })
+  });
+  return normalizeSession(session);
+}
+
+export async function signUp(
+  email: string,
+  password: string
+): Promise<SessionPayload> {
+  const session = await request<SessionPayload>("/v1/auth/register", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ email, password })
+  });
+  return normalizeSession(session);
+}
+
+export async function getMe(accessToken: string): Promise<UserProfile> {
+  const user = await request<UserProfile>("/v1/me", {
+    headers: authHeaders(accessToken)
+  });
+  return normalizeUser(user);
+}
+
+export async function updateProfile(
+  accessToken: string,
+  profile: Partial<UserProfile>
+): Promise<UserProfile> {
+  const user = await request<UserProfile>("/v1/me/profile", {
+    method: "PUT",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(profile)
+  });
+  return normalizeUser(user);
+}
+
+export async function listMyPets(accessToken: string): Promise<Pet[]> {
+  const pets = await request<Pet[] | null>("/v1/me/pets", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(pets) ? pets.map((pet) => normalizePet(pet)) : [];
+}
+
+export async function savePet(
+  accessToken: string,
+  pet: Partial<Pet> & Pick<Pet, "name" | "ageYears">
+): Promise<Pet> {
+  const savedPet = await request<Pet>("/v1/me/pets", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(pet)
+  });
+  return normalizePet(savedPet);
+}
+
+export async function listTaxonomies(
+  accessToken: string,
+  kind: TaxonomyKind
+): Promise<TaxonomyItem[]> {
+  const items = await request<TaxonomyItem[] | null>(`/v1/taxonomies/${kind}`, {
+    headers: authHeaders(accessToken)
+  });
+  return items ?? [];
+}
+
+function normalizeDiscoveryCard(
+  card: Partial<DiscoveryCard> | null | undefined
+): DiscoveryCard {
+  return {
+    pet: normalizePet(card?.pet),
+    owner: {
+      firstName: card?.owner?.firstName ?? "",
+      gender:
+        (card?.owner?.gender as DiscoveryCard["owner"]["gender"]) ??
+        "prefer-not-to-say"
+    },
+    distanceLabel: card?.distanceLabel ?? "",
+    prompt: card?.prompt ?? ""
+  };
+}
+
+export async function getDiscoveryFeed(
+  accessToken: string
+): Promise<DiscoveryCard[]> {
+  const cards = await request<DiscoveryCard[] | null>("/v1/discovery/feed", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(cards)
+    ? cards.map((card) => normalizeDiscoveryCard(card))
+    : [];
+}
+
+export async function createSwipe(
+  accessToken: string,
+  actorPetId: string,
+  targetPetId: string,
+  direction: "like" | "pass" | "super-like"
+): Promise<MatchPreview | null> {
+  const response = await request<{ match: MatchPreview | null }>("/v1/swipes", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ actorPetId, targetPetId, direction })
+  });
+  return response.match;
+}
+
+export async function listMatches(
+  accessToken: string
+): Promise<MatchPreview[]> {
+  const matches = await request<MatchPreview[] | null>("/v1/matches", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(matches)
+    ? matches.map((match) => normalizeMatch(match))
+    : [];
+}
+
+export async function listHomeFeed(accessToken: string): Promise<HomePost[]> {
+  const posts = await request<HomePost[] | null>("/v1/home/feed", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(posts)
+    ? posts.map((post) => normalizeHomePost(post))
+    : [];
+}
+
+export async function createHomePost(
+  accessToken: string,
+  payload: { body: string; imageUrl?: string; taggedPetIds: string[] }
+): Promise<HomePost> {
+  const post = await request<HomePost>("/v1/home/posts", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  return normalizeHomePost(post);
+}
+
+export async function toggleHomePostLike(
+  accessToken: string,
+  postId: string
+): Promise<HomePost> {
+  const post = await request<HomePost>(`/v1/home/posts/${postId}/likes`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+  return normalizeHomePost(post);
+}
+
+export async function listExploreVenues(
+  accessToken: string
+): Promise<ExploreVenue[]> {
+  const venues = await request<ExploreVenue[] | null>("/v1/explore/venues", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(venues)
+    ? venues.map((venue) => normalizeExploreVenue(venue))
+    : [];
+}
+
+export async function checkInVenue(
+  accessToken: string,
+  venueId: string,
+  petIds: string[],
+  latitude?: number,
+  longitude?: number
+): Promise<ExploreVenue> {
+  const venue = await request<ExploreVenue>("/v1/explore/check-ins", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ venueId, petIds, latitude, longitude })
+  });
+  return normalizeExploreVenue(venue);
+}
+
+export async function listExploreEvents(
+  accessToken: string
+): Promise<ExploreEvent[]> {
+  const events = await request<ExploreEvent[] | null>("/v1/explore/events", {
+    headers: authHeaders(accessToken)
+  });
+  return Array.isArray(events)
+    ? events.map((event) => normalizeExploreEvent(event))
+    : [];
+}
+
+export async function rsvpEvent(
+  accessToken: string,
+  eventId: string,
+  petIds: string[]
+): Promise<ExploreEvent> {
+  const event = await request<ExploreEvent>(
+    `/v1/explore/events/${eventId}/rsvps`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders(accessToken),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ petIds })
+    }
+  );
+  return normalizeExploreEvent(event);
+}
+
+export async function listConversations(
+  accessToken: string
+): Promise<Conversation[]> {
+  const conversations = await request<Conversation[] | null>(
+    "/v1/conversations",
+    {
+      headers: authHeaders(accessToken)
+    }
+  );
+  return conversations ?? [];
+}
+
+export async function listMessages(
+  accessToken: string,
+  conversationId: string
+): Promise<Message[]> {
+  const messages = await request<Message[] | null>(
+    `/v1/messages?conversationId=${conversationId}`,
+    {
+      headers: authHeaders(accessToken)
+    }
+  );
+  return messages ?? [];
+}
+
+export async function sendMessage(
+  accessToken: string,
+  conversationId: string,
+  body: string
+): Promise<Message> {
+  return request<Message>("/v1/messages", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ conversationId, body })
+  });
+}
+
+export async function uploadMedia(
+  accessToken: string,
+  uri: string,
+  fileName: string,
+  mimeType = "image/jpeg"
+): Promise<UploadedAsset> {
+  const presigned = await request<
+    UploadedAsset & { uploadUrl: string; objectKey: string }
+  >("/v1/media/presign", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      fileName,
+      mimeType,
+      folder: "mobile"
+    })
+  });
+
+  const fileResponse = await fetch(uri);
+  const fileBlob = await fileResponse.blob();
+  const uploadResponse = await fetch(presigned.uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": mimeType
+    },
+    body: fileBlob
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error("Cloudflare R2 upload failed.");
+  }
+
+  return {
+    id: presigned.id,
+    url: presigned.url
+  };
+}
+
+export async function submitReport(
+  accessToken: string,
+  reason: string,
+  targetType: string,
+  targetLabel: string
+) {
+  return request("/v1/reports", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ reason, targetType, targetLabel })
+  });
+}

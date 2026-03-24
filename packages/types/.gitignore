@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build
+*.js
+*.d.ts
+*.js.map
+
+# Environment
+.env
+
+# IDE
