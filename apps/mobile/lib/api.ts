@@ -14,6 +14,8 @@ import type {
   UserProfile
 } from "@petto/contracts";
 
+import { useSessionStore } from "@/store/session";
+
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 function getApiBaseUrl() {
@@ -31,8 +33,79 @@ async function parseError(response: Response) {
   return payload?.error ?? "Request failed";
 }
 
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshToken(): Promise<boolean> {
+  const session = useSessionStore.getState().session;
+  if (!session?.tokens.refreshToken) return false;
+
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: session.tokens.refreshToken })
+    });
+
+    if (!response.ok) {
+      useSessionStore.getState().clearSession();
+      return false;
+    }
+
+    const payload = (await response.json()) as {
+      data: {
+        tokens: SessionPayload["tokens"];
+      };
+    };
+
+    const currentSession = useSessionStore.getState().session;
+    if (currentSession) {
+      useSessionStore.getState().setSession({
+        ...currentSession,
+        tokens: payload.data.tokens
+      });
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, init);
+
+  if (response.status === 401 && init?.headers) {
+    const headers = init.headers as Record<string, string>;
+    const authHeader = headers["Authorization"] ?? headers["authorization"];
+    if (authHeader) {
+      if (!refreshPromise) {
+        refreshPromise = tryRefreshToken().finally(() => {
+          refreshPromise = null;
+        });
+      }
+
+      const refreshed = await refreshPromise;
+      if (refreshed) {
+        const newSession = useSessionStore.getState().session;
+        if (newSession) {
+          const retryHeaders = {
+            ...init.headers,
+            Authorization: `Bearer ${newSession.tokens.accessToken}`
+          };
+          const retryResponse = await fetch(`${getApiBaseUrl()}${path}`, {
+            ...init,
+            headers: retryHeaders
+          });
+          if (!retryResponse.ok) {
+            throw new Error(await parseError(retryResponse));
+          }
+          const retryPayload = (await retryResponse.json()) as { data: T };
+          return retryPayload.data;
+        }
+      }
+    }
+  }
+
   if (!response.ok) {
     throw new Error(await parseError(response));
   }
@@ -225,10 +298,12 @@ function normalizeMatch(
     pet: normalizePet(match?.pet),
     matchedPet: normalizePet(match?.matchedPet),
     matchedOwnerName: match?.matchedOwnerName ?? "",
+    matchedOwnerAvatarUrl: match?.matchedOwnerAvatarUrl,
     lastMessagePreview: match?.lastMessagePreview ?? "",
     unreadCount: typeof match?.unreadCount === "number" ? match.unreadCount : 0,
     createdAt: match?.createdAt ?? new Date(0).toISOString(),
-    status: (match?.status ?? "active") as MatchPreview["status"]
+    status: (match?.status ?? "active") as MatchPreview["status"],
+    conversationId: match?.conversationId ?? ""
   };
 }
 
@@ -331,11 +406,16 @@ function normalizeDiscoveryCard(
 }
 
 export async function getDiscoveryFeed(
-  accessToken: string
+  accessToken: string,
+  petId?: string
 ): Promise<DiscoveryCard[]> {
-  const cards = await request<DiscoveryCard[] | null>("/v1/discovery/feed", {
-    headers: authHeaders(accessToken)
-  });
+  const query = petId ? `?petId=${petId}` : "";
+  const cards = await request<DiscoveryCard[] | null>(
+    `/v1/discovery/feed${query}`,
+    {
+      headers: authHeaders(accessToken)
+    }
+  );
   return Array.isArray(cards)
     ? cards.map((card) => normalizeDiscoveryCard(card))
     : [];

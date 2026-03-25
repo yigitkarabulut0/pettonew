@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,7 +16,34 @@ import (
 	"github.com/yigitkarabulut/petto/apps/api/internal/store"
 )
 
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
+}
+
 func main() {
+	loadEnvFile(".env")
+
 	cfg := config.Load()
 	var dataStore store.Store
 	var closable store.ClosableStore

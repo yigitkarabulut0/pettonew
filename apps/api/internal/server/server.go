@@ -91,6 +91,8 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/media/presign", s.handleMediaPresign)
 		})
 
+		router.Get("/media/proxy", s.handleMediaProxy)
+
 		router.Route("/admin", func(router chi.Router) {
 			router.Post("/auth/login", s.handleAdminLogin)
 			router.Group(func(router chi.Router) {
@@ -101,8 +103,10 @@ func (s *Server) Routes() http.Handler {
 				router.Patch("/users/{userID}", s.handleAdminUserUpdate)
 				router.Delete("/users/{userID}", s.handleAdminUserDelete)
 				router.Get("/pets", s.handleAdminPets)
+				router.Get("/pets/{petID}", s.handleAdminPetDetail)
 				router.Patch("/pets/{petID}", s.handleAdminPetUpdate)
 				router.Get("/posts", s.handleAdminPosts)
+				router.Delete("/posts/{postID}", s.handleAdminDeletePost)
 				router.Get("/venues", s.handleAdminVenues)
 				router.Post("/venues", s.handleAdminVenueUpsert)
 				router.Delete("/venues/{venueID}", s.handleAdminVenueDelete)
@@ -125,7 +129,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Access-Control-Allow-Origin", "*")
 		writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if request.Method == http.MethodOptions {
 			writer.WriteHeader(http.StatusNoContent)
 			return
@@ -376,7 +380,13 @@ func (s *Server) handleTaxonomyList(writer http.ResponseWriter, request *http.Re
 }
 
 func (s *Server) handleDiscoveryFeed(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.DiscoveryFeed(currentUserID(request))})
+	userID := currentUserID(request)
+	petID := request.URL.Query().Get("petId")
+	if petID != "" {
+		writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.DiscoveryFeedForPet(userID, petID)})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.DiscoveryFeed(userID)})
 }
 
 func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) {
@@ -399,7 +409,13 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 }
 
 func (s *Server) handleMatches(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListMatches(currentUserID(request))})
+	userID := currentUserID(request)
+	petID := request.URL.Query().Get("petId")
+	if petID != "" {
+		writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListMatchesByPet(userID, petID)})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListMatches(userID)})
 }
 
 func (s *Server) handleConversations(writer http.ResponseWriter, request *http.Request) {
@@ -635,6 +651,15 @@ func (s *Server) handleAdminUserDelete(writer http.ResponseWriter, request *http
 
 func (s *Server) handleAdminPets(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListAllPets()})
+}
+
+func (s *Server) handleAdminPetDetail(writer http.ResponseWriter, request *http.Request) {
+	detail, err := s.store.PetDetail(chi.URLParam(request, "petID"))
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": detail})
 }
 
 func (s *Server) handleAdminPetUpdate(writer http.ResponseWriter, request *http.Request) {

@@ -13,14 +13,16 @@ import { signUp } from "@/lib/api";
 import { mobileTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
-const schema = z.object({
-  email: z.string().email("Please enter a valid email address."),
-  password: z.string().min(8, "Password must be at least 8 characters."),
-  confirmPassword: z.string().min(8, "Please confirm your password.")
-}).refine((value) => value.password === value.confirmPassword, {
-  message: "Passwords must match.",
-  path: ["confirmPassword"]
-});
+const schema = z
+  .object({
+    email: z.string().email("Please enter a valid email address."),
+    password: z.string().min(8, "Password must be at least 8 characters."),
+    confirmPassword: z.string().min(8, "Please confirm your password.")
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords must match.",
+    path: ["confirmPassword"]
+  });
 
 type SignUpValues = z.infer<typeof schema>;
 
@@ -34,16 +36,13 @@ export default function SignUpPage() {
     handleSubmit,
     formState: { errors }
   } = useForm<SignUpValues>({
-    defaultValues: {
-      email: "",
-      password: "",
-      confirmPassword: ""
-    },
+    defaultValues: { email: "", password: "", confirmPassword: "" },
     resolver: zodResolver(schema)
   });
 
   const mutation = useMutation({
-    mutationFn: async (values: SignUpValues) => signUp(values.email, values.password),
+    mutationFn: async (values: SignUpValues) =>
+      signUp(values.email, values.password),
     onSuccess: (session) => {
       setSession(session);
       setPetCount(0);
@@ -51,17 +50,29 @@ export default function SignUpPage() {
       router.replace("/(app)/onboarding/location");
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to sign up.");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to sign up."
+      );
     }
   });
 
   return (
     <ScreenShell
       eyebrow="Create account"
-      title="Set up your Petto access."
-      subtitle="Create your account, share your location for nearby matches, then finish your profile."
+      title="Join Petto."
+      subtitle="Create your account and start matching pets near you."
     >
-      <View style={{ gap: 14, padding: 18, borderRadius: 28, backgroundColor: mobileTheme.colors.surface }}>
+      <View
+        style={{
+          gap: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.xl,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white,
+          borderWidth: 1,
+          borderColor: mobileTheme.colors.border,
+          ...mobileTheme.shadow.sm
+        }}
+      >
         <Controller
           control={control}
           name="email"
@@ -120,7 +131,14 @@ export default function SignUpPage() {
           )}
         />
         {errorMessage ? (
-          <Text selectable style={{ color: mobileTheme.colors.danger }}>
+          <Text
+            style={{
+              color: mobileTheme.colors.danger,
+              fontSize: mobileTheme.typography.caption.fontSize,
+              fontFamily: "Inter_600SemiBold",
+              fontWeight: "600"
+            }}
+          >
             {errorMessage}
           </Text>
         ) : null}
@@ -132,14 +150,26 @@ export default function SignUpPage() {
               mutation.mutate(values);
             },
             () => {
-              setErrorMessage("Please fix the highlighted fields and try again.");
+              setErrorMessage(
+                "Please fix the highlighted fields and try again."
+              );
             }
           )}
         />
       </View>
-      <Text selectable style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}>
+      <Text
+        style={{
+          color: mobileTheme.colors.muted,
+          lineHeight: mobileTheme.typography.body.lineHeight,
+          fontSize: mobileTheme.typography.body.fontSize,
+          fontFamily: "Inter_400Regular"
+        }}
+      >
         Already have an account?{" "}
-        <Link href="/(auth)/sign-in" style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+        <Link
+          href="/(auth)/sign-in"
+          style={{ color: mobileTheme.colors.primary, fontWeight: "700" }}
+        >
           Sign in
         </Link>
       </Text>
@@ -147,12 +177,25 @@ export default function SignUpPage() {
   );
 }
 
-function FieldShell({ children, error }: { children: React.ReactNode; error?: FieldError }) {
+function FieldShell({
+  children,
+  error
+}: {
+  children: React.ReactNode;
+  error?: FieldError;
+}) {
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: mobileTheme.spacing.xs }}>
       {children}
       {error?.message ? (
-        <Text selectable style={{ color: mobileTheme.colors.danger, fontSize: 13, fontWeight: "600" }}>
+        <Text
+          style={{
+            color: mobileTheme.colors.danger,
+            fontSize: 12,
+            fontWeight: "600",
+            fontFamily: "Inter_600SemiBold"
+          }}
+        >
           {error.message}
         </Text>
       ) : null}
@@ -163,11 +206,15 @@ function FieldShell({ children, error }: { children: React.ReactNode; error?: Fi
 function getInputStyle(hasError: boolean) {
   return {
     borderRadius: mobileTheme.radius.md,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: mobileTheme.colors.background,
     borderWidth: 1,
-    borderColor: hasError ? mobileTheme.colors.danger : mobileTheme.colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    color: mobileTheme.colors.ink
+    borderColor: hasError
+      ? mobileTheme.colors.danger
+      : mobileTheme.colors.border,
+    paddingHorizontal: mobileTheme.spacing.lg,
+    paddingVertical: mobileTheme.spacing.md + 3,
+    color: mobileTheme.colors.ink,
+    fontSize: mobileTheme.typography.body.fontSize,
+    fontFamily: "Inter_400Regular"
   } as const;
 }

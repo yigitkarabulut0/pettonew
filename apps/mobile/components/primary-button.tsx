@@ -1,4 +1,4 @@
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, type StyleProp, type ViewStyle } from "react-native";
 
 import { mobileTheme } from "@/lib/theme";
 
@@ -7,14 +7,22 @@ interface PrimaryButtonProps {
   onPress: () => void;
   variant?: "primary" | "secondary" | "ghost";
   disabled?: boolean;
+  loading?: boolean;
+  size?: "sm" | "md";
+  style?: StyleProp<ViewStyle>;
 }
 
 export function PrimaryButton({
   label,
   onPress,
   variant = "primary",
-  disabled = false
+  disabled = false,
+  loading = false,
+  size = "md",
+  style
 }: PrimaryButtonProps) {
+  const isSmall = size === "sm";
+
   const backgroundColor =
     variant === "primary"
       ? mobileTheme.colors.primary
@@ -26,26 +34,32 @@ export function PrimaryButton({
 
   return (
     <Pressable
-      disabled={disabled}
+      disabled={disabled || loading}
       onPress={onPress}
-      style={{
-        borderRadius: mobileTheme.radius.pill,
-        backgroundColor,
-        borderWidth: variant === "ghost" ? 1 : 0,
-        borderColor: mobileTheme.colors.border,
-        paddingHorizontal: 18,
-        paddingVertical: 14,
-        opacity: disabled ? 0.55 : 1,
-        alignItems: "center"
-      }}
+      style={[
+        {
+          borderRadius: mobileTheme.radius.pill,
+          backgroundColor,
+          borderWidth: variant === "ghost" ? 1 : 0,
+          borderColor: mobileTheme.colors.borderStrong,
+          paddingHorizontal: isSmall ? 14 : 20,
+          paddingVertical: isSmall ? 10 : 15,
+          opacity: disabled || loading ? 0.5 : 1,
+          alignItems: "center",
+          flexDirection: "row",
+          gap: mobileTheme.spacing.sm
+        },
+        style
+      ]}
     >
+      {loading && <Text style={{ fontSize: 12, color }}>...</Text>}
       <Text
         selectable
         style={{
           color,
-          fontFamily: "Avenir Next",
+          fontFamily: "Inter_700Bold",
           fontWeight: "700",
-          fontSize: 16
+          fontSize: isSmall ? 13 : 15
         }}
       >
         {label}
@@ -53,4 +67,3 @@ export function PrimaryButton({
     </Pressable>
   );
 }
-

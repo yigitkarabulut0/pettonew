@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  AdminPetDetail,
   AdminUserDetail,
   DashboardSnapshot,
   ExploreEvent,
@@ -36,7 +37,9 @@ function getToken() {
 }
 
 async function parseError(response: Response) {
-  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
   return payload?.error ?? "Request failed";
 }
 
@@ -58,13 +61,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function adminLogin(email: string, password: string) {
-  const session = await request<{ accessToken: string; expiresIn: number }>("/v1/admin/auth/login", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ email, password })
-  });
+  const session = await request<{ accessToken: string; expiresIn: number }>(
+    "/v1/admin/auth/login",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    }
+  );
   document.cookie = `${cookieName}=${session.accessToken}; path=/; max-age=28800`;
   return session;
 }
@@ -105,8 +111,18 @@ export async function getPets(): Promise<Pet[]> {
   return request<Pet[]>("/v1/admin/pets");
 }
 
+export async function getPetDetail(petId: string) {
+  return request<AdminPetDetail>("/v1/admin/pets/" + petId);
+}
+
 export async function getPosts(): Promise<HomePost[]> {
   return request<HomePost[]>("/v1/admin/posts");
+}
+
+export async function deletePost(postId: string) {
+  return request("/v1/admin/posts/" + postId, {
+    method: "DELETE"
+  });
 }
 
 export async function getVenues(): Promise<ExploreVenue[]> {

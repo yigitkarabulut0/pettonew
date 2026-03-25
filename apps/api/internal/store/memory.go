@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math/rand"
 	"slices"
 	"sort"
 	"strings"
@@ -370,14 +371,25 @@ func (s *MemoryStore) UpsertPet(userID string, petID string, input PetInput) (do
 }
 
 func (s *MemoryStore) DiscoveryFeed(userID string) []domain.DiscoveryCard {
+	return s.discoveryFeed(userID, "")
+}
+
+func (s *MemoryStore) DiscoveryFeedForPet(userID string, actorPetID string) []domain.DiscoveryCard {
+	return s.discoveryFeed(userID, actorPetID)
+}
+
+func (s *MemoryStore) discoveryFeed(userID string, actorPetID string) []domain.DiscoveryCard {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var currentCity string
-	for _, pet := range s.pets {
-		if pet.OwnerID == userID {
-			currentCity = pet.CityLabel
-			break
+	swipedByPet := make(map[string]bool)
+	if actorPetID != "" {
+		if targets, ok := s.swipes[actorPetID]; ok {
+			for targetID, direction := range targets {
+				if direction == "like" || direction == "super-like" {
+					swipedByPet[targetID] = true
+				}
+			}
 		}
 	}
 
@@ -386,21 +398,22 @@ func (s *MemoryStore) DiscoveryFeed(userID string) []domain.DiscoveryCard {
 		if pet.OwnerID == userID || pet.IsHidden {
 			continue
 		}
-		if currentCity != "" && pet.CityLabel != currentCity {
+		if swipedByPet[pet.ID] {
 			continue
 		}
 
 		owner := s.users[pet.OwnerID]
 		cards = append(cards, domain.DiscoveryCard{
-			Pet: *pet,
-			Owner: domain.OwnerBrief{
-				FirstName: owner.Profile.FirstName,
-				Gender:    owner.Profile.Gender,
-			},
-			DistanceLabel: "Within your city",
+			Pet:           *pet,
+			Owner:         domain.OwnerBrief{FirstName: owner.Profile.FirstName, Gender: owner.Profile.Gender},
+			DistanceLabel: "Nearby",
 			Prompt:        fmt.Sprintf("%s is open to friendly pets with balanced energy.", pet.Name),
 		})
 	}
+
+	rand.Shuffle(len(cards), func(i, j int) {
+		cards[i], cards[j] = cards[j], cards[i]
+	})
 
 	return cards
 }
@@ -429,32 +442,101 @@ func (s *MemoryStore) CreateSwipe(userID string, actorPetID string, targetPetID 
 		return nil, nil
 	}
 
+	actorOwnerID := actorPet.OwnerID
+	targetOwnerID := targetPet.OwnerID
+
 	matchID := newID("match")
 	match := &domain.MatchPreview{
-		ID:                 matchID,
-		Pet:                *actorPet,
-		MatchedPet:         *targetPet,
-		MatchedOwnerName:   s.users[targetPet.OwnerID].Profile.FirstName,
-		LastMessagePreview: "It's a match. Say hello!",
-		UnreadCount:        0,
-		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
-		Status:             "active",
+		ID:                    matchID,
+		Pet:                   *actorPet,
+		MatchedPet:            *targetPet,
+		MatchedOwnerName:      s.users[targetOwnerID].Profile.FirstName,
+		MatchedOwnerAvatarURL: "",
+		LastMessagePreview:    "It's a match. Say hello!",
+		UnreadCount:           0,
+		CreatedAt:             time.Now().UTC().Format(time.RFC3339),
+		Status:                "active",
+		ConversationID:        "",
 	}
 	s.matches[matchID] = match
 	s.matchCreatedAt[matchID] = time.Now().UTC()
 
-	conversationID := newID("conversation")
-	s.conversations[conversationID] = &domain.Conversation{
-		ID:            conversationID,
-		MatchID:       matchID,
-		Title:         fmt.Sprintf("%s x %s", actorPet.Name, targetPet.Name),
-		Subtitle:      fmt.Sprintf("Chat with %s", s.users[targetPet.OwnerID].Profile.FirstName),
-		UnreadCount:   0,
-		LastMessageAt: time.Now().UTC().Format(time.RFC3339),
-		Messages:      []domain.Message{},
+	existingConv := s.findConversationByUsersLocked(actorOwnerID, targetOwnerID)
+	if existingConv != nil {
+		match.ConversationID = existingConv.ID
+		pair := domain.MatchPetPair{
+			MyPetID:        actorPet.ID,
+			MyPetName:      actorPet.Name,
+			MatchedPetID:   targetPet.ID,
+			MatchedPetName: targetPet.Name,
+		}
+		if len(actorPet.Photos) > 0 {
+			pair.MyPetPhotoURL = actorPet.Photos[0].URL
+		}
+		if len(targetPet.Photos) > 0 {
+			pair.MatchedPetPhotoURL = targetPet.Photos[0].URL
+		}
+		existingConv.MatchPetPairs = append(existingConv.MatchPetPairs, pair)
+		existingConv.MatchID = matchID
+
+		allPetNames := make(map[string]bool)
+		for _, p := range existingConv.MatchPetPairs {
+			allPetNames[p.MyPetName] = true
+			allPetNames[p.MatchedPetName] = true
+		}
+		names := make([]string, 0, len(allPetNames))
+		for n := range allPetNames {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		existingConv.Title = strings.Join(names, ", ")
+	} else {
+		conversationID := newID("conversation")
+		actorPhotoURL := ""
+		if len(actorPet.Photos) > 0 {
+			actorPhotoURL = actorPet.Photos[0].URL
+		}
+		targetPhotoURL := ""
+		if len(targetPet.Photos) > 0 {
+			targetPhotoURL = targetPet.Photos[0].URL
+		}
+		s.conversations[conversationID] = &domain.Conversation{
+			ID:            conversationID,
+			MatchID:       matchID,
+			Title:         fmt.Sprintf("%s, %s", actorPet.Name, targetPet.Name),
+			Subtitle:      fmt.Sprintf("Chat with %s", s.users[targetOwnerID].Profile.FirstName),
+			UnreadCount:   0,
+			LastMessageAt: time.Now().UTC().Format(time.RFC3339),
+			Messages:      []domain.Message{},
+			UserIDs:       []string{actorOwnerID, targetOwnerID},
+			MatchPetPairs: []domain.MatchPetPair{
+				{
+					MyPetID:            actorPet.ID,
+					MyPetName:          actorPet.Name,
+					MyPetPhotoURL:      actorPhotoURL,
+					MatchedPetID:       targetPet.ID,
+					MatchedPetName:     targetPet.Name,
+					MatchedPetPhotoURL: targetPhotoURL,
+				},
+			},
+		}
+		match.ConversationID = conversationID
 	}
 
 	return match, nil
+}
+
+func (s *MemoryStore) findConversationByUsersLocked(user1ID string, user2ID string) *domain.Conversation {
+	for _, conv := range s.conversations {
+		if len(conv.UserIDs) == 2 {
+			has1 := (conv.UserIDs[0] == user1ID && conv.UserIDs[1] == user2ID) ||
+				(conv.UserIDs[0] == user2ID && conv.UserIDs[1] == user1ID)
+			if has1 {
+				return conv
+			}
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) ListMatches(userID string) []domain.MatchPreview {
@@ -468,7 +550,36 @@ func (s *MemoryStore) ListMatches(userID string) []domain.MatchPreview {
 		}
 	}
 
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].CreatedAt > matches[j].CreatedAt
+	})
+
 	return matches
+}
+
+func (s *MemoryStore) ListMatchesByPet(userID string, petID string) []domain.MatchPreview {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	matches := make([]domain.MatchPreview, 0)
+	for _, match := range s.matches {
+		if (match.Pet.OwnerID == userID || match.MatchedPet.OwnerID == userID) &&
+			(match.Pet.ID == petID || match.MatchedPet.ID == petID) {
+			matches = append(matches, *match)
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].CreatedAt > matches[j].CreatedAt
+	})
+
+	return matches
+}
+
+func (s *MemoryStore) FindConversationByUsers(user1ID string, user2ID string) *domain.Conversation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.findConversationByUsersLocked(user1ID, user2ID)
 }
 
 func (s *MemoryStore) ListConversations(userID string) []domain.Conversation {
@@ -477,11 +588,21 @@ func (s *MemoryStore) ListConversations(userID string) []domain.Conversation {
 
 	conversations := make([]domain.Conversation, 0)
 	for _, conversation := range s.conversations {
-		match := s.matches[conversation.MatchID]
-		if match != nil && (match.Pet.OwnerID == userID || match.MatchedPet.OwnerID == userID) {
+		userInConv := false
+		for _, uid := range conversation.UserIDs {
+			if uid == userID {
+				userInConv = true
+				break
+			}
+		}
+		if userInConv {
 			conversations = append(conversations, *conversation)
 		}
 	}
+
+	sort.Slice(conversations, func(i, j int) bool {
+		return conversations[i].LastMessageAt > conversations[j].LastMessageAt
+	})
 
 	return conversations
 }
@@ -495,8 +616,7 @@ func (s *MemoryStore) ListMessages(userID string, conversationID string) ([]doma
 		return nil, fmt.Errorf("conversation not found")
 	}
 
-	match := s.matches[conversation.MatchID]
-	if match == nil || (match.Pet.OwnerID != userID && match.MatchedPet.OwnerID != userID) {
+	if !s.isUserInConversation(conversation, userID) {
 		return nil, fmt.Errorf("conversation not found")
 	}
 
@@ -509,6 +629,15 @@ func (s *MemoryStore) ListMessages(userID string, conversationID string) ([]doma
 	return messages, nil
 }
 
+func (s *MemoryStore) isUserInConversation(conv *domain.Conversation, userID string) bool {
+	for _, uid := range conv.UserIDs {
+		if uid == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *MemoryStore) SendMessage(userID string, conversationID string, body string) (domain.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -518,8 +647,7 @@ func (s *MemoryStore) SendMessage(userID string, conversationID string, body str
 		return domain.Message{}, fmt.Errorf("conversation not found")
 	}
 
-	match := s.matches[conversation.MatchID]
-	if match == nil || (match.Pet.OwnerID != userID && match.MatchedPet.OwnerID != userID) {
+	if !s.isUserInConversation(conversation, userID) {
 		return domain.Message{}, fmt.Errorf("conversation not found")
 	}
 
@@ -536,7 +664,10 @@ func (s *MemoryStore) SendMessage(userID string, conversationID string, body str
 
 	conversation.Messages = append(conversation.Messages, message)
 	conversation.LastMessageAt = message.CreatedAt
-	match.LastMessagePreview = message.Body
+
+	if match, ok := s.matches[conversation.MatchID]; ok {
+		match.LastMessagePreview = message.Body
+	}
 
 	return message, nil
 }
@@ -874,6 +1005,37 @@ func (s *MemoryStore) ListAllPets() []domain.Pet {
 	})
 
 	return pets
+}
+
+func (s *MemoryStore) PetDetail(petID string) (domain.AdminPetDetail, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pet, ok := s.pets[petID]
+	if !ok {
+		return domain.AdminPetDetail{}, fmt.Errorf("pet not found")
+	}
+
+	owner := s.users[pet.OwnerID]
+	if owner == nil {
+		return domain.AdminPetDetail{}, fmt.Errorf("owner not found")
+	}
+
+	matches := make([]domain.MatchPreview, 0)
+	for _, match := range s.matches {
+		if match.Pet.ID == petID || match.MatchedPet.ID == petID {
+			matches = append(matches, *match)
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].CreatedAt > matches[j].CreatedAt
+	})
+
+	return domain.AdminPetDetail{
+		Pet:     *pet,
+		Owner:   owner.Profile,
+		Matches: matches,
+	}, nil
 }
 
 func (s *MemoryStore) SetPetVisibility(petID string, hidden bool) error {

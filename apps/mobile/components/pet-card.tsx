@@ -1,5 +1,16 @@
 import type { DiscoveryCard, Pet } from "@petto/contracts";
-import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  Dimensions,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  View
+} from "react-native";
+import { useState, useRef } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MapPin, X } from "lucide-react-native";
 
 import { mobileTheme } from "@/lib/theme";
 
@@ -19,64 +30,80 @@ export function DiscoveryPetCard({ card }: { card: DiscoveryCard }) {
       style={{
         borderRadius: mobileTheme.radius.lg,
         overflow: "hidden",
-        backgroundColor: mobileTheme.colors.surface,
-        shadowColor: "#161514",
-        shadowOpacity: 0.14,
-        shadowOffset: { width: 0, height: 24 },
-        shadowRadius: 80,
-        elevation: 16
+        backgroundColor: mobileTheme.colors.white,
+        ...mobileTheme.shadow.lg
       }}
     >
-      {photoUrl ? (
+      {photoUrl && photoUrl.length > 0 ? (
         <Image
           source={{ uri: photoUrl }}
-          style={{ width: "100%", height: 360 }}
+          style={{ width: "100%", height: 380 }}
           resizeMode="cover"
         />
       ) : (
         <View
           style={{
             width: "100%",
-            height: 360,
+            height: 380,
             backgroundColor: mobileTheme.colors.background,
             justifyContent: "center",
             alignItems: "center"
           }}
         >
-          <Text selectable style={{ fontSize: 48 }}>
+          <Text style={{ fontSize: 48, color: mobileTheme.colors.muted }}>
             🐾
           </Text>
         </View>
       )}
-      <View style={{ padding: 18, gap: 10 }}>
+      <View
+        style={{ padding: mobileTheme.spacing.xl, gap: mobileTheme.spacing.sm }}
+      >
         <Text
-          selectable
           style={{
             color: mobileTheme.colors.ink,
-            fontSize: 30,
-            fontWeight: "700"
+            fontSize: mobileTheme.typography.heading.fontSize,
+            fontWeight: mobileTheme.typography.heading.fontWeight,
+            fontFamily: "Inter_700Bold",
+            lineHeight: mobileTheme.typography.heading.lineHeight
           }}
         >
           {card.pet.name}, {card.pet.ageYears}
         </Text>
         <Text
-          selectable
-          style={{ color: mobileTheme.colors.secondary, fontWeight: "600" }}
+          style={{
+            color: mobileTheme.colors.secondary,
+            fontWeight: "600",
+            fontSize: mobileTheme.typography.caption.fontSize,
+            fontFamily: "Inter_600SemiBold"
+          }}
         >
-          {card.pet.breedLabel} • {card.distanceLabel}
+          {card.pet.breedLabel} &middot; {card.distanceLabel}
         </Text>
-        <Text
-          selectable
-          style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}
-        >
-          {card.pet.bio}
-        </Text>
-        <Text
-          selectable
-          style={{ color: mobileTheme.colors.ink, lineHeight: 22 }}
-        >
-          {card.prompt}
-        </Text>
+        {card.pet.bio ? (
+          <Text
+            style={{
+              color: mobileTheme.colors.muted,
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
+            {card.pet.bio}
+          </Text>
+        ) : null}
+        {card.prompt ? (
+          <Text
+            style={{
+              color: mobileTheme.colors.ink,
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular",
+              marginTop: mobileTheme.spacing.xs
+            }}
+          >
+            {card.prompt}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -94,51 +121,54 @@ export function CompactPetCard({
   const content = (
     <View
       style={{
-        borderRadius: mobileTheme.radius.md,
-        backgroundColor: mobileTheme.colors.surface,
+        borderRadius: mobileTheme.radius.lg,
+        backgroundColor: mobileTheme.colors.white,
         borderWidth: 1,
         borderColor: isActive
           ? mobileTheme.colors.primary
           : mobileTheme.colors.border,
-        overflow: "hidden"
+        overflow: "hidden",
+        ...mobileTheme.shadow.sm
       }}
     >
-      {pet.photos[0]?.url ? (
+      {pet.photos[0]?.url && pet.photos[0].url.length > 0 ? (
         <Image
           source={{ uri: pet.photos[0].url }}
-          style={{ height: 190, width: "100%" }}
+          style={{ height: 180, width: "100%" }}
           resizeMode="cover"
         />
       ) : (
         <View
           style={{
-            height: 190,
+            height: 180,
             width: "100%",
             backgroundColor: mobileTheme.colors.background,
             justifyContent: "center",
             alignItems: "center"
           }}
         >
-          <Text selectable style={{ fontSize: 36 }}>
+          <Text style={{ fontSize: 32, color: mobileTheme.colors.muted }}>
             🐾
           </Text>
         </View>
       )}
-      <View style={{ padding: 16, gap: 8 }}>
+      <View
+        style={{ padding: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}
+      >
         <View
           style={{
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
-            gap: 12
+            gap: mobileTheme.spacing.md
           }}
         >
           <Text
-            selectable
             style={{
-              fontSize: 22,
-              fontWeight: "700",
-              color: mobileTheme.colors.ink
+              fontSize: mobileTheme.typography.subheading.fontSize,
+              fontWeight: mobileTheme.typography.subheading.fontWeight,
+              color: mobileTheme.colors.ink,
+              fontFamily: "Inter_600SemiBold"
             }}
           >
             {pet.name}
@@ -146,18 +176,18 @@ export function CompactPetCard({
           {isActive ? (
             <View
               style={{
-                borderRadius: 999,
-                backgroundColor: mobileTheme.colors.primarySoft,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: mobileTheme.colors.primaryBg,
                 paddingHorizontal: 10,
-                paddingVertical: 6
+                paddingVertical: 4
               }}
             >
               <Text
-                selectable
                 style={{
-                  color: mobileTheme.colors.secondary,
+                  color: mobileTheme.colors.primary,
                   fontWeight: "700",
-                  fontSize: 12
+                  fontSize: mobileTheme.typography.micro.fontSize,
+                  fontFamily: "Inter_700Bold"
                 }}
               >
                 Active
@@ -166,18 +196,27 @@ export function CompactPetCard({
           ) : null}
         </View>
         <Text
-          selectable
-          style={{ color: mobileTheme.colors.secondary, fontWeight: "600" }}
+          style={{
+            color: mobileTheme.colors.muted,
+            fontSize: mobileTheme.typography.caption.fontSize,
+            fontFamily: "Inter_500Medium"
+          }}
         >
-          {pet.speciesLabel} • {pet.breedLabel} • {pet.ageYears} years
+          {pet.speciesLabel} &middot; {pet.breedLabel} &middot; {pet.ageYears}y
         </Text>
-        <Text
-          selectable
-          style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}
-          numberOfLines={3}
-        >
-          {pet.bio}
-        </Text>
+        {pet.bio ? (
+          <Text
+            numberOfLines={2}
+            style={{
+              color: mobileTheme.colors.muted,
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
+            {pet.bio}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -198,102 +237,180 @@ export function PetDetailModal({
   visible: boolean;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const photos = (pet?.photos ?? []).filter((p) => p.url && p.url.length > 0);
+  const hobbies = pet?.hobbies ?? [];
+  const goodWith = pet?.goodWith ?? [];
+  const screenWidth = Dimensions.get("window").width;
+  const [activePhoto, setActivePhoto] = useState(0);
+  const galleryRef = useRef<ScrollView>(null);
+
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}>
-        <ScrollView
-          contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 36 }}
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            paddingTop: insets.top + mobileTheme.spacing.md,
+            paddingBottom: mobileTheme.spacing.md,
+            paddingHorizontal: mobileTheme.spacing.xl
+          }}
         >
-          <View
+          <Pressable
+            onPress={onClose}
+            hitSlop={12}
             style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(0,0,0,0.4)",
               alignItems: "center",
-              gap: 16
+              justifyContent: "center"
             }}
           >
-            <View style={{ gap: 6 }}>
-              <Text
-                selectable
+            <X size={20} color={mobileTheme.colors.white} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+        </View>
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+        >
+          <View style={{ position: "relative" }}>
+            {photos.length > 0 ? (
+              <ScrollView
+                ref={galleryRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={(e) => {
+                  const offset = e.nativeEvent.contentOffset.x;
+                  const index = Math.round(offset / screenWidth);
+                  setActivePhoto(index);
+                }}
+                scrollEventThrottle={16}
+              >
+                {photos.map((photo) => (
+                  <Image
+                    key={photo.id}
+                    source={{ uri: photo.url }}
+                    style={{ width: screenWidth, height: 400 }}
+                    resizeMode="cover"
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <View
                 style={{
-                  color: mobileTheme.colors.secondary,
-                  fontWeight: "700",
-                  letterSpacing: 1.2
+                  width: "100%",
+                  height: 400,
+                  backgroundColor: mobileTheme.colors.surface,
+                  justifyContent: "center",
+                  alignItems: "center"
                 }}
               >
-                PET PROFILE
-              </Text>
-              <Text
-                selectable
+                <Text style={{ fontSize: 64, color: mobileTheme.colors.muted }}>
+                  🐾
+                </Text>
+              </View>
+            )}
+
+            {photos.length > 1 && (
+              <View
                 style={{
-                  fontSize: 32,
-                  fontWeight: "800",
-                  color: mobileTheme.colors.ink
+                  position: "absolute",
+                  bottom: mobileTheme.spacing.lg,
+                  left: 0,
+                  right: 0,
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 6
                 }}
               >
-                {pet?.name || "Pet"}
-              </Text>
-            </View>
-            <Pressable
-              onPress={onClose}
-              style={{
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: mobileTheme.colors.border,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                backgroundColor: "#FFFFFF"
-              }}
-            >
-              <Text
-                selectable
-                style={{
-                  color: mobileTheme.colors.secondary,
-                  fontWeight: "700"
-                }}
-              >
-                Close
-              </Text>
-            </Pressable>
+                {photos.map((_, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      width: i === activePhoto ? 20 : 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor:
+                        i === activePhoto
+                          ? mobileTheme.colors.white
+                          : "rgba(255,255,255,0.4)"
+                    }}
+                  />
+                ))}
+              </View>
+            )}
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 12 }}
-          >
-            {(pet?.photos ?? []).map((photo) => (
-              <Image
-                key={photo.id}
-                source={{ uri: photo.url }}
-                style={{
-                  width: 260,
-                  height: 320,
-                  borderRadius: 28,
-                  backgroundColor: mobileTheme.colors.surface
-                }}
-                resizeMode="cover"
-              />
-            ))}
-          </ScrollView>
-
           <View
             style={{
-              borderRadius: 28,
-              backgroundColor: mobileTheme.colors.surface,
-              padding: 18,
-              gap: 14
+              paddingHorizontal: mobileTheme.spacing.xl,
+              paddingTop: mobileTheme.spacing.xl,
+              gap: mobileTheme.spacing.lg
             }}
           >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <InfoPill label={`${pet?.ageYears ?? "-"} years`} />
-              <InfoPill label={pet?.speciesLabel || "Unknown species"} />
-              <InfoPill label={pet?.breedLabel || "Unknown breed"} />
+            <View>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.display.fontSize,
+                  fontWeight: mobileTheme.typography.display.fontWeight,
+                  color: mobileTheme.colors.ink,
+                  fontFamily: "Inter_800ExtraBold",
+                  lineHeight: mobileTheme.typography.display.lineHeight
+                }}
+              >
+                {pet?.name}
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: mobileTheme.spacing.sm,
+                  marginTop: mobileTheme.spacing.sm
+                }}
+              >
+                <Text
+                  style={{
+                    color: mobileTheme.colors.secondary,
+                    fontWeight: "600",
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontFamily: "Inter_600SemiBold"
+                  }}
+                >
+                  {pet?.breedLabel}
+                </Text>
+                <View
+                  style={{
+                    width: 3,
+                    height: 3,
+                    borderRadius: 1.5,
+                    backgroundColor: mobileTheme.colors.muted
+                  }}
+                />
+                <Text
+                  style={{
+                    color: mobileTheme.colors.muted,
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontFamily: "Inter_500Medium"
+                  }}
+                >
+                  {pet?.speciesLabel} &middot; {pet?.ageYears ?? "-"} years old
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
               <InfoPill
                 label={
                   pet
@@ -302,30 +419,130 @@ export function PetDetailModal({
                 }
               />
               <InfoPill label={pet?.isNeutered ? "Neutered" : "Not neutered"} />
+              {pet?.cityLabel ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    borderRadius: mobileTheme.radius.pill,
+                    backgroundColor: mobileTheme.colors.background,
+                    borderWidth: 1,
+                    borderColor: mobileTheme.colors.border,
+                    paddingHorizontal: mobileTheme.spacing.md,
+                    paddingVertical: mobileTheme.spacing.sm + 2
+                  }}
+                >
+                  <MapPin size={12} color={mobileTheme.colors.secondary} />
+                  <Text
+                    style={{
+                      color: mobileTheme.colors.secondary,
+                      fontWeight: "600",
+                      fontSize: mobileTheme.typography.caption.fontSize,
+                      fontFamily: "Inter_600SemiBold"
+                    }}
+                  >
+                    {pet.cityLabel}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
-            <Section title="About">
-              <Text
-                selectable
-                style={{ color: mobileTheme.colors.muted, lineHeight: 24 }}
+            {pet?.bio ? (
+              <View
+                style={{
+                  backgroundColor: mobileTheme.colors.white,
+                  borderRadius: mobileTheme.radius.lg,
+                  padding: mobileTheme.spacing.xl,
+                  ...mobileTheme.shadow.sm
+                }}
               >
-                {pet?.bio || "No bio added yet."}
-              </Text>
-            </Section>
+                <Text
+                  style={{
+                    color: mobileTheme.colors.ink,
+                    fontWeight: "700",
+                    fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                    fontFamily: "Inter_700Bold",
+                    marginBottom: mobileTheme.spacing.sm
+                  }}
+                >
+                  About
+                </Text>
+                <Text
+                  style={{
+                    color: mobileTheme.colors.ink,
+                    lineHeight: mobileTheme.typography.body.lineHeight,
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    fontFamily: "Inter_400Regular"
+                  }}
+                >
+                  {pet.bio}
+                </Text>
+              </View>
+            ) : null}
 
-            <Section title="Hobbies">
-              <WrapList
-                items={pet?.hobbies ?? []}
-                emptyLabel="No hobbies selected yet."
-              />
-            </Section>
-
-            <Section title="Good with">
-              <WrapList
-                items={pet?.goodWith ?? []}
-                emptyLabel="No compatibility tags selected yet."
-              />
-            </Section>
+            {hobbies.length > 0 || goodWith.length > 0 ? (
+              <View
+                style={{
+                  backgroundColor: mobileTheme.colors.white,
+                  borderRadius: mobileTheme.radius.lg,
+                  padding: mobileTheme.spacing.xl,
+                  gap: mobileTheme.spacing.lg,
+                  ...mobileTheme.shadow.sm
+                }}
+              >
+                {hobbies.length > 0 ? (
+                  <View style={{ gap: mobileTheme.spacing.sm }}>
+                    <Text
+                      style={{
+                        color: mobileTheme.colors.ink,
+                        fontWeight: "700",
+                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                        fontFamily: "Inter_700Bold"
+                      }}
+                    >
+                      Hobbies
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: mobileTheme.spacing.sm
+                      }}
+                    >
+                      {hobbies.map((item) => (
+                        <InfoPill key={item} label={item} />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+                {goodWith.length > 0 ? (
+                  <View style={{ gap: mobileTheme.spacing.sm }}>
+                    <Text
+                      style={{
+                        color: mobileTheme.colors.ink,
+                        fontWeight: "700",
+                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                        fontFamily: "Inter_700Bold"
+                      }}
+                    >
+                      Good with
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: mobileTheme.spacing.sm
+                      }}
+                    >
+                      {goodWith.map((item) => (
+                        <InfoPill key={item} label={item} />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </ScrollView>
       </View>
@@ -333,72 +550,25 @@ export function PetDetailModal({
   );
 }
 
-function Section({
-  title,
-  children
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={{ gap: 10 }}>
-      <Text
-        selectable
-        style={{
-          color: mobileTheme.colors.secondary,
-          fontWeight: "700",
-          fontSize: 16
-        }}
-      >
-        {title}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-function WrapList({
-  items,
-  emptyLabel
-}: {
-  items: string[];
-  emptyLabel: string;
-}) {
-  if (!items.length) {
-    return (
-      <Text
-        selectable
-        style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}
-      >
-        {emptyLabel}
-      </Text>
-    );
-  }
-
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-      {items.map((item) => (
-        <InfoPill key={item} label={item} />
-      ))}
-    </View>
-  );
-}
-
 function InfoPill({ label }: { label: string }) {
   return (
     <View
       style={{
-        borderRadius: 999,
-        backgroundColor: "#FFFFFF",
+        borderRadius: mobileTheme.radius.pill,
+        backgroundColor: mobileTheme.colors.background,
         borderWidth: 1,
         borderColor: mobileTheme.colors.border,
-        paddingHorizontal: 12,
-        paddingVertical: 8
+        paddingHorizontal: mobileTheme.spacing.md,
+        paddingVertical: mobileTheme.spacing.sm + 2
       }}
     >
       <Text
-        selectable
-        style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}
+        style={{
+          color: mobileTheme.colors.secondary,
+          fontWeight: "600",
+          fontSize: mobileTheme.typography.caption.fontSize,
+          fontFamily: "Inter_600SemiBold"
+        }}
       >
         {label}
       </Text>

@@ -5,9 +5,20 @@ import { router } from "expo-router";
 import { useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type { FieldError } from "react-hook-form";
-import { Image, Modal, PanResponder, Pressable, ScrollView, Text, TextInput, View, type LayoutChangeEvent } from "react-native";
+import {
+  Image,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  type LayoutChangeEvent
+} from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Camera, X } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
@@ -40,9 +51,13 @@ export default function PetsOnboardingPage() {
   const petCount = useSessionStore((state) => state.petCount);
   const setPetCount = useSessionStore((state) => state.setPetCount);
   const setActivePetId = useSessionStore((state) => state.setActivePetId);
-  const [photoAssets, setPhotoAssets] = useState<Array<{ uri: string; mimeType?: string | null }>>([]);
+  const [photoAssets, setPhotoAssets] = useState<
+    Array<{ uri: string; mimeType?: string | null }>
+  >([]);
   const [selectedHobbyIds, setSelectedHobbyIds] = useState<string[]>([]);
-  const [selectedCompatibilityIds, setSelectedCompatibilityIds] = useState<string[]>([]);
+  const [selectedCompatibilityIds, setSelectedCompatibilityIds] = useState<
+    string[]
+  >([]);
   const [hobbiesModalOpen, setHobbiesModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -95,11 +110,18 @@ export default function PetsOnboardingPage() {
   const selectedNeutered = watch("isNeutered");
 
   const filteredBreeds = useMemo(
-    () => breeds.filter((breed) => !breed.speciesId || breed.speciesId === selectedSpeciesId),
+    () =>
+      breeds.filter(
+        (breed) => !breed.speciesId || breed.speciesId === selectedSpeciesId
+      ),
     [breeds, selectedSpeciesId]
   );
-  const selectedHobbies = hobbies.filter((item) => selectedHobbyIds.includes(item.id));
-  const selectedCompatibility = compatibility.filter((item) => selectedCompatibilityIds.includes(item.id));
+  const selectedHobbies = hobbies.filter((item) =>
+    selectedHobbyIds.includes(item.id)
+  );
+  const selectedCompatibility = compatibility.filter((item) =>
+    selectedCompatibilityIds.includes(item.id)
+  );
 
   const submitPet = async (values: PetValues) => {
     if (!session) {
@@ -118,22 +140,34 @@ export default function PetsOnboardingPage() {
 
     const parsedAge = Number.parseInt(values.ageYearsInput, 10);
     if (Number.isNaN(parsedAge) || parsedAge < 0) {
-      setError("ageYearsInput", { type: "manual", message: "Please enter a valid pet age." });
+      setError("ageYearsInput", {
+        type: "manual",
+        message: "Please enter a valid pet age."
+      });
       setErrorMessage("Please fix the highlighted fields and try again.");
       return;
     }
 
-    const selectedSpecies = species.find((item) => item.id === values.speciesId);
+    const selectedSpecies = species.find(
+      (item) => item.id === values.speciesId
+    );
     if (!selectedSpecies) {
-      setError("speciesId", { type: "manual", message: "Please choose a species." });
+      setError("speciesId", {
+        type: "manual",
+        message: "Please choose a species."
+      });
       setErrorMessage("Please fix the highlighted fields and try again.");
       return;
     }
 
     const selectedBreed =
-      filteredBreeds.find((item) => item.id === values.breedId) ?? breeds.find((item) => item.id === values.breedId);
+      filteredBreeds.find((item) => item.id === values.breedId) ??
+      breeds.find((item) => item.id === values.breedId);
     if (!selectedBreed) {
-      setError("breedId", { type: "manual", message: "Please choose a breed." });
+      setError("breedId", {
+        type: "manual",
+        message: "Please choose a breed."
+      });
       setErrorMessage("Please fix the highlighted fields and try again.");
       return;
     }
@@ -144,8 +178,12 @@ export default function PetsOnboardingPage() {
   const mutation = useMutation({
     mutationFn: async (values: PetValues) => {
       const parsedAge = Number.parseInt(values.ageYearsInput, 10);
-      const selectedSpecies = species.find((item) => item.id === values.speciesId)!;
-      const selectedBreed = filteredBreeds.find((item) => item.id === values.breedId) ?? breeds.find((item) => item.id === values.breedId)!;
+      const selectedSpecies = species.find(
+        (item) => item.id === values.speciesId
+      )!;
+      const selectedBreed =
+        filteredBreeds.find((item) => item.id === values.breedId) ??
+        breeds.find((item) => item.id === values.breedId)!;
 
       if (!session) {
         throw new Error("No session found.");
@@ -189,7 +227,9 @@ export default function PetsOnboardingPage() {
       router.replace("/");
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to save pet.");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to save pet."
+      );
     }
   });
 
@@ -215,7 +255,10 @@ export default function PetsOnboardingPage() {
         }))
       ];
 
-      const unique = merged.filter((asset, index, array) => array.findIndex((entry) => entry.uri === asset.uri) === index);
+      const unique = merged.filter(
+        (asset, index, array) =>
+          array.findIndex((entry) => entry.uri === asset.uri) === index
+      );
       setPhotoError(null);
       return unique.slice(0, 6);
     });
@@ -227,7 +270,25 @@ export default function PetsOnboardingPage() {
       title="Create a profile pets would actually swipe right on."
       subtitle="Set species, breed, hobbies, energy level, and photos in a way that feels easy to scan."
     >
-      <View style={{ gap: 14, padding: 18, borderRadius: 28, backgroundColor: mobileTheme.colors.surface }}>
+      <View
+        style={{
+          gap: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.xl,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white
+        }}
+      >
+        <Text
+          selectable
+          style={{
+            ...mobileTheme.typography.micro,
+            color: mobileTheme.colors.muted,
+            fontFamily: "Inter_600SemiBold"
+          }}
+        >
+          Step 3 of 3
+        </Text>
+
         <Controller
           control={control}
           name="name"
@@ -297,34 +358,56 @@ export default function PetsOnboardingPage() {
                 onChange(nextValue);
               }}
               items={filteredBreeds}
-              placeholder={selectedSpeciesId ? "Select a breed" : "Choose species first"}
+              placeholder={
+                selectedSpeciesId ? "Select a breed" : "Choose species first"
+              }
               disabled={!selectedSpeciesId}
               error={errors.breedId}
             />
           )}
         />
 
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={fieldLabelStyle}>
             Hobbies
           </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: mobileTheme.spacing.md
+            }}
+          >
             {selectedHobbies.map((item) => (
               <TagChip
                 key={item.id}
                 label={item.label}
-                onRemove={() => setSelectedHobbyIds((current) => current.filter((entry) => entry !== item.id))}
+                onRemove={() =>
+                  setSelectedHobbyIds((current) =>
+                    current.filter((entry) => entry !== item.id)
+                  )
+                }
               />
             ))}
-            <PrimaryButton label="+ Add" variant="ghost" onPress={() => setHobbiesModalOpen(true)} />
+            <PrimaryButton
+              label="+ Add"
+              variant="ghost"
+              onPress={() => setHobbiesModalOpen(true)}
+            />
           </View>
         </View>
 
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={fieldLabelStyle}>
             Good with
           </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: mobileTheme.spacing.md
+            }}
+          >
             {compatibility.map((item) => {
               const selected = selectedCompatibilityIds.includes(item.id);
               return (
@@ -334,7 +417,9 @@ export default function PetsOnboardingPage() {
                   variant={selected ? "secondary" : "ghost"}
                   onPress={() =>
                     setSelectedCompatibilityIds((current) =>
-                      current.includes(item.id) ? current.filter((entry) => entry !== item.id) : [...current, item.id]
+                      current.includes(item.id)
+                        ? current.filter((entry) => entry !== item.id)
+                        : [...current, item.id]
                     )
                   }
                 />
@@ -343,25 +428,35 @@ export default function PetsOnboardingPage() {
           </View>
         </View>
 
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={fieldLabelStyle}>
             Activity level
           </Text>
           <View
             style={{
               borderRadius: mobileTheme.radius.md,
-              backgroundColor: "#FFFFFF",
+              backgroundColor: mobileTheme.colors.background,
               borderWidth: 1,
               borderColor: mobileTheme.colors.border,
-              paddingHorizontal: 14,
-              paddingVertical: 16,
-              gap: 6
+              paddingHorizontal: mobileTheme.spacing.lg,
+              paddingVertical: mobileTheme.spacing.lg,
+              gap: mobileTheme.spacing.sm
             }}
           >
-            <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700", fontSize: 16 }}>
+            <Text
+              selectable
+              style={{
+                ...mobileTheme.typography.bodySemiBold,
+                color: mobileTheme.colors.secondary,
+                fontFamily: "Inter_600SemiBold"
+              }}
+            >
               {ACTIVITY_COPY[selectedActivityLevel]}
             </Text>
-            <ActivitySlider value={selectedActivityLevel} onChange={(value) => setValue("activityLevel", value)} />
+            <ActivitySlider
+              value={selectedActivityLevel}
+              onChange={(value) => setValue("activityLevel", value)}
+            />
           </View>
         </View>
 
@@ -395,7 +490,7 @@ export default function PetsOnboardingPage() {
           )}
         />
 
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={fieldLabelStyle}>
             Photos
           </Text>
@@ -405,54 +500,73 @@ export default function PetsOnboardingPage() {
               borderRadius: mobileTheme.radius.md,
               borderWidth: 1,
               borderStyle: "dashed",
-              borderColor: photoError ? mobileTheme.colors.danger : mobileTheme.colors.border,
-              padding: 18,
+              borderColor: photoError
+                ? mobileTheme.colors.danger
+                : mobileTheme.colors.border,
+              padding: mobileTheme.spacing.xl,
               alignItems: "center"
             }}
           >
-            <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+            <Text
+              selectable
+              style={{
+                ...mobileTheme.typography.bodySemiBold,
+                color: mobileTheme.colors.secondary,
+                fontFamily: "Inter_600SemiBold"
+              }}
+            >
               Add up to 6 photos
             </Text>
           </Pressable>
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: mobileTheme.spacing.md,
+              flexWrap: "wrap"
+            }}
+          >
             {photoAssets.map((asset, index) => (
               <View key={asset.uri} style={{ position: "relative" }}>
                 <Image
                   source={{ uri: asset.uri }}
-                  style={{ width: 92, height: 92, borderRadius: 20 }}
+                  style={{
+                    width: 92,
+                    height: 92,
+                    borderRadius: mobileTheme.radius.lg
+                  }}
                   resizeMode="cover"
                 />
                 <Pressable
-                  onPress={() => setPhotoAssets((current) => current.filter((entry) => entry.uri !== asset.uri))}
+                  onPress={() =>
+                    setPhotoAssets((current) =>
+                      current.filter((entry) => entry.uri !== asset.uri)
+                    )
+                  }
                   style={{
                     position: "absolute",
-                    top: 6,
-                    right: 6,
-                    borderRadius: 999,
+                    top: mobileTheme.spacing.sm,
+                    right: mobileTheme.spacing.sm,
+                    borderRadius: mobileTheme.radius.pill,
                     backgroundColor: "rgba(0,0,0,0.6)",
-                    paddingHorizontal: 8,
-                    paddingVertical: 4
+                    paddingHorizontal: mobileTheme.spacing.sm,
+                    paddingVertical: mobileTheme.spacing.xs
                   }}
                 >
-                  <Text selectable style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}>
-                    Remove
-                  </Text>
+                  <X size={14} color={mobileTheme.colors.white} />
                 </Pressable>
                 {index === 0 ? (
                   <View
                     style={{
                       position: "absolute",
-                      left: 6,
-                      bottom: 6,
-                      borderRadius: 999,
+                      left: mobileTheme.spacing.sm,
+                      bottom: mobileTheme.spacing.sm,
+                      borderRadius: mobileTheme.radius.pill,
                       backgroundColor: "rgba(0,0,0,0.6)",
-                      paddingHorizontal: 8,
-                      paddingVertical: 4
+                      paddingHorizontal: mobileTheme.spacing.sm,
+                      paddingVertical: mobileTheme.spacing.xs
                     }}
                   >
-                    <Text selectable style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}>
-                      Cover
-                    </Text>
+                    <Camera size={14} color={mobileTheme.colors.white} />
                   </View>
                 ) : null}
               </View>
@@ -466,14 +580,23 @@ export default function PetsOnboardingPage() {
         </View>
 
         {errorMessage ? (
-          <Text selectable style={{ color: mobileTheme.colors.danger }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.body,
+              color: mobileTheme.colors.danger,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
             {errorMessage}
           </Text>
         ) : null}
 
         <PrimaryButton
           label={mutation.isPending ? "Saving..." : "Save pet"}
-          onPress={handleSubmit(submitPet, () => setErrorMessage("Please fix the highlighted fields and try again."))}
+          onPress={handleSubmit(submitPet, () =>
+            setErrorMessage("Please fix the highlighted fields and try again.")
+          )}
           disabled={mutation.isPending}
         />
       </View>
@@ -485,7 +608,11 @@ export default function PetsOnboardingPage() {
         items={hobbies}
         selectedIds={selectedHobbyIds}
         onToggle={(id) =>
-          setSelectedHobbyIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]))
+          setSelectedHobbyIds((current) =>
+            current.includes(id)
+              ? current.filter((entry) => entry !== id)
+              : [...current, id]
+          )
         }
         onClose={() => setHobbiesModalOpen(false)}
       />
@@ -511,7 +638,7 @@ function LabeledInput({
   error?: FieldError;
 }) {
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: mobileTheme.spacing.md }}>
       <Text selectable style={fieldLabelStyle}>
         {label}
       </Text>
@@ -524,14 +651,19 @@ function LabeledInput({
         onChangeText={onChangeText}
         style={{
           borderRadius: mobileTheme.radius.md,
-          backgroundColor: "#FFFFFF",
+          backgroundColor: mobileTheme.colors.background,
           borderWidth: 1,
-          borderColor: error ? mobileTheme.colors.danger : mobileTheme.colors.border,
-          paddingHorizontal: 16,
-          paddingVertical: multiline ? 18 : 15,
+          borderColor: error
+            ? mobileTheme.colors.danger
+            : mobileTheme.colors.border,
+          paddingHorizontal: mobileTheme.spacing.lg,
+          paddingVertical: multiline
+            ? mobileTheme.spacing.xl
+            : mobileTheme.spacing.lg,
           minHeight: multiline ? 110 : undefined,
           color: mobileTheme.colors.ink,
-          textAlignVertical: multiline ? "top" : "auto"
+          textAlignVertical: multiline ? "top" : "auto",
+          fontFamily: "Inter_400Regular"
         }}
       />
       {error?.message ? (
@@ -561,20 +693,26 @@ function PickerField({
   error?: FieldError;
 }) {
   return (
-    <View style={{ gap: 10, opacity: disabled ? 0.65 : 1 }}>
+    <View style={{ gap: mobileTheme.spacing.md, opacity: disabled ? 0.65 : 1 }}>
       <Text selectable style={fieldLabelStyle}>
         {label}
       </Text>
       <View
         style={{
           borderRadius: mobileTheme.radius.md,
-          backgroundColor: "#FFFFFF",
+          backgroundColor: mobileTheme.colors.background,
           borderWidth: 1,
-          borderColor: error ? mobileTheme.colors.danger : mobileTheme.colors.border,
+          borderColor: error
+            ? mobileTheme.colors.danger
+            : mobileTheme.colors.border,
           overflow: "hidden"
         }}
       >
-        <Picker enabled={!disabled} selectedValue={value} onValueChange={onValueChange}>
+        <Picker
+          enabled={!disabled}
+          selectedValue={value}
+          onValueChange={onValueChange}
+        >
           <Picker.Item label={placeholder} value="" />
           {items.map((item) => (
             <Picker.Item key={item.id} label={item.label} value={item.id} />
@@ -600,20 +738,23 @@ function PickerBooleanField({
   onValueChange: (value: "true" | "false") => void;
 }) {
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: mobileTheme.spacing.md }}>
       <Text selectable style={fieldLabelStyle}>
         {label}
       </Text>
       <View
         style={{
           borderRadius: mobileTheme.radius.md,
-          backgroundColor: "#FFFFFF",
+          backgroundColor: mobileTheme.colors.background,
           borderWidth: 1,
           borderColor: mobileTheme.colors.border,
           overflow: "hidden"
         }}
       >
-        <Picker selectedValue={value ? "true" : "false"} onValueChange={onValueChange}>
+        <Picker
+          selectedValue={value ? "true" : "false"}
+          onValueChange={onValueChange}
+        >
           <Picker.Item label="Yes" value="true" />
           <Picker.Item label="No" value="false" />
         </Picker>
@@ -628,22 +769,27 @@ function TagChip({ label, onRemove }: { label: string; onRemove: () => void }) {
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
-        borderRadius: 999,
+        gap: mobileTheme.spacing.sm,
+        borderRadius: mobileTheme.radius.pill,
         borderWidth: 1,
         borderColor: mobileTheme.colors.border,
-        backgroundColor: "#FFFFFF",
-        paddingHorizontal: 12,
-        paddingVertical: 10
+        backgroundColor: mobileTheme.colors.background,
+        paddingHorizontal: mobileTheme.spacing.md,
+        paddingVertical: mobileTheme.spacing.md
       }}
     >
-      <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+      <Text
+        selectable
+        style={{
+          ...mobileTheme.typography.bodySemiBold,
+          color: mobileTheme.colors.secondary,
+          fontFamily: "Inter_600SemiBold"
+        }}
+      >
         {label}
       </Text>
       <Pressable onPress={onRemove}>
-        <Text selectable style={{ color: mobileTheme.colors.danger, fontWeight: "700" }}>
-          Remove
-        </Text>
+        <X size={14} color={mobileTheme.colors.danger} />
       </Pressable>
     </View>
   );
@@ -667,11 +813,29 @@ function SelectionModal({
   onClose: () => void;
 }) {
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+    >
       <ScreenShell eyebrow="Selection" title={title} subtitle={subtitle}>
-        <View style={{ gap: 14, padding: 18, borderRadius: 28, backgroundColor: mobileTheme.colors.surface }}>
-          <ScrollView contentContainerStyle={{ gap: 12 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+        <View
+          style={{
+            gap: mobileTheme.spacing.lg,
+            padding: mobileTheme.spacing.xl,
+            borderRadius: mobileTheme.radius.lg,
+            backgroundColor: mobileTheme.colors.white,
+            ...mobileTheme.shadow.sm
+          }}
+        >
+          <ScrollView contentContainerStyle={{ gap: mobileTheme.spacing.md }}>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: mobileTheme.spacing.md
+              }}
+            >
               {items.map((item) => {
                 const selected = selectedIds.includes(item.id);
                 return (
@@ -693,14 +857,15 @@ function SelectionModal({
 }
 
 const fieldLabelStyle = {
+  ...mobileTheme.typography.label,
   color: mobileTheme.colors.secondary,
-  fontWeight: "700"
+  fontFamily: "Inter_700Bold"
 } as const;
 
 const errorTextStyle = {
+  ...mobileTheme.typography.caption,
   color: mobileTheme.colors.danger,
-  fontSize: 13,
-  fontWeight: "600"
+  fontFamily: "Inter_600SemiBold"
 } as const;
 
 function ActivitySlider({
@@ -721,7 +886,12 @@ function ActivitySlider({
 
     const clamped = Math.max(0, Math.min(locationX, width));
     const ratio = clamped / width;
-    const nextValue = Math.min(5, Math.max(1, Math.round(ratio * 4) + 1)) as 1 | 2 | 3 | 4 | 5;
+    const nextValue = Math.min(5, Math.max(1, Math.round(ratio * 4) + 1)) as
+      | 1
+      | 2
+      | 3
+      | 4
+      | 5;
     onChange(nextValue);
   };
 
@@ -744,7 +914,7 @@ function ActivitySlider({
   const thumbOffset = trackWidth ? ((value - 1) / 4) * trackWidth : 0;
 
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: mobileTheme.spacing.sm }}>
       <View
         onLayout={handleLayout}
         {...panResponder.panHandlers}
@@ -756,7 +926,7 @@ function ActivitySlider({
         <View
           style={{
             height: 8,
-            borderRadius: 999,
+            borderRadius: mobileTheme.radius.pill,
             backgroundColor: mobileTheme.colors.border,
             overflow: "hidden"
           }}
@@ -776,16 +946,24 @@ function ActivitySlider({
             left: Math.max(0, thumbOffset - 12),
             width: 24,
             height: 24,
-            borderRadius: 999,
+            borderRadius: mobileTheme.radius.pill,
             backgroundColor: mobileTheme.colors.secondary,
             borderWidth: 3,
-            borderColor: "#FFFFFF"
+            borderColor: mobileTheme.colors.white
           }}
         />
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         {[1, 2, 3, 4, 5].map((step) => (
-          <Text key={step} selectable style={{ color: mobileTheme.colors.muted, fontSize: 12 }}>
+          <Text
+            key={step}
+            selectable
+            style={{
+              ...mobileTheme.typography.micro,
+              color: mobileTheme.colors.muted,
+              fontFamily: "Inter_600SemiBold"
+            }}
+          >
             {step}
           </Text>
         ))}

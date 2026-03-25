@@ -11,25 +11,25 @@ import (
 )
 
 type snapshotState struct {
-	Users              map[string]*domain.AppUser               `json:"users"`
-	UsersByEmail       map[string]string                        `json:"usersByEmail"`
-	AdminsByEmail      map[string]*domain.AdminUser             `json:"adminsByEmail"`
-	Pets               map[string]*domain.Pet                   `json:"pets"`
-	Swipes             map[string]map[string]string             `json:"swipes"`
-	Matches            map[string]*domain.MatchPreview          `json:"matches"`
-	Conversations      map[string]*domain.Conversation          `json:"conversations"`
-	Posts              map[string]*domain.HomePost              `json:"posts"`
-	PostLikes          map[string]map[string]struct{}           `json:"postLikes"`
-	Venues             map[string]*domain.ExploreVenue          `json:"venues"`
-	Events             map[string]*domain.ExploreEvent          `json:"events"`
-	PetCreatedAt       map[string]time.Time                     `json:"petCreatedAt"`
-	MatchCreatedAt     map[string]time.Time                     `json:"matchCreatedAt"`
-	PostCreatedAt      map[string]time.Time                     `json:"postCreatedAt"`
-	EventCreatedAt     map[string]time.Time                     `json:"eventCreatedAt"`
-	VerificationTokens map[string]string                        `json:"verificationTokens"`
-	ResetTokens        map[string]string                        `json:"resetTokens"`
-	Taxonomies         map[string][]domain.TaxonomyItem         `json:"taxonomies"`
-	Reports            []domain.ReportSummary                   `json:"reports"`
+	Users              map[string]*domain.AppUser       `json:"users"`
+	UsersByEmail       map[string]string                `json:"usersByEmail"`
+	AdminsByEmail      map[string]*domain.AdminUser     `json:"adminsByEmail"`
+	Pets               map[string]*domain.Pet           `json:"pets"`
+	Swipes             map[string]map[string]string     `json:"swipes"`
+	Matches            map[string]*domain.MatchPreview  `json:"matches"`
+	Conversations      map[string]*domain.Conversation  `json:"conversations"`
+	Posts              map[string]*domain.HomePost      `json:"posts"`
+	PostLikes          map[string]map[string]struct{}   `json:"postLikes"`
+	Venues             map[string]*domain.ExploreVenue  `json:"venues"`
+	Events             map[string]*domain.ExploreEvent  `json:"events"`
+	PetCreatedAt       map[string]time.Time             `json:"petCreatedAt"`
+	MatchCreatedAt     map[string]time.Time             `json:"matchCreatedAt"`
+	PostCreatedAt      map[string]time.Time             `json:"postCreatedAt"`
+	EventCreatedAt     map[string]time.Time             `json:"eventCreatedAt"`
+	VerificationTokens map[string]string                `json:"verificationTokens"`
+	ResetTokens        map[string]string                `json:"resetTokens"`
+	Taxonomies         map[string][]domain.TaxonomyItem `json:"taxonomies"`
+	Reports            []domain.ReportSummary           `json:"reports"`
 }
 
 type PersistentStore struct {
@@ -229,6 +229,10 @@ func (s *PersistentStore) SetPetVisibility(petID string, hidden bool) error {
 	return s.persistAfter(s.MemoryStore.SetPetVisibility(petID, hidden))
 }
 
+func (s *PersistentStore) PetDetail(petID string) (domain.AdminPetDetail, error) {
+	return s.MemoryStore.PetDetail(petID)
+}
+
 func (s *PersistentStore) UpsertTaxonomy(kind string, item domain.TaxonomyItem) domain.TaxonomyItem {
 	next := s.MemoryStore.UpsertTaxonomy(kind, item)
 	_ = s.persist(context.Background())
@@ -251,6 +255,10 @@ func (s *PersistentStore) CreatePost(userID string, input PostInput) (domain.Hom
 func (s *PersistentStore) TogglePostLike(userID string, postID string) (domain.HomePost, error) {
 	post, err := s.MemoryStore.TogglePostLike(userID, postID)
 	return post, s.persistAfter(err)
+}
+
+func (s *PersistentStore) DeletePost(postID string) error {
+	return s.persistAfter(s.MemoryStore.DeletePost(postID))
 }
 
 func (s *PersistentStore) UpsertVenue(venueID string, input VenueInput) domain.ExploreVenue {

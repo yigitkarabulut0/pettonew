@@ -3,17 +3,27 @@ import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  Bell,
+  Edit3,
+  Heart,
+  ImageIcon,
+  PawPrint,
+  X
+} from "lucide-react-native";
 
-import { CompactPetCard, PetDetailModal } from "@/components/pet-card";
-import { PrimaryButton } from "@/components/primary-button";
-import { ScreenShell } from "@/components/screen-shell";
+import { Avatar } from "@/components/avatar";
+import { PetDetailModal } from "@/components/pet-card";
 import {
   createHomePost,
   listHomeFeed,
@@ -23,10 +33,12 @@ import {
 } from "@/lib/api";
 import { mobileTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
+import type { Pet } from "@petto/contracts";
 
 export default function HomePage() {
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [composerOpen, setComposerOpen] = useState(false);
   const [petPickerOpen, setPetPickerOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -49,19 +61,14 @@ export default function HomePage() {
     enabled: Boolean(session)
   });
 
-  const taggedPets = pets.filter((pet) => taggedPetIds.includes(pet.id));
   const selectedPet =
-    taggedPets.find((pet) => pet.id === selectedPetId) ??
     posts
       .flatMap((post) => post.taggedPets)
-      .find((pet) => pet.id === selectedPetId) ??
-    null;
+      .find((pet) => pet.id === selectedPetId) ?? null;
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!session) {
-        throw new Error("No session found.");
-      }
+      if (!session) throw new Error("No session found.");
 
       let imageUrl: string | undefined;
       if (imageAsset) {
@@ -86,6 +93,7 @@ export default function HomePage() {
       setTaggedPetIds([]);
       setErrorMessage(null);
       setComposerOpen(false);
+      setPetPickerOpen(false);
       queryClient.invalidateQueries({
         queryKey: ["home-feed", session?.tokens.accessToken]
       });
@@ -117,470 +125,739 @@ export default function HomePage() {
       allowsMultipleSelection: false,
       quality: 0.8
     });
-
-    if (result.canceled) {
-      return;
-    }
-
+    if (result.canceled) return;
     const asset = result.assets[0];
-    if (!asset) {
-      return;
-    }
-
-    setImageAsset({
-      uri: asset.uri,
-      mimeType: asset.mimeType
-    });
+    if (!asset) return;
+    setImageAsset({ uri: asset.uri, mimeType: asset.mimeType });
   };
 
+  const openComposer = () => {
+    setBody("");
+    setImageAsset(null);
+    setTaggedPetIds([]);
+    setPetPickerOpen(false);
+    setErrorMessage(null);
+    setComposerOpen(true);
+  };
+
+  const canPost = body.trim().length > 0 || imageAsset !== null;
+
   return (
-    <ScreenShell
-      eyebrow="Home"
-      title="The social side of your pet world."
-      subtitle="Quick thoughts, photos, tagged pets, and a simple feed with likes."
-    >
+    <View style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}>
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 14,
-          padding: 18,
-          borderRadius: 30,
-          backgroundColor: mobileTheme.colors.surface
+          justifyContent: "space-between",
+          paddingTop: insets.top + mobileTheme.spacing.md,
+          paddingBottom: mobileTheme.spacing.md,
+          paddingHorizontal: mobileTheme.spacing.xl
         }}
       >
-        <Avatar uri={session?.user.avatarUrl} name={session?.user.firstName} />
-        <Pressable
-          onPress={() => setComposerOpen(true)}
+        <Avatar
+          uri={session?.user.avatarUrl}
+          name={session?.user.firstName}
+          size="md"
+        />
+        <Text
           style={{
-            flex: 1,
-            borderRadius: 999,
-            backgroundColor: "#FFFFFF",
-            borderWidth: 1,
-            borderColor: mobileTheme.colors.border,
-            paddingHorizontal: 18,
-            paddingVertical: 16
+            fontSize: mobileTheme.typography.heading.fontSize,
+            fontWeight: mobileTheme.typography.heading.fontWeight,
+            color: mobileTheme.colors.ink,
+            fontFamily: "Inter_700Bold"
           }}
         >
-          <Text
-            selectable
-            style={{ color: mobileTheme.colors.muted, fontSize: 16 }}
-          >
-            Write something...
-          </Text>
+          Petto
+        </Text>
+        <Pressable
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: mobileTheme.colors.white,
+            alignItems: "center",
+            justifyContent: "center",
+            ...mobileTheme.shadow.sm
+          }}
+        >
+          <Bell size={20} color={mobileTheme.colors.ink} />
         </Pressable>
       </View>
 
-      <View style={{ gap: 14 }}>
+      <Pressable
+        onPress={openComposer}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: mobileTheme.spacing.md,
+          marginHorizontal: mobileTheme.spacing.xl,
+          marginBottom: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.md + 4,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white,
+          borderWidth: 1,
+          borderColor: mobileTheme.colors.border,
+          ...mobileTheme.shadow.sm
+        }}
+      >
+        <Edit3 size={18} color={mobileTheme.colors.muted} />
+        <Text
+          style={{
+            color: mobileTheme.colors.muted,
+            fontSize: mobileTheme.typography.body.fontSize,
+            fontFamily: "Inter_400Regular",
+            flex: 1
+          }}
+        >
+          Write something...
+        </Text>
+      </Pressable>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: mobileTheme.spacing.xl,
+          paddingBottom: 120,
+          gap: mobileTheme.spacing.lg
+        }}
+      >
         {posts.length ? (
           posts.map((post) => (
-            <View
+            <PostCard
               key={post.id}
-              style={{
-                gap: 14,
-                padding: 18,
-                borderRadius: 30,
-                backgroundColor: mobileTheme.colors.surface
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  gap: 16
-                }}
-              >
-                <View style={{ flexDirection: "row", gap: 12, flex: 1 }}>
-                  <Avatar
-                    uri={post.author.avatarUrl}
-                    name={post.author.firstName}
-                    small
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      selectable
-                      style={{
-                        color: mobileTheme.colors.ink,
-                        fontSize: 20,
-                        fontWeight: "800"
-                      }}
-                    >
-                      {post.author.firstName} {post.author.lastName}
-                    </Text>
-                    <Text
-                      selectable
-                      style={{
-                        color: mobileTheme.colors.secondary,
-                        fontWeight: "700"
-                      }}
-                    >
-                      {post.author.cityLabel}
-                    </Text>
-                  </View>
-                </View>
-                <Text selectable style={{ color: mobileTheme.colors.muted }}>
-                  {new Date(post.createdAt).toLocaleDateString("en-GB")}
-                </Text>
-              </View>
-
-              {post.body ? (
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.ink,
-                    lineHeight: 24,
-                    fontSize: 16
-                  }}
-                >
-                  {post.body}
-                </Text>
-              ) : null}
-
-              {post.imageUrl ? (
-                <Image
-                  source={{ uri: post.imageUrl }}
-                  style={{ width: "100%", height: 280, borderRadius: 26 }}
-                  resizeMode="cover"
-                />
-              ) : null}
-
-              {post.taggedPets.length ? (
-                <View style={{ gap: 10 }}>
-                  <Text
-                    selectable
-                    style={{
-                      color: mobileTheme.colors.secondary,
-                      fontWeight: "800"
-                    }}
-                  >
-                    Tagged pets
-                  </Text>
-                  {post.taggedPets.map((pet) => (
-                    <CompactPetCard
-                      key={pet.id}
-                      pet={pet}
-                      onPress={() => setSelectedPetId(pet.id)}
-                    />
-                  ))}
-                </View>
-              ) : null}
-
-              <Pressable
-                onPress={() => likeMutation.mutate(post.id)}
-                style={{
-                  alignSelf: "flex-start",
-                  borderRadius: 999,
-                  backgroundColor: post.likedByMe
-                    ? mobileTheme.colors.primarySoft
-                    : "#FFFFFF",
-                  borderWidth: 1,
-                  borderColor: mobileTheme.colors.border,
-                  paddingHorizontal: 16,
-                  paddingVertical: 10
-                }}
-              >
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "800"
-                  }}
-                >
-                  {post.likedByMe ? "Liked" : "Like"} • {post.likeCount}
-                </Text>
-              </Pressable>
-            </View>
+              post={post}
+              onLike={() => likeMutation.mutate(post.id)}
+              onPetPress={(petId) => setSelectedPetId(petId)}
+            />
           ))
         ) : (
           <View
             style={{
-              gap: 8,
-              padding: 22,
-              borderRadius: 28,
-              backgroundColor: mobileTheme.colors.surface
+              padding: mobileTheme.spacing["3xl"],
+              borderRadius: mobileTheme.radius.lg,
+              backgroundColor: mobileTheme.colors.white,
+              alignItems: "center",
+              gap: mobileTheme.spacing.md,
+              ...mobileTheme.shadow.sm
             }}
           >
+            <Edit3 size={40} color={mobileTheme.colors.muted} />
             <Text
-              selectable
               style={{
-                fontSize: 22,
-                fontWeight: "800",
-                color: mobileTheme.colors.ink
+                fontSize: mobileTheme.typography.subheading.fontSize,
+                fontWeight: mobileTheme.typography.subheading.fontWeight,
+                color: mobileTheme.colors.ink,
+                fontFamily: "Inter_600SemiBold"
               }}
             >
               No posts yet
             </Text>
             <Text
-              selectable
-              style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}
+              style={{
+                color: mobileTheme.colors.muted,
+                lineHeight: mobileTheme.typography.body.lineHeight,
+                textAlign: "center",
+                fontSize: mobileTheme.typography.body.fontSize,
+                fontFamily: "Inter_400Regular"
+              }}
             >
-              Share the first post from your pet world and it will appear here
-              immediately.
+              Share the first post from your pet world and it will appear here.
             </Text>
           </View>
         )}
-      </View>
+      </ScrollView>
 
-      <Modal
-        visible={composerOpen}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <ScreenShell
-          eyebrow="Create Post"
-          title="Share a moment"
-          subtitle="Write something, add a photo, and tag one or more pets."
+      <Modal visible={composerOpen} animationType="slide">
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View
-            style={{
-              gap: 14,
-              padding: 18,
-              borderRadius: 28,
-              backgroundColor: mobileTheme.colors.surface
-            }}
-          >
+          <View style={{ flex: 1, backgroundColor: mobileTheme.colors.white }}>
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 14 }}
-            >
-              <Avatar
-                uri={session?.user.avatarUrl}
-                name={session?.user.firstName}
-              />
-              <View style={{ flex: 1 }}>
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.ink,
-                    fontSize: 20,
-                    fontWeight: "800"
-                  }}
-                >
-                  {session?.user.firstName} {session?.user.lastName}
-                </Text>
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "700"
-                  }}
-                >
-                  {session?.user.cityLabel || "No location"}
-                </Text>
-              </View>
-            </View>
-
-            <TextInput
-              value={body}
-              onChangeText={(value) => {
-                setBody(value);
-                setErrorMessage(null);
-              }}
-              placeholder="Write something..."
-              placeholderTextColor={mobileTheme.colors.muted}
-              multiline
               style={{
-                borderRadius: mobileTheme.radius.md,
-                backgroundColor: "#FFFFFF",
-                borderWidth: 1,
-                borderColor: mobileTheme.colors.border,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                minHeight: 150,
-                color: mobileTheme.colors.ink,
-                textAlignVertical: "top"
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingTop: insets.top + mobileTheme.spacing.md,
+                paddingBottom: mobileTheme.spacing.md,
+                paddingHorizontal: mobileTheme.spacing.xl
               }}
-            />
-
-            <View style={{ gap: 10 }}>
-              <Text
-                selectable
+            >
+              <Pressable
+                onPress={() => setComposerOpen(false)}
+                hitSlop={12}
                 style={{
-                  color: mobileTheme.colors.secondary,
-                  fontWeight: "800"
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
                 }}
               >
-                Tagged pets
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                {taggedPets.map((pet) => (
-                  <PrimaryButton
-                    key={pet.id}
-                    label={pet.name}
-                    variant="secondary"
-                    onPress={() =>
-                      setTaggedPetIds((current) =>
-                        current.filter((entry) => entry !== pet.id)
-                      )
-                    }
-                  />
-                ))}
-                <PrimaryButton
-                  label="+ Tag pet"
-                  variant="ghost"
-                  onPress={() => setPetPickerOpen(true)}
-                />
-              </View>
-            </View>
-
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <PrimaryButton
-                label={imageAsset ? "Change photo" : "Add photo"}
-                variant="ghost"
-                onPress={() => void pickImage()}
-              />
-              {imageAsset ? (
-                <PrimaryButton
-                  label="Remove photo"
-                  variant="ghost"
-                  onPress={() => setImageAsset(null)}
-                />
-              ) : null}
-            </View>
-
-            {imageAsset ? (
-              <Image
-                source={{ uri: imageAsset.uri }}
-                style={{ width: "100%", height: 240, borderRadius: 24 }}
-                resizeMode="cover"
-              />
-            ) : null}
-
-            {errorMessage ? (
-              <Text
-                selectable
-                style={{ color: mobileTheme.colors.danger, fontWeight: "700" }}
+                <X size={22} color={mobileTheme.colors.ink} />
+              </Pressable>
+              <Pressable
+                onPress={() => createMutation.mutate()}
+                disabled={!canPost || createMutation.isPending}
+                style={{
+                  paddingHorizontal: mobileTheme.spacing.lg,
+                  paddingVertical: mobileTheme.spacing.sm + 2,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: canPost
+                    ? mobileTheme.colors.primary
+                    : mobileTheme.colors.border,
+                  opacity: createMutation.isPending ? 0.5 : 1
+                }}
               >
-                {errorMessage}
-              </Text>
-            ) : null}
-
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <PrimaryButton
-                  label="Cancel"
-                  variant="ghost"
-                  onPress={() => setComposerOpen(false)}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <PrimaryButton
-                  label={createMutation.isPending ? "Posting..." : "Share post"}
-                  onPress={() => createMutation.mutate()}
-                  disabled={createMutation.isPending}
-                />
-              </View>
+                <Text
+                  style={{
+                    color: mobileTheme.colors.white,
+                    fontWeight: "700",
+                    fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {createMutation.isPending ? "Posting..." : "Post"}
+                </Text>
+              </Pressable>
             </View>
-          </View>
 
-          {petPickerOpen ? (
-            <View
-              style={{
-                gap: 14,
-                padding: 18,
-                borderRadius: 28,
-                backgroundColor: mobileTheme.colors.surface
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                flex: 1,
+                paddingHorizontal: mobileTheme.spacing.xl
               }}
             >
               <View
                 style={{
                   flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center"
+                  alignItems: "flex-start",
+                  gap: mobileTheme.spacing.md,
+                  paddingTop: mobileTheme.spacing.sm
                 }}
               >
+                <Avatar
+                  uri={session?.user.avatarUrl}
+                  name={session?.user.firstName}
+                  size="md"
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: mobileTheme.colors.ink,
+                      fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                      fontWeight:
+                        mobileTheme.typography.bodySemiBold.fontWeight,
+                      fontFamily: "Inter_700Bold",
+                      marginBottom: mobileTheme.spacing.sm
+                    }}
+                  >
+                    {session?.user.firstName} {session?.user.lastName}
+                  </Text>
+
+                  <TextInput
+                    value={body}
+                    onChangeText={(value) => {
+                      setBody(value);
+                      setErrorMessage(null);
+                    }}
+                    placeholder="What's happening?"
+                    placeholderTextColor={mobileTheme.colors.muted}
+                    multiline
+                    autoFocus
+                    style={{
+                      minHeight: 120,
+                      fontSize: mobileTheme.typography.body.fontSize,
+                      color: mobileTheme.colors.ink,
+                      fontFamily: "Inter_400Regular",
+                      lineHeight: mobileTheme.typography.body.lineHeight,
+                      textAlignVertical: "top"
+                    }}
+                  />
+
+                  {imageAsset ? (
+                    <View
+                      style={{
+                        marginTop: mobileTheme.spacing.md,
+                        position: "relative"
+                      }}
+                    >
+                      <Image
+                        source={{ uri: imageAsset.uri }}
+                        style={{
+                          width: "100%",
+                          height: 200,
+                          borderRadius: mobileTheme.radius.md
+                        }}
+                        resizeMode="cover"
+                      />
+                      <Pressable
+                        onPress={() => setImageAsset(null)}
+                        style={{
+                          position: "absolute",
+                          top: mobileTheme.spacing.sm,
+                          right: mobileTheme.spacing.sm,
+                          width: 28,
+                          height: 28,
+                          borderRadius: 14,
+                          backgroundColor: "rgba(0,0,0,0.5)",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                      >
+                        <X size={14} color="#FFFFFF" />
+                      </Pressable>
+                    </View>
+                  ) : null}
+
+                  {errorMessage ? (
+                    <Text
+                      style={{
+                        color: mobileTheme.colors.danger,
+                        fontWeight: "600",
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        fontFamily: "Inter_600SemiBold",
+                        marginTop: mobileTheme.spacing.md
+                      }}
+                    >
+                      {errorMessage}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: mobileTheme.spacing.xl,
+                paddingHorizontal: mobileTheme.spacing.xl,
+                paddingVertical: mobileTheme.spacing.md,
+                paddingBottom: insets.bottom + mobileTheme.spacing.md,
+                borderTopWidth: 1,
+                borderTopColor: mobileTheme.colors.border
+              }}
+            >
+              <Pressable onPress={() => void pickImage()} hitSlop={8}>
+                <ImageIcon
+                  size={22}
+                  color={
+                    imageAsset
+                      ? mobileTheme.colors.primary
+                      : mobileTheme.colors.ink
+                  }
+                />
+              </Pressable>
+              <Pressable
+                onPress={() => setPetPickerOpen((prev) => !prev)}
+                hitSlop={8}
+              >
+                <PawPrint
+                  size={22}
+                  color={
+                    taggedPetIds.length > 0
+                      ? mobileTheme.colors.primary
+                      : mobileTheme.colors.ink
+                  }
+                  fill={
+                    taggedPetIds.length > 0
+                      ? mobileTheme.colors.primarySoft
+                      : "transparent"
+                  }
+                />
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              {(body.trim().length > 0 || imageAsset !== null) && (
                 <Text
-                  selectable
                   style={{
-                    color: mobileTheme.colors.ink,
-                    fontSize: 20,
-                    fontWeight: "800"
+                    color: mobileTheme.colors.muted,
+                    fontSize: mobileTheme.typography.micro.fontSize,
+                    fontFamily: "Inter_400Regular"
                   }}
                 >
-                  Select pets to tag
+                  {body.trim().length}/280
                 </Text>
-                <PrimaryButton
-                  label="Done"
-                  variant="ghost"
-                  onPress={() => setPetPickerOpen(false)}
-                />
-              </View>
-              <ScrollView contentContainerStyle={{ gap: 12 }}>
-                {pets.map((pet) => {
-                  const selected = taggedPetIds.includes(pet.id);
-                  return (
-                    <View key={pet.id} style={{ gap: 10 }}>
-                      <CompactPetCard
-                        pet={pet}
-                        onPress={() => setSelectedPetId(pet.id)}
-                      />
-                      <PrimaryButton
-                        label={selected ? "Tagged" : "Tag this pet"}
-                        variant={selected ? "secondary" : "ghost"}
+              )}
+            </View>
+
+            {petPickerOpen && (
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: insets.bottom + mobileTheme.spacing["3xl"] + 44,
+                  left: mobileTheme.spacing.xl,
+                  right: mobileTheme.spacing.xl,
+                  maxHeight: 280,
+                  borderRadius: mobileTheme.radius.lg,
+                  backgroundColor: mobileTheme.colors.white,
+                  borderWidth: 1,
+                  borderColor: mobileTheme.colors.border,
+                  ...mobileTheme.shadow.lg,
+                  overflow: "hidden"
+                }}
+              >
+                <View
+                  style={{
+                    paddingHorizontal: mobileTheme.spacing.lg,
+                    paddingVertical: mobileTheme.spacing.md,
+                    borderBottomWidth: 1,
+                    borderBottomColor: mobileTheme.colors.border
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: mobileTheme.typography.caption.fontSize,
+                      fontWeight: "700",
+                      color: mobileTheme.colors.muted,
+                      fontFamily: "Inter_700Bold",
+                      textTransform: "uppercase",
+                      letterSpacing: mobileTheme.typography.label.letterSpacing
+                    }}
+                  >
+                    Tag a pet
+                  </Text>
+                </View>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ padding: mobileTheme.spacing.sm }}
+                >
+                  {pets.map((pet) => {
+                    const selected = taggedPetIds.includes(pet.id);
+                    return (
+                      <Pressable
+                        key={pet.id}
                         onPress={() =>
                           setTaggedPetIds((current) =>
                             current.includes(pet.id)
-                              ? current.filter((entry) => entry !== pet.id)
+                              ? current.filter((id) => id !== pet.id)
                               : [...current, pet.id]
                           )
                         }
-                      />
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
-
-          <PetDetailModal
-            pet={selectedPet}
-            visible={Boolean(selectedPet)}
-            onClose={() => setSelectedPetId(null)}
-          />
-        </ScreenShell>
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: mobileTheme.spacing.md,
+                          padding: mobileTheme.spacing.md,
+                          borderRadius: mobileTheme.radius.md,
+                          backgroundColor: selected
+                            ? mobileTheme.colors.primaryBg
+                            : "transparent"
+                        }}
+                      >
+                        <PetAvatar uri={pet.photos[0]?.url} name={pet.name} />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              color: mobileTheme.colors.ink,
+                              fontSize: mobileTheme.typography.body.fontSize,
+                              fontWeight: "600",
+                              fontFamily: "Inter_600SemiBold"
+                            }}
+                          >
+                            {pet.name}
+                          </Text>
+                          <Text
+                            style={{
+                              color: mobileTheme.colors.muted,
+                              fontSize: mobileTheme.typography.micro.fontSize,
+                              fontFamily: "Inter_400Regular"
+                            }}
+                          >
+                            {pet.speciesLabel} &middot; {pet.breedLabel}
+                          </Text>
+                        </View>
+                        {selected && (
+                          <View
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 11,
+                              backgroundColor: mobileTheme.colors.primary,
+                              alignItems: "center",
+                              justifyContent: "center"
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: mobileTheme.colors.white,
+                                fontSize: 12,
+                                fontWeight: "700"
+                              }}
+                            >
+                              ✓
+                            </Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </ScreenShell>
+
+      <PetDetailModal
+        pet={selectedPet}
+        visible={Boolean(selectedPet)}
+        onClose={() => setSelectedPetId(null)}
+      />
+    </View>
   );
 }
 
-function Avatar({
-  uri,
-  name,
-  small = false
-}: {
-  uri?: string | null;
-  name?: string;
-  small?: boolean;
-}) {
-  const size = small ? 44 : 56;
+function PetAvatar({ uri, name }: { uri?: string | null; name?: string }) {
+  const size = 20;
+
+  if (uri && uri.length > 0) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+      />
+    );
+  }
 
   return (
     <View
       style={{
         width: size,
         height: size,
-        borderRadius: 999,
-        overflow: "hidden",
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: mobileTheme.colors.border,
+        borderRadius: size / 2,
+        backgroundColor: mobileTheme.colors.primarySoft,
         alignItems: "center",
         justifyContent: "center"
       }}
     >
-      {uri ? (
-        <Image
-          source={{ uri }}
-          style={{ width: "100%", height: "100%" }}
-          resizeMode="cover"
+      <Text
+        style={{
+          fontSize: 9,
+          fontWeight: "700",
+          color: mobileTheme.colors.primary,
+          fontFamily: "Inter_700Bold"
+        }}
+      >
+        {name?.charAt(0)?.toUpperCase() ?? "?"}
+      </Text>
+    </View>
+  );
+}
+
+function PostCard({
+  post,
+  onLike,
+  onPetPress
+}: {
+  post: {
+    id: string;
+    author: {
+      avatarUrl?: string | null;
+      firstName: string;
+      lastName: string;
+      cityLabel: string;
+    };
+    body: string;
+    imageUrl?: string | null;
+    taggedPets: Pet[];
+    likeCount: number;
+    likedByMe: boolean;
+    createdAt: string;
+  };
+  onLike: () => void;
+  onPetPress: (petId: string) => void;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: mobileTheme.radius.lg,
+        backgroundColor: mobileTheme.colors.white,
+        overflow: "hidden",
+        ...mobileTheme.shadow.sm
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          padding: mobileTheme.spacing.lg,
+          paddingBottom: 0,
+          gap: mobileTheme.spacing.md
+        }}
+      >
+        <Avatar
+          uri={post.author.avatarUrl}
+          name={post.author.firstName}
+          size="md"
         />
-      ) : (
-        <Text
-          selectable
-          style={{ color: mobileTheme.colors.secondary, fontWeight: "800" }}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text
+            style={{
+              color: mobileTheme.colors.ink,
+              fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+              fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+              fontFamily: "Inter_700Bold"
+            }}
+          >
+            {post.author.firstName} {post.author.lastName}
+          </Text>
+          {post.taggedPets.length > 0 ? (
+            <Pressable
+              onPress={() => {
+                if (post.taggedPets.length === 1 && post.taggedPets[0]) {
+                  onPetPress(post.taggedPets[0].id);
+                }
+              }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <Text
+                style={{
+                  color: mobileTheme.colors.muted,
+                  fontSize: mobileTheme.typography.micro.fontSize,
+                  fontFamily: "Inter_400Regular"
+                }}
+              >
+                tagged
+              </Text>
+              {post.taggedPets.map((pet) => (
+                <Pressable
+                  key={pet.id}
+                  onPress={() => onPetPress(pet.id)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+                >
+                  <PetAvatar uri={pet.photos[0]?.url} name={pet.name} />
+                  <Text
+                    style={{
+                      color: mobileTheme.colors.secondary,
+                      fontSize: mobileTheme.typography.micro.fontSize,
+                      fontWeight: "600",
+                      fontFamily: "Inter_600SemiBold"
+                    }}
+                  >
+                    {pet.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </Pressable>
+          ) : (
+            <Text
+              style={{
+                color: mobileTheme.colors.muted,
+                fontSize: mobileTheme.typography.micro.fontSize,
+                fontFamily: "Inter_400Regular"
+              }}
+            >
+              {post.author.cityLabel} &middot;{" "}
+              {new Date(post.createdAt).toLocaleDateString("en-GB")}
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <View
+        style={{
+          padding: mobileTheme.spacing.lg,
+          gap: mobileTheme.spacing.md
+        }}
+      >
+        {post.body ? (
+          <Text
+            style={{
+              color: mobileTheme.colors.ink,
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
+            {post.body}
+          </Text>
+        ) : null}
+
+        {post.imageUrl && post.imageUrl.length > 0 ? (
+          <Image
+            source={{ uri: post.imageUrl }}
+            style={{
+              width: "100%",
+              height: 260,
+              borderRadius: mobileTheme.radius.md
+            }}
+            resizeMode="cover"
+          />
+        ) : null}
+
+        {post.taggedPets.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: mobileTheme.spacing.sm }}
+          >
+            {post.taggedPets.map((pet) => (
+              <Pressable
+                key={pet.id}
+                onPress={() => onPetPress(pet.id)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: mobileTheme.spacing.sm,
+                  paddingVertical: mobileTheme.spacing.xs + 2,
+                  paddingHorizontal: mobileTheme.spacing.md,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: mobileTheme.colors.secondarySoft,
+                  borderWidth: 1,
+                  borderColor: mobileTheme.colors.border
+                }}
+              >
+                <PetAvatar uri={pet.photos[0]?.url} name={pet.name} />
+                <Text
+                  style={{
+                    color: mobileTheme.colors.secondary,
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontFamily: "Inter_600SemiBold",
+                    fontWeight: "600"
+                  }}
+                >
+                  {pet.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
+
+        <Pressable
+          onPress={onLike}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: mobileTheme.spacing.sm,
+            paddingVertical: mobileTheme.spacing.sm
+          }}
         >
-          {(name || "P").slice(0, 1).toUpperCase()}
-        </Text>
-      )}
+          <Heart
+            size={18}
+            color={
+              post.likedByMe
+                ? mobileTheme.colors.primary
+                : mobileTheme.colors.muted
+            }
+            fill={post.likedByMe ? mobileTheme.colors.primary : "transparent"}
+          />
+          <Text
+            style={{
+              color: post.likedByMe
+                ? mobileTheme.colors.primary
+                : mobileTheme.colors.muted,
+              fontWeight: "600",
+              fontSize: mobileTheme.typography.caption.fontSize,
+              fontFamily: "Inter_600SemiBold"
+            }}
+          >
+            {post.likeCount}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

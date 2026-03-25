@@ -1,13 +1,23 @@
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import DateTimePicker, {
+  type DateTimePickerEvent
+} from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { useMutation } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { Image, Platform, Pressable, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View
+} from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { User } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
@@ -30,15 +40,20 @@ export default function ProfileOnboardingPage() {
   const setSession = useSessionStore((state) => state.setSession);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [avatarAsset, setAvatarAsset] = useState<{ uri: string; mimeType?: string | null } | null>(null);
+  const [avatarAsset, setAvatarAsset] = useState<{
+    uri: string;
+    mimeType?: string | null;
+  } | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const { control, handleSubmit, setValue, watch } = useForm<ProfileValues>({
     defaultValues: {
       firstName: session?.user.firstName ?? "",
       lastName: session?.user.lastName ?? "",
-      birthDate: session?.user.birthDate ?? formatDateValue(new Date(2000, 0, 1)),
+      birthDate:
+        session?.user.birthDate ?? formatDateValue(new Date(2000, 0, 1)),
       bio: session?.user.bio ?? "",
-      gender: (session?.user.gender as ProfileValues["gender"]) || "prefer-not-to-say"
+      gender:
+        (session?.user.gender as ProfileValues["gender"]) || "prefer-not-to-say"
     },
     resolver: zodResolver(schema)
   });
@@ -84,7 +99,9 @@ export default function ProfileOnboardingPage() {
       router.replace("/");
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to save profile.");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to save profile."
+      );
     }
   });
 
@@ -100,7 +117,9 @@ export default function ProfileOnboardingPage() {
     setValue("birthDate", formatDateValue(nextDate));
   };
 
-  const currentAvatarUri = avatarAsset?.uri ?? (removeAvatar ? null : session?.user.avatarUrl ?? null);
+  const currentAvatarUri =
+    avatarAsset?.uri ??
+    (removeAvatar ? null : (session?.user.avatarUrl ?? null));
 
   const pickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -131,44 +150,93 @@ export default function ProfileOnboardingPage() {
       title="Tell us about the human behind the pet."
       subtitle="Birth date stays private and is used only for age verification."
     >
-      <View style={{ gap: 14, padding: 18, borderRadius: 28, backgroundColor: mobileTheme.colors.surface }}>
-        <View style={{ gap: 12 }}>
-          <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+      <View
+        style={{
+          gap: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.xl,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: mobileTheme.spacing.sm
+          }}
+        >
+          <User size={16} color={mobileTheme.colors.muted} />
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.micro,
+              color: mobileTheme.colors.muted,
+              fontFamily: "Inter_600SemiBold"
+            }}
+          >
+            Step 2 of 3
+          </Text>
+        </View>
+
+        <View style={{ gap: mobileTheme.spacing.md }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.label,
+              color: mobileTheme.colors.secondary,
+              fontFamily: "Inter_700Bold"
+            }}
+          >
             Profile photo
           </Text>
           <View
             style={{
               borderRadius: mobileTheme.radius.lg,
               borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
-              backgroundColor: "#FFFFFF",
-              padding: 18,
+              borderColor: mobileTheme.colors.borderStrong,
+              backgroundColor: mobileTheme.colors.background,
+              padding: mobileTheme.spacing.xl,
               alignItems: "center",
-              gap: 14
+              gap: mobileTheme.spacing.lg
             }}
           >
             <View
               style={{
                 width: 116,
                 height: 116,
-                borderRadius: 999,
+                borderRadius: mobileTheme.radius.pill,
                 overflow: "hidden",
-                backgroundColor: mobileTheme.colors.surface,
+                backgroundColor: mobileTheme.colors.white,
                 alignItems: "center",
                 justifyContent: "center"
               }}
             >
               {currentAvatarUri ? (
-                <Image source={{ uri: currentAvatarUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                <Image
+                  source={{ uri: currentAvatarUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
               ) : (
-                <Text selectable style={{ color: mobileTheme.colors.muted, fontWeight: "700" }}>
+                <Text
+                  selectable
+                  style={{
+                    ...mobileTheme.typography.caption,
+                    color: mobileTheme.colors.muted,
+                    fontFamily: "Inter_600SemiBold"
+                  }}
+                >
                   No photo
                 </Text>
               )}
             </View>
-            <View style={{ width: "100%", gap: 10 }}>
+            <View style={{ width: "100%", gap: mobileTheme.spacing.md }}>
               <PrimaryButton
-                label={currentAvatarUri ? "Change profile photo" : "Add profile photo"}
+                label={
+                  currentAvatarUri
+                    ? "Change profile photo"
+                    : "Add profile photo"
+                }
                 variant="secondary"
                 onPress={() => {
                   void pickAvatar();
@@ -196,7 +264,11 @@ export default function ProfileOnboardingPage() {
             render={({ field: { onChange, value } }) => (
               <TextInput
                 placeholder={
-                  field === "bio" ? "Short bio" : field === "firstName" ? "First name" : "Last name"
+                  field === "bio"
+                    ? "Short bio"
+                    : field === "firstName"
+                      ? "First name"
+                      : "Last name"
                 }
                 placeholderTextColor={mobileTheme.colors.muted}
                 multiline={field === "bio"}
@@ -204,36 +276,54 @@ export default function ProfileOnboardingPage() {
                 onChangeText={onChange}
                 style={{
                   borderRadius: mobileTheme.radius.md,
-                  backgroundColor: "#FFFFFF",
+                  backgroundColor: mobileTheme.colors.background,
                   borderWidth: 1,
-                  borderColor: mobileTheme.colors.border,
-                  paddingHorizontal: 16,
-                  paddingVertical: field === "bio" ? 18 : 15,
+                  borderColor: mobileTheme.colors.borderStrong,
+                  paddingHorizontal: mobileTheme.spacing.lg,
+                  paddingVertical:
+                    field === "bio"
+                      ? mobileTheme.spacing.xl
+                      : mobileTheme.spacing.lg,
                   minHeight: field === "bio" ? 110 : undefined,
                   color: mobileTheme.colors.ink,
-                  textAlignVertical: field === "bio" ? "top" : "auto"
+                  textAlignVertical: field === "bio" ? "top" : "auto",
+                  fontFamily: "Inter_400Regular"
                 }}
               />
             )}
           />
         ))}
 
-        <View style={{ gap: 10 }}>
-          <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.label,
+              color: mobileTheme.colors.secondary,
+              fontFamily: "Inter_700Bold"
+            }}
+          >
             Birth date
           </Text>
           <Pressable
             onPress={() => setShowDatePicker(true)}
             style={{
               borderRadius: mobileTheme.radius.md,
-              backgroundColor: "#FFFFFF",
+              backgroundColor: mobileTheme.colors.background,
               borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
-              paddingHorizontal: 16,
-              paddingVertical: 15
+              borderColor: mobileTheme.colors.borderStrong,
+              paddingHorizontal: mobileTheme.spacing.lg,
+              paddingVertical: mobileTheme.spacing.lg
             }}
           >
-            <Text selectable style={{ color: mobileTheme.colors.ink, fontSize: 16 }}>
+            <Text
+              selectable
+              style={{
+                ...mobileTheme.typography.body,
+                color: mobileTheme.colors.ink,
+                fontFamily: "Inter_400Regular"
+              }}
+            >
               {formatDateLabel(birthDateValue)}
             </Text>
           </Pressable>
@@ -241,9 +331,9 @@ export default function ProfileOnboardingPage() {
             <View
               style={{
                 borderRadius: mobileTheme.radius.md,
-                backgroundColor: "#FFFFFF",
+                backgroundColor: mobileTheme.colors.background,
                 borderWidth: 1,
-                borderColor: mobileTheme.colors.border,
+                borderColor: mobileTheme.colors.borderStrong,
                 overflow: "hidden"
               }}
             >
@@ -258,16 +348,23 @@ export default function ProfileOnboardingPage() {
           ) : null}
         </View>
 
-        <View style={{ gap: 10 }}>
-          <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+        <View style={{ gap: mobileTheme.spacing.md }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.label,
+              color: mobileTheme.colors.secondary,
+              fontFamily: "Inter_700Bold"
+            }}
+          >
             Gender
           </Text>
           <View
             style={{
               borderRadius: mobileTheme.radius.md,
-              backgroundColor: "#FFFFFF",
+              backgroundColor: mobileTheme.colors.background,
               borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
+              borderColor: mobileTheme.colors.borderStrong,
               overflow: "hidden"
             }}
           >
@@ -279,7 +376,10 @@ export default function ProfileOnboardingPage() {
                   <Picker.Item label="Woman" value="woman" />
                   <Picker.Item label="Man" value="man" />
                   <Picker.Item label="Non-binary" value="non-binary" />
-                  <Picker.Item label="Prefer not to say" value="prefer-not-to-say" />
+                  <Picker.Item
+                    label="Prefer not to say"
+                    value="prefer-not-to-say"
+                  />
                 </Picker>
               )}
             />
@@ -287,7 +387,14 @@ export default function ProfileOnboardingPage() {
         </View>
 
         {errorMessage ? (
-          <Text selectable style={{ color: mobileTheme.colors.danger }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.body,
+              color: mobileTheme.colors.danger,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
             {errorMessage}
           </Text>
         ) : null}

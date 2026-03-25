@@ -12,9 +12,12 @@ type Store interface {
 	UpsertPet(userID string, petID string, input PetInput) (domain.Pet, error)
 	ListTaxonomy(kind string) []domain.TaxonomyItem
 	DiscoveryFeed(userID string) []domain.DiscoveryCard
+	DiscoveryFeedForPet(userID string, actorPetID string) []domain.DiscoveryCard
 	CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error)
 	ListMatches(userID string) []domain.MatchPreview
+	ListMatchesByPet(userID string, petID string) []domain.MatchPreview
 	ListConversations(userID string) []domain.Conversation
+	FindConversationByUsers(user1ID string, user2ID string) *domain.Conversation
 	ListMessages(userID string, conversationID string) ([]domain.Message, error)
 	SendMessage(userID string, conversationID string, body string) (domain.Message, error)
 	BlockUser(userID string, targetUserID string) error
@@ -26,6 +29,7 @@ type Store interface {
 	DeleteUser(userID string) error
 	UserDetail(userID string) (domain.AdminUserDetail, error)
 	ListAllPets() []domain.Pet
+	PetDetail(petID string) (domain.AdminPetDetail, error)
 	SetPetVisibility(petID string, hidden bool) error
 	UpsertTaxonomy(kind string, item domain.TaxonomyItem) domain.TaxonomyItem
 	DeleteTaxonomy(kind string, itemID string) error
@@ -43,6 +47,7 @@ type Store interface {
 	DeleteEvent(eventID string) error
 	RSVPEvent(userID string, eventID string, petIDs []string) (domain.ExploreEvent, error)
 	ListPostsAdmin() []domain.HomePost
+	DeletePost(postID string) error
 }
 
 type ClosableStore interface {

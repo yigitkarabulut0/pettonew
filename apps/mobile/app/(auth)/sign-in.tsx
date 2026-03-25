@@ -19,16 +19,25 @@ const signInSchema = z.object({
 
 type SignInValues = z.infer<typeof signInSchema>;
 
+const inputStyle = {
+  borderRadius: mobileTheme.radius.md,
+  backgroundColor: mobileTheme.colors.background,
+  borderWidth: 1,
+  borderColor: mobileTheme.colors.border,
+  paddingHorizontal: mobileTheme.spacing.lg,
+  paddingVertical: mobileTheme.spacing.md + 3,
+  color: mobileTheme.colors.ink,
+  fontSize: mobileTheme.typography.body.fontSize,
+  fontFamily: "Inter_400Regular"
+} as const;
+
 export default function SignInPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setSession = useSessionStore((state) => state.setSession);
   const setPetCount = useSessionStore((state) => state.setPetCount);
   const setActivePetId = useSessionStore((state) => state.setActivePetId);
   const { control, handleSubmit } = useForm<SignInValues>({
-    defaultValues: {
-      email: "",
-      password: ""
-    },
+    defaultValues: { email: "", password: "" },
     resolver: zodResolver(signInSchema)
   });
 
@@ -45,24 +54,27 @@ export default function SignInPage() {
       router.replace("/");
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to sign in.");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to sign in."
+      );
     }
   });
 
   return (
     <ScreenShell
       eyebrow="Petto"
-      title="A refined place for pets to meet."
-      subtitle="Sign in with your real Petto account to continue into onboarding, discovery, and chat."
+      title="Welcome back."
+      subtitle="Sign in to continue discovering and matching."
     >
       <View
         style={{
-          gap: 14,
-          padding: 18,
+          gap: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.xl,
           borderRadius: mobileTheme.radius.lg,
-          backgroundColor: mobileTheme.colors.surface,
+          backgroundColor: mobileTheme.colors.white,
           borderWidth: 1,
-          borderColor: mobileTheme.colors.border
+          borderColor: mobileTheme.colors.border,
+          ...mobileTheme.shadow.sm
         }}
       >
         <Controller
@@ -94,28 +106,38 @@ export default function SignInPage() {
           )}
         />
         {errorMessage ? (
-          <Text selectable style={{ color: mobileTheme.colors.danger }}>
+          <Text
+            style={{
+              color: mobileTheme.colors.danger,
+              fontSize: mobileTheme.typography.caption.fontSize,
+              fontFamily: "Inter_600SemiBold",
+              fontWeight: "600"
+            }}
+          >
             {errorMessage}
           </Text>
         ) : null}
-        <PrimaryButton label={mutation.isPending ? "Signing in..." : "Sign in"} onPress={handleSubmit((values) => mutation.mutate(values))} />
+        <PrimaryButton
+          label={mutation.isPending ? "Signing in..." : "Sign in"}
+          onPress={handleSubmit((values) => mutation.mutate(values))}
+        />
       </View>
-      <Text selectable style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}>
+      <Text
+        style={{
+          color: mobileTheme.colors.muted,
+          lineHeight: mobileTheme.typography.body.lineHeight,
+          fontSize: mobileTheme.typography.body.fontSize,
+          fontFamily: "Inter_400Regular"
+        }}
+      >
         Need an account?{" "}
-        <Link href="/(auth)/sign-up" style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
+        <Link
+          href="/(auth)/sign-up"
+          style={{ color: mobileTheme.colors.primary, fontWeight: "700" }}
+        >
           Create one
         </Link>
       </Text>
     </ScreenShell>
   );
 }
-
-const inputStyle = {
-  borderRadius: mobileTheme.radius.md,
-  backgroundColor: "#FFFFFF",
-  borderWidth: 1,
-  borderColor: mobileTheme.colors.border,
-  paddingHorizontal: 16,
-  paddingVertical: 15,
-  color: mobileTheme.colors.ink
-} as const;

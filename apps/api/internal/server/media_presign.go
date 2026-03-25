@@ -3,13 +3,14 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -96,4 +97,64 @@ func buildObjectKey(folder string, fileName string) string {
 		safeFolder = "uploads"
 	}
 	return fmt.Sprintf("%s/%s%s", safeFolder, newAssetID(), extension)
+}
+
+func (s *Server) handleMediaProxy(writer http.ResponseWriter, request *http.Request) {
+	rawURL := request.URL.Query().Get("url")
+	if rawURL == "" {
+		writeError(writer, http.StatusBadRequest, "url query param is required")
+		return
+	}
+
+	publicBase := strings.TrimRight(s.cfg.R2PublicBaseURL, "/")
+	if publicBase == "" || !strings.HasPrefix(rawURL, publicBase+"/") {
+		writeError(writer, http.StatusBadRequest, "url must be from configured R2 public base URL")
+		return
+	}
+
+	objectKey := strings.TrimPrefix(rawURL, publicBase+"/")
+	if objectKey == "" {
+		writeError(writer, http.StatusBadRequest, "invalid object key")
+		return
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(
+		request.Context(),
+		awsconfig.WithRegion("auto"),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			s.cfg.R2AccessKeyID,
+			s.cfg.R2SecretKey,
+			"",
+		)),
+	)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "failed to create R2 client")
+		return
+	}
+
+	client := s3.NewFromConfig(cfg, func(options *s3.Options) {
+		options.UsePathStyle = true
+		options.BaseEndpoint = aws.String(fmt.Sprintf("https://%s.r2.cloudflarestorage.com", s.cfg.R2AccountID))
+	})
+
+	result, err := client.GetObject(request.Context(), &s3.GetObjectInput{
+		Bucket: aws.String(s.cfg.R2Bucket),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		writeError(writer, http.StatusNotFound, "file not found in R2")
+		return
+	}
+	defer result.Body.Close()
+
+	contentType := "application/octet-stream"
+	if result.ContentType != nil {
+		contentType = *result.ContentType
+	}
+
+	writer.Header().Set("Content-Type", contentType)
+	writer.Header().Set("Cache-Control", "public, max-age=86400")
+	writer.Header().Set("Access-Control-Allow-Origin", "*")
+	writer.WriteHeader(http.StatusOK)
+	io.Copy(writer, result.Body)
 }

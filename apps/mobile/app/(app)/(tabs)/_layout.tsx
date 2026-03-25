@@ -1,33 +1,41 @@
+import {
+  Bell,
+  Compass,
+  Heart,
+  Home,
+  MessageCircle,
+  User
+} from "lucide-react-native";
 import { Tabs } from "expo-router";
-import { Text } from "react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { mobileTheme } from "@/lib/theme";
 
 function TabIcon({
-  glyph,
+  Icon,
   focused
 }: {
-  glyph: string;
+  Icon: React.ComponentType<{
+    size: number;
+    color: string;
+    fill?: string;
+  }>;
   focused: boolean;
 }) {
   return (
-    <Text
-      style={{
-        fontSize: 23,
-        lineHeight: 24,
-        color: focused ? mobileTheme.colors.secondary : "#8F7B6F",
-        fontWeight: "700"
-      }}
-    >
-      {glyph}
-    </Text>
+    <View style={{ alignItems: "center" }}>
+      <Icon
+        size={24}
+        color={focused ? mobileTheme.colors.primary : mobileTheme.colors.muted}
+      />
+    </View>
   );
 }
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, 12);
+  const bottomInset = Math.max(insets.bottom, 16);
 
   return (
     <Tabs
@@ -35,42 +43,36 @@ export default function TabsLayout() {
         headerShown: false,
         lazy: true,
         tabBarShowLabel: false,
-        tabBarActiveTintColor: mobileTheme.colors.secondary,
-        tabBarInactiveTintColor: "#8F7B6F",
-        tabBarActiveBackgroundColor: "rgba(207, 122, 66, 0.18)",
+        tabBarActiveTintColor: mobileTheme.colors.primary,
+        tabBarInactiveTintColor: mobileTheme.colors.muted,
         tabBarStyle: {
           position: "absolute",
           left: 0,
           right: 0,
           bottom: 0,
-          height: 72 + bottomInset,
-          paddingTop: 8,
-          paddingBottom: bottomInset + 6,
-          backgroundColor: "rgba(255, 250, 245, 0.98)",
-          borderTopColor: "rgba(214, 194, 179, 0.78)",
+          height: 56 + bottomInset,
+          paddingTop: 6,
+          paddingBottom: bottomInset - 4,
+          backgroundColor: mobileTheme.colors.white,
+          borderTopColor: mobileTheme.colors.border,
           borderTopWidth: 1,
           borderLeftWidth: 0,
           borderRightWidth: 0,
           borderBottomWidth: 0,
-          borderTopLeftRadius: 26,
-          borderTopRightRadius: 26,
-          shadowColor: "#3A241A",
-          shadowOpacity: 0.1,
-          shadowRadius: 20,
+          shadowColor: "#161514",
+          shadowOpacity: 0.04,
+          shadowRadius: 12,
           shadowOffset: {
             width: 0,
-            height: -6
+            height: -2
           },
-          elevation: 16
+          elevation: 8
         },
         tabBarItemStyle: {
-          marginHorizontal: 6,
-          borderTopLeftRadius: 20,
-          borderTopRightRadius: 20,
-          overflow: "hidden"
+          paddingVertical: 0
         },
         tabBarIconStyle: {
-          marginTop: 2
+          marginTop: 0
         }
       }}
     >
@@ -78,35 +80,41 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: "Home",
-          tabBarIcon: ({ focused }) => <TabIcon glyph="🏠" focused={focused} />
-        }}
-      />
-      <Tabs.Screen
-        name="matches"
-        options={{
-          title: "Matches",
-          tabBarIcon: ({ focused }) => <TabIcon glyph="♥" focused={focused} />
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-          tabBarIcon: ({ focused }) => <TabIcon glyph="💬" focused={focused} />
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
           title: "Explore",
-          tabBarIcon: ({ focused }) => <TabIcon glyph="🧭" focused={focused} />
+          tabBarIcon: ({ focused }) => (
+            <TabIcon Icon={Compass} focused={focused} />
+          )
+        }}
+      />
+      <Tabs.Screen
+        name="matches"
+        options={{
+          title: "Match",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon Icon={Heart} focused={focused} />
+          )
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon Icon={MessageCircle} focused={focused} />
+          )
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ focused }) => <TabIcon glyph="👤" focused={focused} />
+          tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />
         }}
       />
     </Tabs>

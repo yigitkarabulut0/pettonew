@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from "react";
 import {
   Animated,
   Dimensions,
-  Image,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -14,7 +14,16 @@ import {
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  Calendar,
+  Check,
+  ChevronDown,
+  LocateFixed,
+  MapPin,
+  X
+} from "lucide-react-native";
 
+import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
 import {
   checkInVenue,
@@ -25,47 +34,135 @@ import {
 } from "@/lib/api";
 import { mobileTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
-import type { ExploreVenue } from "@petto/contracts";
 
-const windowHeight = Dimensions.get("window").height;
-const COLLAPSED_SHEET_HEIGHT = 214;
-const EXPANDED_SHEET_HEIGHT = Math.min(520, Math.round(windowHeight * 0.62));
+const WINDOW_HEIGHT = Dimensions.get("window").height;
+const COLLAPSED_SHEET = 180;
+const EXPANDED_SHEET = Math.min(540, Math.round(WINDOW_HEIGHT * 0.65));
+const SHEET_TRAVEL = EXPANDED_SHEET - COLLAPSED_SHEET;
 
 function formatLabel(value: string) {
-  return value.replaceAll("-", " ");
+  return value
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
-function markerIcon(category: string) {
-  switch (category) {
-    case "park":
-      return "🌿";
-    case "cafe":
-      return "☕";
-    case "bar":
-      return "🍷";
-    case "beach":
-      return "☀️";
-    case "trail":
-      return "🥾";
-    default:
-      return "🐾";
-  }
+function PinMarker({ selected, count }: { selected: boolean; count: number }) {
+  return (
+    <View style={{ alignItems: "center" }}>
+      <View
+        style={{
+          width: selected ? 40 : 36,
+          height: selected ? 40 : 36,
+          borderRadius: 20,
+          backgroundColor: selected
+            ? mobileTheme.colors.primary
+            : mobileTheme.colors.white,
+          alignItems: "center",
+          justifyContent: "center",
+          ...mobileTheme.shadow.md,
+          borderWidth: 2,
+          borderColor: selected
+            ? mobileTheme.colors.primaryDark
+            : mobileTheme.colors.white
+        }}
+      >
+        <MapPin
+          size={selected ? 20 : 18}
+          color={
+            selected ? mobileTheme.colors.white : mobileTheme.colors.primary
+          }
+          fill={
+            selected ? mobileTheme.colors.white : mobileTheme.colors.primarySoft
+          }
+        />
+      </View>
+      {count > 0 && (
+        <View
+          style={{
+            marginTop: -8,
+            minWidth: 20,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: mobileTheme.colors.primary,
+            borderWidth: 2,
+            borderColor: mobileTheme.colors.white,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 4
+          }}
+        >
+          <Text
+            style={{
+              color: mobileTheme.colors.white,
+              fontSize: 10,
+              fontWeight: "700",
+              fontFamily: "Inter_700Bold"
+            }}
+          >
+            {count}
+          </Text>
+        </View>
+      )}
+      <View
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+          backgroundColor: selected
+            ? mobileTheme.colors.primaryDark
+            : mobileTheme.colors.border,
+          marginTop: 2
+        }}
+      />
+    </View>
+  );
 }
+
+const MemoPinMarker = memo(PinMarker);
+
+type VenueMarkerItem = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  currentCheckIns: Array<unknown>;
+};
+
+const VenueMarkers = memo(function VenueMarkers({
+  venues,
+  selectedId,
+  onSelect
+}: {
+  venues: VenueMarkerItem[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <>
+      {venues.map((venue) => (
+        <Marker
+          key={venue.id}
+          coordinate={{ latitude: venue.latitude, longitude: venue.longitude }}
+          onPress={() => onSelect(venue.id)}
+        >
+          <MemoPinMarker
+            selected={selectedId === venue.id}
+            count={venue.currentCheckIns.length}
+          />
+        </Marker>
+      ))}
+    </>
+  );
+});
 
 export default function ExplorePage() {
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
-  const translateY = useRef(
-    new Animated.Value(EXPANDED_SHEET_HEIGHT - COLLAPSED_SHEET_HEIGHT)
-  ).current;
-  const dragStartOffsetRef = useRef(
-    EXPANDED_SHEET_HEIGHT - COLLAPSED_SHEET_HEIGHT
-  );
-  const currentOffsetRef = useRef(
-    EXPANDED_SHEET_HEIGHT - COLLAPSED_SHEET_HEIGHT
-  );
+  const sheetAnim = useRef(new Animated.Value(SHEET_TRAVEL)).current;
+  const dragStart = useRef(SHEET_TRAVEL);
+  const dragCurrent = useRef(SHEET_TRAVEL);
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -110,41 +207,35 @@ export default function ExplorePage() {
   const mapVenues = useMemo(
     () =>
       venues.filter(
-        (venue) =>
-          Number.isFinite(venue.latitude) &&
-          Number.isFinite(venue.longitude) &&
-          venue.latitude !== 0 &&
-          venue.longitude !== 0
+        (v) =>
+          Number.isFinite(v.latitude) &&
+          Number.isFinite(v.longitude) &&
+          v.latitude !== 0 &&
+          v.longitude !== 0
       ),
     [venues]
   );
 
   const primaryPetIds = useMemo(
-    () => pets.slice(0, 1).map((pet) => pet.id),
+    () => pets.slice(0, 1).map((p) => p.id),
     [pets]
   );
-  const selectedVenue =
-    mapVenues.find((venue) => venue.id === selectedVenueId) ?? null;
+  const selectedVenue = mapVenues.find((v) => v.id === selectedVenueId) ?? null;
   const tabBarOffset = insets.bottom + 82;
-  const sheetTravel = EXPANDED_SHEET_HEIGHT - COLLAPSED_SHEET_HEIGHT;
-  const visibleSheetHeight = sheetExpanded
-    ? EXPANDED_SHEET_HEIGHT
-    : COLLAPSED_SHEET_HEIGHT;
+  const visibleSheetHeight = sheetExpanded ? EXPANDED_SHEET : COLLAPSED_SHEET;
 
   useEffect(() => {
-    Animated.spring(translateY, {
-      toValue: sheetExpanded ? 0 : sheetTravel,
+    Animated.spring(sheetAnim, {
+      toValue: sheetExpanded ? 0 : SHEET_TRAVEL,
       useNativeDriver: true,
-      damping: 20,
-      stiffness: 180,
-      mass: 0.8
+      damping: 24,
+      stiffness: 220,
+      mass: 0.6
     }).start();
-  }, [sheetExpanded, sheetTravel, translateY]);
+  }, [sheetExpanded, sheetAnim]);
 
   const openPetPicker = () => {
-    if (pets.length <= 1) {
-      return;
-    }
+    if (pets.length <= 1) return;
     setSelectedPetIds(primaryPetIds);
     setPetPickerOpen(true);
   };
@@ -159,6 +250,8 @@ export default function ExplorePage() {
 
   const checkInPetIds =
     selectedPetIds.length > 0 ? selectedPetIds : primaryPetIds;
+  const activeCheckInPetIds =
+    selectedPetIds.length > 0 ? selectedPetIds : primaryPetIds;
 
   const checkInMutation = useMutation({
     mutationFn: (venueId: string) =>
@@ -171,7 +264,7 @@ export default function ExplorePage() {
       ),
     onSuccess: (venue) => {
       setSelectedVenueId(venue.id);
-      setFeedbackMessage("You are checked in at this spot.");
+      setFeedbackMessage("Checked in successfully!");
       queryClient.invalidateQueries({
         queryKey: ["explore-venues", session?.tokens.accessToken]
       });
@@ -187,99 +280,114 @@ export default function ExplorePage() {
     mutationFn: (eventId: string) =>
       rsvpEvent(session!.tokens.accessToken, eventId, primaryPetIds),
     onSuccess: () => {
-      setFeedbackMessage("You are on the attendee list.");
+      setFeedbackMessage("You're on the list!");
       queryClient.invalidateQueries({
         queryKey: ["explore-events", session?.tokens.accessToken]
       });
     },
     onError: (error) => {
       setFeedbackMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to join this event right now."
+        error instanceof Error ? error.message : "Unable to join this event."
       );
     }
   });
 
   const initialRegion = useMemo(
     () => ({
-      latitude:
-        userLocation?.latitude ??
-        selectedVenue?.latitude ??
-        mapVenues[0]?.latitude ??
-        51.5074,
-      longitude:
-        userLocation?.longitude ??
-        selectedVenue?.longitude ??
-        mapVenues[0]?.longitude ??
-        -0.1278,
+      latitude: userLocation?.latitude ?? mapVenues[0]?.latitude ?? 51.5074,
+      longitude: userLocation?.longitude ?? mapVenues[0]?.longitude ?? -0.1278,
       latitudeDelta: 0.08,
       longitudeDelta: 0.08
     }),
-    [selectedVenue, mapVenues, userLocation]
+    [mapVenues, userLocation]
   );
 
-  const handlePanResponder = useMemo(
+  const handlePan = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          Math.abs(gestureState.dy) > 6 &&
-          Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onMoveShouldSetPanResponder: (_, gs) =>
+          Math.abs(gs.dy) > 5 && Math.abs(gs.dy) > Math.abs(gs.dx),
         onPanResponderGrant: () => {
-          translateY.stopAnimation((value) => {
-            dragStartOffsetRef.current = value;
+          sheetAnim.stopAnimation((val) => {
+            dragStart.current = val;
           });
         },
-        onPanResponderMove: (_, gestureState) => {
-          const nextValue = Math.max(
+        onPanResponderMove: (_, gs) => {
+          const next = Math.max(
             0,
-            Math.min(sheetTravel, dragStartOffsetRef.current + gestureState.dy)
+            Math.min(SHEET_TRAVEL, dragStart.current + gs.dy)
           );
-          currentOffsetRef.current = nextValue;
-          translateY.setValue(nextValue);
+          dragCurrent.current = next;
+          sheetAnim.setValue(next);
         },
-        onPanResponderRelease: (_, gestureState) => {
-          const projectedValue = Math.max(
+        onPanResponderRelease: (_, gs) => {
+          const projected = Math.max(
             0,
-            Math.min(sheetTravel, dragStartOffsetRef.current + gestureState.dy)
+            Math.min(SHEET_TRAVEL, dragStart.current + gs.dy)
           );
-          currentOffsetRef.current = projectedValue;
-          const shouldExpand =
-            gestureState.dy < -32 || projectedValue < sheetTravel / 2;
+          dragCurrent.current = projected;
+          const shouldExpand = gs.dy < -28 || projected < SHEET_TRAVEL / 2;
           setSheetExpanded(shouldExpand);
         },
         onPanResponderTerminate: () => {
-          setSheetExpanded(currentOffsetRef.current < sheetTravel / 2);
+          setSheetExpanded(dragCurrent.current < SHEET_TRAVEL / 2);
         }
       }),
-    [sheetTravel, translateY]
+    [sheetAnim]
   );
 
-  function focusVenue(venueId?: string) {
-    if (!venueId) {
-      return;
-    }
+  const focusVenue = useCallback(
+    (venueId?: string) => {
+      if (!venueId) return;
+      const venue = mapVenues.find((v) => v.id === venueId);
+      if (!venue) return;
+      setSelectedVenueId(venue.id);
+      setFeedbackMessage(null);
+      mapRef.current?.animateToRegion(
+        {
+          latitude: venue.latitude,
+          longitude: venue.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02
+        },
+        300
+      );
+    },
+    [mapVenues]
+  );
 
-    const venue = mapVenues.find((item) => item.id === venueId);
-    if (!venue) {
-      return;
-    }
-
-    setSelectedVenueId(venue.id);
-    setFeedbackMessage(null);
+  const goToMyLocation = useCallback(() => {
+    if (!userLocation) return;
     mapRef.current?.animateToRegion(
       {
-        latitude: venue.latitude,
-        longitude: venue.longitude,
-        latitudeDelta: 0.026,
-        longitudeDelta: 0.026
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015
       },
-      320
+      400
     );
-  }
+  }, [userLocation]);
 
-  const activeCheckInPetIds =
-    selectedPetIds.length > 0 ? selectedPetIds : primaryPetIds;
+  const mapPadding = useMemo(
+    () => ({
+      top: insets.top + 72,
+      right: 16,
+      bottom: tabBarOffset + visibleSheetHeight + 60,
+      left: 16
+    }),
+    [insets.top, tabBarOffset, visibleSheetHeight]
+  );
+
+  const legalLabelInsets = useMemo(
+    () => ({
+      top: insets.top + 64,
+      right: 0,
+      bottom: tabBarOffset + visibleSheetHeight + 16,
+      left: 0
+    }),
+    [insets.top, tabBarOffset, visibleSheetHeight]
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}>
@@ -288,122 +396,66 @@ export default function ExplorePage() {
         style={{ flex: 1 }}
         initialRegion={initialRegion}
         showsUserLocation
-        showsMyLocationButton
         showsCompass={false}
         mapPadding={{
-          top: insets.top + 104,
+          top: insets.top + 72,
           right: 16,
-          bottom: tabBarOffset + visibleSheetHeight + 18,
+          bottom: tabBarOffset + visibleSheetHeight + 60,
           left: 16
         }}
+        legalLabelInsets={{
+          top: insets.top + 64,
+          right: 0,
+          bottom: tabBarOffset + visibleSheetHeight + 16,
+          left: 0
+        }}
       >
-        {mapVenues.map((venue) => {
-          const isSelected = selectedVenueId === venue.id;
-          return (
-            <Marker
-              key={venue.id}
-              coordinate={{
-                latitude: venue.latitude,
-                longitude: venue.longitude
-              }}
-              onPress={() => focusVenue(venue.id)}
-            >
-              <View
-                style={{
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                <View
-                  style={{
-                    width: isSelected ? 58 : 52,
-                    height: isSelected ? 58 : 52,
-                    borderRadius: 18,
-                    backgroundColor: isSelected
-                      ? mobileTheme.colors.secondary
-                      : "#FFF7EF",
-                    borderWidth: 2,
-                    borderColor: isSelected
-                      ? "#FFF5ED"
-                      : "rgba(164, 121, 86, 0.20)",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowColor: "#7A4C31",
-                    shadowOpacity: 0.16,
-                    shadowOffset: { width: 0, height: 12 },
-                    shadowRadius: 18,
-                    elevation: 6
-                  }}
-                >
-                  <Text
-                    selectable={false}
-                    style={{
-                      fontSize: 22,
-                      color: isSelected
-                        ? "#FFFFFF"
-                        : mobileTheme.colors.secondary,
-                      textAlign: "center",
-                      lineHeight: 22
-                    }}
-                  >
-                    {markerIcon(venue.category)}
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    position: "absolute",
-                    right: -4,
-                    bottom: -6,
-                    minWidth: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    backgroundColor: mobileTheme.colors.primary,
-                    borderWidth: 2,
-                    borderColor: "#FFF8F1",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    paddingHorizontal: 5
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#FFFFFF",
-                      fontSize: 11,
-                      fontWeight: "800"
-                    }}
-                  >
-                    {venue.currentCheckIns.length}
-                  </Text>
-                </View>
-              </View>
-            </Marker>
-          );
-        })}
+        <VenueMarkers
+          venues={mapVenues}
+          selectedId={selectedVenueId}
+          onSelect={(id) => focusVenue(id)}
+        />
       </MapView>
+
+      <Pressable
+        onPress={goToMyLocation}
+        style={{
+          position: "absolute",
+          bottom: tabBarOffset + visibleSheetHeight + 12,
+          right: 16,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: mobileTheme.colors.white,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: mobileTheme.colors.border,
+          ...mobileTheme.shadow.md
+        }}
+      >
+        <LocateFixed size={20} color={mobileTheme.colors.ink} />
+      </Pressable>
 
       <View
         style={{
           position: "absolute",
-          top: insets.top + 14,
+          top: insets.top + 12,
           left: 16,
           right: 16,
-          gap: 12
+          gap: mobileTheme.spacing.sm
         }}
       >
         {selectedVenue ? (
           <View
             style={{
-              borderRadius: 26,
-              backgroundColor: "rgba(255, 249, 243, 0.97)",
+              borderRadius: mobileTheme.radius.lg,
+              backgroundColor: "rgba(255,255,255,0.97)",
               borderWidth: 1,
               borderColor: mobileTheme.colors.border,
-              padding: 18,
-              gap: 12,
-              shadowColor: "#8A5B3D",
-              shadowOpacity: 0.08,
-              shadowOffset: { width: 0, height: 12 },
-              shadowRadius: 20,
-              elevation: 4
+              padding: mobileTheme.spacing.lg,
+              gap: mobileTheme.spacing.md,
+              ...mobileTheme.shadow.md
             }}
           >
             <View
@@ -411,304 +463,205 @@ export default function ExplorePage() {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "flex-start",
-                gap: 12
+                gap: mobileTheme.spacing.md
               }}
             >
-              <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flex: 1, gap: 3 }}>
                 <Text
                   numberOfLines={2}
                   style={{
                     color: mobileTheme.colors.ink,
-                    fontSize: 21,
-                    fontWeight: "800"
+                    fontSize: mobileTheme.typography.subheading.fontSize,
+                    fontWeight: mobileTheme.typography.subheading.fontWeight,
+                    fontFamily: "Inter_600SemiBold"
                   }}
                 >
                   {selectedVenue.name}
                 </Text>
-                <Text
+                <View
                   style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "700"
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: mobileTheme.spacing.xs
                   }}
                 >
-                  {formatLabel(selectedVenue.category)} •{" "}
-                  {selectedVenue.currentCheckIns.length} checked in
-                </Text>
+                  <MapPin size={12} color={mobileTheme.colors.muted} />
+                  <Text
+                    style={{
+                      color: mobileTheme.colors.muted,
+                      fontSize: mobileTheme.typography.caption.fontSize,
+                      fontFamily: "Inter_400Regular"
+                    }}
+                  >
+                    {formatLabel(selectedVenue.category)}
+                    {selectedVenue.address ? ` · ${selectedVenue.address}` : ""}
+                  </Text>
+                </View>
               </View>
               <Pressable onPress={() => setSelectedVenueId(null)} hitSlop={12}>
-                <Text
-                  selectable={false}
-                  style={{
-                    fontSize: 22,
-                    color: mobileTheme.colors.muted,
-                    lineHeight: 22
-                  }}
-                >
-                  ✕
-                </Text>
+                <X size={18} color={mobileTheme.colors.muted} />
               </Pressable>
             </View>
 
-            <Text
-              numberOfLines={2}
-              style={{ color: mobileTheme.colors.muted, lineHeight: 20 }}
-            >
-              {selectedVenue.address}
-            </Text>
-
-            {selectedVenue.currentCheckIns.length > 0 ? (
-              <View style={{ gap: 8 }}>
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "700",
-                    fontSize: 14
-                  }}
-                >
-                  Who&apos;s here
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ gap: 12 }}
-                >
-                  {selectedVenue.currentCheckIns.map((checkIn) => (
-                    <View
-                      key={checkIn.userId}
+            {selectedVenue.currentCheckIns.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: mobileTheme.spacing.sm }}
+              >
+                {selectedVenue.currentCheckIns.map((ci) => (
+                  <View
+                    key={ci.userId}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: mobileTheme.spacing.sm,
+                      backgroundColor: mobileTheme.colors.background,
+                      borderRadius: mobileTheme.radius.pill,
+                      paddingHorizontal: mobileTheme.spacing.sm + 2,
+                      paddingVertical: mobileTheme.spacing.xs + 2
+                    }}
+                  >
+                    <Avatar uri={ci.avatarUrl} name={ci.userName} size="xs" />
+                    <Text
+                      numberOfLines={1}
                       style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        backgroundColor: "#FFFFFF",
-                        borderRadius: 20,
-                        borderWidth: 1,
-                        borderColor: mobileTheme.colors.border,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        marginRight: 8
+                        fontSize: mobileTheme.typography.micro.fontSize,
+                        fontWeight: "600",
+                        color: mobileTheme.colors.ink,
+                        fontFamily: "Inter_600SemiBold",
+                        maxWidth: 80
                       }}
                     >
-                      <View
+                      {ci.userName}
+                    </Text>
+                    {ci.petNames.length > 0 && (
+                      <Text
+                        numberOfLines={1}
                         style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 999,
-                          backgroundColor: mobileTheme.colors.surface,
-                          overflow: "hidden",
-                          borderWidth: 1,
-                          borderColor: mobileTheme.colors.border,
-                          alignItems: "center",
-                          justifyContent: "center"
+                          fontSize: 10,
+                          color: mobileTheme.colors.muted,
+                          fontFamily: "Inter_400Regular",
+                          maxWidth: 80
                         }}
                       >
-                        {checkIn.avatarUrl ? (
-                          <Image
-                            source={{ uri: checkIn.avatarUrl }}
-                            style={{ width: "100%", height: "100%" }}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <Text
-                            style={{
-                              color: mobileTheme.colors.secondary,
-                              fontWeight: "700",
-                              fontSize: 13
-                            }}
-                          >
-                            {(checkIn.userName || "U")
-                              .slice(0, 1)
-                              .toUpperCase()}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={{ gap: 2 }}>
-                        <Text
-                          selectable
-                          style={{
-                            fontSize: 14,
-                            fontWeight: "700",
-                            color: mobileTheme.colors.ink
-                          }}
-                        >
-                          {checkIn.userName}
-                        </Text>
-                        <Text
-                          selectable
-                          style={{
-                            fontSize: 12,
-                            color: mobileTheme.colors.muted
-                          }}
-                        >
-                          with {checkIn.petNames.join(", ")}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : (
-              <Text
-                numberOfLines={3}
-                style={{ color: mobileTheme.colors.muted, lineHeight: 20 }}
-              >
-                Nobody has checked in yet. Be the first person people see at
-                this pet-friendly spot.
-              </Text>
+                        · {ci.petNames.join(", ")}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
             )}
 
-            {pets.length > 1 ? (
-              <Pressable
-                onPress={openPetPicker}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  borderRadius: 16,
-                  backgroundColor: "#FFFFFF",
-                  borderWidth: 1,
-                  borderColor: mobileTheme.colors.border,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10
-                }}
-              >
-                <Text
-                  selectable
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: mobileTheme.spacing.sm
+              }}
+            >
+              <PrimaryButton
+                label={checkInMutation.isPending ? "Checking in..." : "I'm in"}
+                onPress={() => checkInMutation.mutate(selectedVenue.id)}
+                disabled={
+                  !activeCheckInPetIds.length ||
+                  checkInMutation.isPending ||
+                  !userLocation
+                }
+                size="sm"
+              />
+              {pets.length > 1 ? (
+                <Pressable
+                  onPress={openPetPicker}
                   style={{
-                    color: mobileTheme.colors.ink,
-                    fontWeight: "600",
-                    fontSize: 14
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: mobileTheme.spacing.xs,
+                    paddingHorizontal: mobileTheme.spacing.md,
+                    paddingVertical: mobileTheme.spacing.sm + 2,
+                    borderRadius: mobileTheme.radius.pill,
+                    backgroundColor: mobileTheme.colors.background,
+                    borderWidth: 1,
+                    borderColor: mobileTheme.colors.border
                   }}
                 >
-                  Checking in with:{" "}
-                </Text>
-                <View style={{ flexDirection: "row", gap: 6 }}>
-                  {activeCheckInPetIds.map((petId) => {
-                    const pet = pets.find((p) => p.id === petId);
-                    return pet ? (
-                      <View
-                        key={pet.id}
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 999,
-                          backgroundColor: mobileTheme.colors.surface,
-                          overflow: "hidden",
-                          borderWidth: 1,
-                          borderColor: mobileTheme.colors.border
-                        }}
-                      >
-                        {pet.photos[0]?.url ? (
-                          <Image
-                            source={{ uri: pet.photos[0].url }}
-                            style={{ width: "100%", height: "100%" }}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View
-                            style={{
-                              flex: 1,
-                              alignItems: "center",
-                              justifyContent: "center"
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                fontWeight: "700",
-                                color: mobileTheme.colors.secondary
-                              }}
-                            >
-                              {pet.name.slice(0, 1)}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    ) : null;
-                  })}
-                </View>
-                <Text
-                  selectable={false}
-                  style={{
-                    fontSize: 16,
-                    color: mobileTheme.colors.muted,
-                    lineHeight: 16
-                  }}
-                >
-                  ▼
-                </Text>
-              </Pressable>
-            ) : null}
+                  <Text
+                    style={{
+                      color: mobileTheme.colors.ink,
+                      fontWeight: "600",
+                      fontSize: mobileTheme.typography.micro.fontSize,
+                      fontFamily: "Inter_600SemiBold"
+                    }}
+                  >
+                    {activeCheckInPetIds.length} pet
+                    {activeCheckInPetIds.length !== 1 ? "s" : ""}
+                  </Text>
+                  <ChevronDown size={12} color={mobileTheme.colors.muted} />
+                </Pressable>
+              ) : null}
+            </View>
 
-            {!userLocation ? (
+            {!userLocation && (
               <Text
-                selectable
                 style={{
                   color: mobileTheme.colors.danger,
-                  fontWeight: "600",
-                  lineHeight: 20
+                  fontSize: mobileTheme.typography.micro.fontSize,
+                  fontFamily: "Inter_500Medium"
                 }}
               >
-                Location access is required to check in. Please enable it.
+                Enable location to check in.
               </Text>
-            ) : null}
-
-            <PrimaryButton
-              label={checkInMutation.isPending ? "Checking in..." : "I'm in"}
-              onPress={() => checkInMutation.mutate(selectedVenue.id)}
-              disabled={
-                !activeCheckInPetIds.length ||
-                checkInMutation.isPending ||
-                !userLocation
-              }
-            />
-
-            {!activeCheckInPetIds.length ? (
-              <Text
-                style={{ color: mobileTheme.colors.danger, lineHeight: 20 }}
-              >
-                Add at least one pet profile before checking in.
-              </Text>
-            ) : null}
+            )}
           </View>
         ) : (
           <View
             style={{
               alignSelf: "center",
-              borderRadius: 999,
-              backgroundColor: "rgba(255, 249, 243, 0.97)",
-              borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
-              paddingHorizontal: 16,
-              paddingVertical: 10
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor: "rgba(255,255,255,0.95)",
+              paddingHorizontal: mobileTheme.spacing.lg,
+              paddingVertical: mobileTheme.spacing.sm + 2,
+              ...mobileTheme.shadow.sm
             }}
           >
-            <Text style={{ color: mobileTheme.colors.ink, fontWeight: "700" }}>
+            <Text
+              style={{
+                color: mobileTheme.colors.ink,
+                fontWeight: "600",
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontFamily: "Inter_600SemiBold"
+              }}
+            >
               {mapVenues.length
-                ? "Tap one of your venue pins to see who is there"
-                : "Add pet-friendly venues from the admin panel to bring this map to life"}
+                ? "Tap a pin to see details"
+                : "No venues added yet"}
             </Text>
           </View>
         )}
 
-        {feedbackMessage ? (
+        {feedbackMessage && (
           <View
             style={{
-              borderRadius: 18,
-              backgroundColor: "rgba(255, 249, 243, 0.97)",
-              borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
-              paddingHorizontal: 14,
-              paddingVertical: 10
+              alignSelf: "center",
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor: "rgba(255,255,255,0.95)",
+              paddingHorizontal: mobileTheme.spacing.md,
+              paddingVertical: mobileTheme.spacing.sm,
+              ...mobileTheme.shadow.sm
             }}
           >
             <Text
-              style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}
+              style={{
+                color: mobileTheme.colors.secondary,
+                fontWeight: "600",
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontFamily: "Inter_600SemiBold"
+              }}
             >
               {feedbackMessage}
             </Text>
           </View>
-        ) : null}
+        )}
       </View>
 
       <Modal
@@ -720,7 +673,14 @@ export default function ExplorePage() {
         <View
           style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}
         >
-          <View style={{ padding: 20, gap: 16, paddingBottom: 36, flex: 1 }}>
+          <View
+            style={{
+              padding: mobileTheme.spacing.xl,
+              gap: mobileTheme.spacing.lg,
+              paddingBottom: 36,
+              flex: 1
+            }}
+          >
             <View
               style={{
                 flexDirection: "row",
@@ -728,52 +688,22 @@ export default function ExplorePage() {
                 alignItems: "center"
               }}
             >
-              <View style={{ gap: 4 }}>
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "700",
-                    letterSpacing: 1
-                  }}
-                >
-                  CHECK IN WITH
-                </Text>
-                <Text
-                  selectable
-                  style={{
-                    fontSize: 28,
-                    fontWeight: "800",
-                    color: mobileTheme.colors.ink
-                  }}
-                >
-                  Select your pet
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setPetPickerOpen(false)}
+              <Text
                 style={{
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: mobileTheme.colors.border,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  backgroundColor: "#FFFFFF"
+                  fontSize: mobileTheme.typography.heading.fontSize,
+                  fontWeight: mobileTheme.typography.heading.fontWeight,
+                  color: mobileTheme.colors.ink,
+                  fontFamily: "Inter_700Bold"
                 }}
               >
-                <Text
-                  selectable
-                  style={{
-                    color: mobileTheme.colors.secondary,
-                    fontWeight: "700"
-                  }}
-                >
-                  Cancel
-                </Text>
+                Check in with
+              </Text>
+              <Pressable onPress={() => setPetPickerOpen(false)}>
+                <X size={20} color={mobileTheme.colors.ink} />
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ gap: 12 }}>
+            <ScrollView contentContainerStyle={{ gap: mobileTheme.spacing.md }}>
               {pets.map((pet) => {
                 const isSelected = selectedPetIds.includes(pet.id);
                 return (
@@ -782,109 +712,72 @@ export default function ExplorePage() {
                     onPress={() => togglePetSelection(pet.id)}
                     style={{
                       flexDirection: "row",
-                      gap: 14,
-                      padding: 14,
-                      borderRadius: 24,
-                      backgroundColor: "#FFFFFF",
+                      gap: mobileTheme.spacing.md,
+                      padding: mobileTheme.spacing.lg,
+                      borderRadius: mobileTheme.radius.lg,
+                      backgroundColor: mobileTheme.colors.white,
                       borderWidth: isSelected ? 2 : 1,
                       borderColor: isSelected
-                        ? mobileTheme.colors.secondary
+                        ? mobileTheme.colors.primary
                         : mobileTheme.colors.border,
-                      alignItems: "center"
+                      alignItems: "center",
+                      ...mobileTheme.shadow.sm
                     }}
                   >
-                    <View
-                      style={{
-                        width: 60,
-                        height: 60,
-                        borderRadius: 18,
-                        backgroundColor: mobileTheme.colors.surface,
-                        overflow: "hidden"
-                      }}
-                    >
-                      {pet.photos[0]?.url ? (
-                        <Image
-                          source={{ uri: pet.photos[0].url }}
-                          style={{ width: "100%", height: "100%" }}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View
-                          style={{
-                            flex: 1,
-                            alignItems: "center",
-                            justifyContent: "center"
-                          }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 22,
-                              fontWeight: "700",
-                              color: mobileTheme.colors.secondary
-                            }}
-                          >
-                            {pet.name.slice(0, 1)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={{ flex: 1, gap: 4 }}>
+                    <Avatar
+                      uri={pet.photos[0]?.url}
+                      name={pet.name}
+                      size="md"
+                    />
+                    <View style={{ flex: 1, gap: 2 }}>
                       <Text
-                        selectable
                         style={{
-                          fontSize: 18,
-                          fontWeight: "700",
-                          color: mobileTheme.colors.ink
+                          fontSize:
+                            mobileTheme.typography.bodySemiBold.fontSize,
+                          fontWeight:
+                            mobileTheme.typography.bodySemiBold.fontWeight,
+                          color: mobileTheme.colors.ink,
+                          fontFamily: "Inter_700Bold"
                         }}
                       >
                         {pet.name}
                       </Text>
                       <Text
-                        selectable
                         style={{
                           color: mobileTheme.colors.muted,
-                          fontSize: 14
+                          fontSize: mobileTheme.typography.caption.fontSize,
+                          fontFamily: "Inter_400Regular"
                         }}
                       >
-                        {pet.speciesLabel} • {pet.breedLabel}
+                        {pet.speciesLabel} &middot; {pet.breedLabel}
                       </Text>
                     </View>
                     <View
                       style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 999,
+                        width: 24,
+                        height: 24,
+                        borderRadius: 12,
                         backgroundColor: isSelected
-                          ? mobileTheme.colors.secondary
+                          ? mobileTheme.colors.primary
                           : "transparent",
                         borderWidth: 2,
                         borderColor: isSelected
-                          ? mobileTheme.colors.secondary
+                          ? mobileTheme.colors.primary
                           : mobileTheme.colors.border,
                         alignItems: "center",
                         justifyContent: "center"
                       }}
                     >
-                      {isSelected ? (
-                        <Text
-                          selectable={false}
-                          style={{
-                            fontSize: 16,
-                            color: "#FFFFFF",
-                            fontWeight: "700",
-                            lineHeight: 16
-                          }}
-                        >
-                          ✓
-                        </Text>
-                      ) : null}
+                      {isSelected && (
+                        <Check size={14} color={mobileTheme.colors.white} />
+                      )}
                     </View>
                   </Pressable>
                 );
               })}
             </ScrollView>
 
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: mobileTheme.spacing.sm }}>
               <PrimaryButton
                 label="Confirm check-in"
                 disabled={selectedPetIds.length === 0}
@@ -900,7 +793,8 @@ export default function ExplorePage() {
                   style={{
                     color: mobileTheme.colors.danger,
                     textAlign: "center",
-                    fontSize: 14
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontFamily: "Inter_500Medium"
                   }}
                 >
                   Select at least one pet to check in.
@@ -916,77 +810,96 @@ export default function ExplorePage() {
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: tabBarOffset - 30,
-          height: EXPANDED_SHEET_HEIGHT,
-          transform: [{ translateY }]
+          bottom: tabBarOffset - 24,
+          height: EXPANDED_SHEET,
+          transform: [{ translateY: sheetAnim }]
         }}
       >
         <View
           style={{
             flex: 1,
-            borderTopLeftRadius: 32,
-            borderTopRightRadius: 32,
-            backgroundColor: "rgba(255, 248, 242, 0.985)",
-            borderWidth: 1,
-            borderColor: mobileTheme.colors.border,
-            paddingTop: 10,
-            shadowColor: "#8A5B3D",
-            shadowOpacity: 0.12,
-            shadowOffset: { width: 0, height: -10 },
-            shadowRadius: 20,
-            elevation: 8
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            backgroundColor: mobileTheme.colors.white,
+            shadowColor: "#000",
+            shadowOpacity: 0.08,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: -4 },
+            elevation: 12
           }}
         >
           <View
-            {...handlePanResponder.panHandlers}
+            {...handlePan.panHandlers}
             style={{
               alignItems: "center",
-              paddingTop: 6,
-              paddingBottom: 14
+              paddingTop: 10,
+              paddingBottom: 4
             }}
           >
             <View
               style={{
-                width: 58,
-                height: 6,
-                borderRadius: 999,
+                width: 36,
+                height: 4,
+                borderRadius: 2,
                 backgroundColor: mobileTheme.colors.border
               }}
             />
           </View>
 
-          <View style={{ paddingHorizontal: 18, paddingBottom: 14, gap: 6 }}>
-            <Text
-              style={{
-                color: mobileTheme.colors.secondary,
-                fontWeight: "800",
-                letterSpacing: 1
-              }}
-            >
-              EVENTS
-            </Text>
-            <Text
-              style={{
-                color: mobileTheme.colors.ink,
-                fontSize: 24,
-                fontWeight: "800"
-              }}
-            >
-              Upcoming pet-friendly plans
-            </Text>
-            <Text style={{ color: mobileTheme.colors.muted, lineHeight: 21 }}>
-              Pull up from the handle to open the full event list, pull it back
-              down from the same handle to minimize.
-            </Text>
+          <View
+            style={{
+              paddingHorizontal: mobileTheme.spacing.xl,
+              paddingBottom: mobileTheme.spacing.md,
+              paddingTop: mobileTheme.spacing.sm,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center"
+            }}
+          >
+            <View>
+              <Text
+                style={{
+                  color: mobileTheme.colors.ink,
+                  fontSize: mobileTheme.typography.subheading.fontSize,
+                  fontWeight: mobileTheme.typography.subheading.fontWeight,
+                  fontFamily: "Inter_600SemiBold"
+                }}
+              >
+                Events
+              </Text>
+              <Text
+                style={{
+                  color: mobileTheme.colors.muted,
+                  fontSize: mobileTheme.typography.micro.fontSize,
+                  fontFamily: "Inter_500Medium"
+                }}
+              >
+                Upcoming near you
+              </Text>
+            </View>
+            {events.length > 0 && (
+              <Pressable onPress={() => setSheetExpanded((e) => !e)}>
+                <Text
+                  style={{
+                    color: mobileTheme.colors.primary,
+                    fontWeight: "600",
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontFamily: "Inter_600SemiBold"
+                  }}
+                >
+                  {sheetExpanded ? "Collapse" : "See all"}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           <ScrollView
             showsVerticalScrollIndicator={false}
             scrollEnabled={sheetExpanded}
             contentContainerStyle={{
-              gap: 12,
-              paddingHorizontal: 18,
-              paddingBottom: 18
+              gap: mobileTheme.spacing.md,
+              paddingHorizontal: mobileTheme.spacing.xl,
+              paddingBottom: mobileTheme.spacing.xl
             }}
           >
             {events.length ? (
@@ -995,10 +908,10 @@ export default function ExplorePage() {
                   key={event.id}
                   onPress={() => focusVenue(event.venueId)}
                   style={{
-                    gap: 10,
-                    padding: 16,
-                    borderRadius: 24,
-                    backgroundColor: "#FFFFFF",
+                    gap: mobileTheme.spacing.sm,
+                    padding: mobileTheme.spacing.lg,
+                    borderRadius: mobileTheme.radius.lg,
+                    backgroundColor: mobileTheme.colors.background,
                     borderWidth: 1,
                     borderColor: mobileTheme.colors.border
                   }}
@@ -1007,93 +920,126 @@ export default function ExplorePage() {
                     style={{
                       flexDirection: "row",
                       justifyContent: "space-between",
-                      gap: 12,
+                      gap: mobileTheme.spacing.md,
                       alignItems: "flex-start"
                     }}
                   >
-                    <View style={{ flex: 1, gap: 4 }}>
+                    <View style={{ flex: 1, gap: 2 }}>
                       <Text
                         style={{
                           color: mobileTheme.colors.ink,
-                          fontSize: 18,
-                          fontWeight: "800"
+                          fontSize:
+                            mobileTheme.typography.bodySemiBold.fontSize,
+                          fontWeight:
+                            mobileTheme.typography.bodySemiBold.fontWeight,
+                          fontFamily: "Inter_700Bold"
                         }}
                       >
                         {event.title}
                       </Text>
                       <Text
                         style={{
-                          color: mobileTheme.colors.secondary,
-                          fontWeight: "700"
+                          color: mobileTheme.colors.muted,
+                          fontSize: mobileTheme.typography.caption.fontSize,
+                          fontFamily: "Inter_500Medium"
                         }}
                       >
-                        {formatLabel(event.audience)} •{" "}
+                        {formatLabel(event.audience)} &middot;{" "}
                         {formatLabel(event.petFocus)}
                       </Text>
                     </View>
-                    <View style={{ width: 96 }}>
+                    <View style={{ width: 80 }}>
                       <PrimaryButton
-                        label={rsvpMutation.isPending ? "Joining..." : "I'm in"}
+                        label={rsvpMutation.isPending ? "..." : "Join"}
                         variant="ghost"
                         onPress={() => rsvpMutation.mutate(event.id)}
                         disabled={
                           !primaryPetIds.length || rsvpMutation.isPending
                         }
+                        size="sm"
                       />
                     </View>
                   </View>
 
-                  <Text
-                    style={{ color: mobileTheme.colors.muted, lineHeight: 21 }}
-                  >
-                    {event.description}
-                  </Text>
+                  {event.description ? (
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        color: mobileTheme.colors.muted,
+                        lineHeight: mobileTheme.typography.body.lineHeight,
+                        fontSize: mobileTheme.typography.body.fontSize,
+                        fontFamily: "Inter_400Regular"
+                      }}
+                    >
+                      {event.description}
+                    </Text>
+                  ) : null}
 
-                  <Text
-                    style={{ color: mobileTheme.colors.muted, lineHeight: 20 }}
-                  >
-                    {new Date(event.startsAt).toLocaleString("en-GB")} •{" "}
-                    {event.venueName || event.cityLabel}
-                  </Text>
-
-                  <Text
+                  <View
                     style={{
-                      color: mobileTheme.colors.secondary,
-                      fontWeight: "800"
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: mobileTheme.spacing.sm
                     }}
                   >
-                    {event.attendeeCount} attending
-                  </Text>
+                    <Calendar size={14} color={mobileTheme.colors.muted} />
+                    <Text
+                      style={{
+                        color: mobileTheme.colors.muted,
+                        fontSize: mobileTheme.typography.micro.fontSize,
+                        fontFamily: "Inter_500Medium"
+                      }}
+                    >
+                      {new Date(event.startsAt).toLocaleString("en-GB")}
+                    </Text>
+                    {event.venueName && (
+                      <Text
+                        style={{
+                          color: mobileTheme.colors.muted,
+                          fontSize: mobileTheme.typography.micro.fontSize,
+                          fontFamily: "Inter_500Medium"
+                        }}
+                      >
+                        &middot; {event.venueName}
+                      </Text>
+                    )}
+                    <View style={{ flex: 1 }} />
+                    <Text
+                      style={{
+                        color: mobileTheme.colors.secondary,
+                        fontWeight: "600",
+                        fontSize: mobileTheme.typography.micro.fontSize,
+                        fontFamily: "Inter_600SemiBold"
+                      }}
+                    >
+                      {event.attendeeCount} going
+                    </Text>
+                  </View>
                 </Pressable>
               ))
             ) : (
               <View
                 style={{
-                  borderRadius: 24,
-                  padding: 18,
-                  backgroundColor: "#FFFFFF",
+                  padding: mobileTheme.spacing.xl,
+                  borderRadius: mobileTheme.radius.lg,
+                  backgroundColor: mobileTheme.colors.background,
                   borderWidth: 1,
-                  borderColor: mobileTheme.colors.border
+                  borderColor: mobileTheme.colors.border,
+                  alignItems: "center",
+                  gap: mobileTheme.spacing.sm
                 }}
               >
-                <Text
-                  style={{
-                    color: mobileTheme.colors.ink,
-                    fontSize: 18,
-                    fontWeight: "800"
-                  }}
-                >
-                  No events yet
-                </Text>
+                <Calendar size={24} color={mobileTheme.colors.muted} />
                 <Text
                   style={{
                     color: mobileTheme.colors.muted,
-                    lineHeight: 21,
-                    marginTop: 6
+                    lineHeight: mobileTheme.typography.body.lineHeight,
+                    textAlign: "center",
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    fontFamily: "Inter_400Regular"
                   }}
                 >
-                  Admin-created events will appear here automatically once you
-                  add them from the panel.
+                  Events will appear here once added from the admin panel.
                 </Text>
               </View>
             )}

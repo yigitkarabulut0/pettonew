@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,8 @@ export default function PetsPage() {
     queryFn: getPets
   });
   const mutation = useMutation({
-    mutationFn: ({ petId, hidden }: { petId: string; hidden: boolean }) => updatePetVisibility(petId, hidden),
+    mutationFn: ({ petId, hidden }: { petId: string; hidden: boolean }) =>
+      updatePetVisibility(petId, hidden),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-pets"] });
     }
@@ -22,21 +24,44 @@ export default function PetsPage() {
 
   return (
     <Card>
-      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Pets</p>
-      <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Discovery inventory</h1>
+      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        Pets
+      </p>
+      <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
+        Discovery inventory
+      </h1>
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {pets.map((pet) => (
-          <div key={pet.id} className="rounded-[28px] border border-[var(--petto-border)] bg-white/70 p-5">
+          <div
+            key={pet.id}
+            className="rounded-[28px] border border-[var(--petto-border)] bg-white/70 p-5"
+          >
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-2xl text-[var(--petto-ink)]">{pet.name}</h2>
-              <Badge tone={pet.isHidden ? "warning" : "success"}>{pet.isHidden ? "Hidden" : "Visible"}</Badge>
+              <Badge tone={pet.isHidden ? "warning" : "success"}>
+                {pet.isHidden ? "Hidden" : "Visible"}
+              </Badge>
             </div>
             <p className="mt-2 text-sm text-[var(--petto-secondary)]">
-              {pet.speciesLabel} • {pet.breedLabel} • {pet.cityLabel}
+              {pet.speciesLabel} &middot; {pet.breedLabel} &middot;{" "}
+              {pet.cityLabel}
             </p>
-            <p className="mt-3 text-sm leading-6 text-[var(--petto-muted)]">{pet.bio}</p>
+            <p className="mt-3 text-sm leading-6 text-[var(--petto-muted)]">
+              {pet.bio}
+            </p>
             <div className="mt-5 flex gap-2">
-              <Button variant="ghost" onClick={() => mutation.mutate({ petId: pet.id, hidden: !pet.isHidden })}>
+              <Link
+                href={`/pets/${pet.id}`}
+                className="inline-flex items-center justify-center rounded-full border border-[var(--petto-border)] bg-white/60 px-4 py-2.5 text-sm font-semibold text-[var(--petto-secondary)] transition-all hover:bg-white"
+              >
+                View details
+              </Link>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  mutation.mutate({ petId: pet.id, hidden: !pet.isHidden })
+                }
+              >
                 {pet.isHidden ? "Show in discovery" : "Hide from discovery"}
               </Button>
             </div>
@@ -46,4 +71,3 @@ export default function PetsPage() {
     </Card>
   );
 }
-

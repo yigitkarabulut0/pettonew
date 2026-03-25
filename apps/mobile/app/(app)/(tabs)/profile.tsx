@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Image, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LogOut, PlusCircle } from "lucide-react-native";
 
+import { Avatar } from "@/components/avatar";
 import { CompactPetCard, PetDetailModal } from "@/components/pet-card";
 import { PrimaryButton } from "@/components/primary-button";
-import { ScreenShell } from "@/components/screen-shell";
 import { listMyPets } from "@/lib/api";
 import { mobileTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -15,6 +17,7 @@ export default function ProfilePage() {
   const clearSession = useSessionStore((state) => state.clearSession);
   const activePetId = useSessionStore((state) => state.activePetId);
   const setActivePetId = useSessionStore((state) => state.setActivePetId);
+  const insets = useSafeAreaInsets();
   const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
   const { data: pets = [] } = useQuery({
     queryKey: ["my-pets", session?.tokens.accessToken],
@@ -22,118 +25,234 @@ export default function ProfilePage() {
     enabled: Boolean(session)
   });
 
-  const selectedPet = useMemo(() => pets.find((pet) => pet.id === selectedPetId) ?? null, [pets, selectedPetId]);
-  const activePet = useMemo(() => pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null, [pets, activePetId]);
+  const selectedPet = useMemo(
+    () => pets.find((pet) => pet.id === selectedPetId) ?? null,
+    [pets, selectedPetId]
+  );
+  const activePet = useMemo(
+    () => pets.find((pet) => pet.id === activePetId) ?? pets[0] ?? null,
+    [pets, activePetId]
+  );
 
   return (
-    <ScreenShell
-      eyebrow="Profile"
-      title={session?.user.firstName ? `${session.user.firstName}'s space` : "Your profile"}
-      subtitle="Keep your own profile clean, choose your active pet, and open any pet card to review every detail."
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}
+      contentContainerStyle={{
+        paddingHorizontal: mobileTheme.spacing.xl,
+        paddingBottom: 120,
+        gap: mobileTheme.spacing.xl
+      }}
     >
       <View
         style={{
-          borderRadius: 30,
-          padding: 20,
-          backgroundColor: mobileTheme.colors.surface,
-          gap: 18
+          paddingTop: insets.top + mobileTheme.spacing.md,
+          paddingBottom: mobileTheme.spacing.sm
         }}
       >
-        <View style={{ flexDirection: "row", gap: 16, alignItems: "center" }}>
-          <View
-            style={{
-              width: 82,
-              height: 82,
-              borderRadius: 999,
-              overflow: "hidden",
-              backgroundColor: "#FFFFFF",
-              borderWidth: 1,
-              borderColor: mobileTheme.colors.border,
-              alignItems: "center",
-              justifyContent: "center"
-            }}
-          >
-            {session?.user.avatarUrl ? (
-              <Image source={{ uri: session.user.avatarUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-            ) : (
-              <Text selectable style={{ color: mobileTheme.colors.muted, fontWeight: "700" }}>
-                No photo
-              </Text>
-            )}
-          </View>
-          <View style={{ flex: 1, gap: 6 }}>
-            <Text selectable style={{ fontSize: 28, fontWeight: "800", color: mobileTheme.colors.ink }}>
+        <Text
+          style={{
+            fontSize: mobileTheme.typography.display.fontSize,
+            fontWeight: mobileTheme.typography.display.fontWeight,
+            color: mobileTheme.colors.ink,
+            fontFamily: "Inter_800ExtraBold",
+            lineHeight: mobileTheme.typography.display.lineHeight
+          }}
+        >
+          Profile
+        </Text>
+      </View>
+
+      <View
+        style={{
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white,
+          padding: mobileTheme.spacing.xl,
+          gap: mobileTheme.spacing.xl,
+          ...mobileTheme.shadow.sm
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            gap: mobileTheme.spacing.lg,
+            alignItems: "center"
+          }}
+        >
+          <Avatar
+            uri={session?.user.avatarUrl}
+            name={session?.user.firstName}
+            size="xl"
+          />
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.heading.fontSize,
+                fontWeight: mobileTheme.typography.heading.fontWeight,
+                color: mobileTheme.colors.ink,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
               {session?.user.firstName} {session?.user.lastName}
             </Text>
-            <Text selectable style={{ color: mobileTheme.colors.secondary, fontWeight: "700" }}>
-              {session?.user.cityLabel || "Location not shared yet"}
+            <Text
+              style={{
+                color: mobileTheme.colors.muted,
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {session?.user.cityLabel || "Location not shared"}
             </Text>
-            <Text selectable style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}>
-              {session?.user.bio || "Add a short human bio so other pet parents know who they are meeting."}
-            </Text>
+            {session?.user.bio ? (
+              <Text
+                numberOfLines={2}
+                style={{
+                  color: mobileTheme.colors.muted,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  fontFamily: "Inter_400Regular",
+                  lineHeight: mobileTheme.typography.body.lineHeight
+                }}
+              >
+                {session.user.bio}
+              </Text>
+            ) : null}
           </View>
         </View>
 
-        <View style={{ flexDirection: "row", gap: 12 }}>
+        <View style={{ flexDirection: "row", gap: mobileTheme.spacing.md }}>
           <StatCard label="Pets" value={String(pets.length)} />
-          <StatCard label="Active pet" value={activePet?.name || "None"} />
+          <StatCard label="Active" value={activePet?.name ?? "None"} />
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <PrimaryButton label="Edit profile" variant="secondary" onPress={() => router.push("/(app)/onboarding/profile")} />
-          <PrimaryButton label="Update location" variant="ghost" onPress={() => router.push("/(app)/onboarding/location")} />
-          <PrimaryButton label="Add another pet" variant="ghost" onPress={() => router.push("/(app)/onboarding/pets")} />
+        <View
+          style={{
+            flexDirection: "row",
+            gap: mobileTheme.spacing.sm,
+            flexWrap: "wrap"
+          }}
+        >
+          <PrimaryButton
+            label="Edit profile"
+            variant="secondary"
+            onPress={() => router.push("/(app)/onboarding/profile")}
+            size="sm"
+          />
+          <PrimaryButton
+            label="Location"
+            variant="ghost"
+            onPress={() => router.push("/(app)/onboarding/location")}
+            size="sm"
+          />
+          <PrimaryButton
+            label="Add pet"
+            variant="ghost"
+            onPress={() => router.push("/(app)/onboarding/pets")}
+            size="sm"
+          />
         </View>
       </View>
 
-      <View style={{ gap: 12 }}>
-        <Text selectable style={{ fontSize: 24, fontWeight: "800", color: mobileTheme.colors.ink }}>
+      <View style={{ gap: mobileTheme.spacing.md }}>
+        <Text
+          style={{
+            fontSize: mobileTheme.typography.subheading.fontSize,
+            fontWeight: mobileTheme.typography.subheading.fontWeight,
+            color: mobileTheme.colors.ink,
+            fontFamily: "Inter_600SemiBold"
+          }}
+        >
           Your pets
-        </Text>
-        <Text selectable style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}>
-          Tap any pet card to open the full profile and check exactly what you added.
         </Text>
         {pets.length ? (
           pets.map((pet) => (
-            <View key={pet.id} style={{ gap: 10 }}>
-              <CompactPetCard pet={pet} isActive={pet.id === activePetId} onPress={() => setSelectedPetId(pet.id)} />
+            <View key={pet.id} style={{ gap: mobileTheme.spacing.sm }}>
+              <CompactPetCard
+                pet={pet}
+                isActive={pet.id === activePetId}
+                onPress={() => setSelectedPetId(pet.id)}
+              />
               <PrimaryButton
-                label={pet.id === activePetId ? "Currently active" : "Use as active pet"}
+                label={
+                  pet.id === activePetId ? "Currently active" : "Use as active"
+                }
                 variant={pet.id === activePetId ? "secondary" : "ghost"}
                 onPress={() => setActivePetId(pet.id)}
+                size="sm"
               />
             </View>
           ))
         ) : (
           <View
             style={{
-              borderRadius: 28,
-              padding: 20,
-              backgroundColor: mobileTheme.colors.surface,
-              gap: 8
+              padding: mobileTheme.spacing.xl,
+              borderRadius: mobileTheme.radius.lg,
+              backgroundColor: mobileTheme.colors.white,
+              alignItems: "center",
+              gap: mobileTheme.spacing.md,
+              ...mobileTheme.shadow.sm
             }}
           >
-            <Text selectable style={{ fontSize: 22, fontWeight: "800", color: mobileTheme.colors.ink }}>
+            <PlusCircle size={32} color={mobileTheme.colors.muted} />
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+                color: mobileTheme.colors.ink,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
               No pets yet
             </Text>
-            <Text selectable style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}>
+            <Text
+              style={{
+                color: mobileTheme.colors.muted,
+                fontSize: mobileTheme.typography.body.fontSize,
+                fontFamily: "Inter_400Regular",
+                textAlign: "center"
+              }}
+            >
               Add your first pet to unlock discovery, matches, and chat.
             </Text>
           </View>
         )}
       </View>
 
-      <PrimaryButton
-        label="Sign out"
-        variant="ghost"
+      <Pressable
         onPress={() => {
           clearSession();
           router.replace("/");
         }}
-      />
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: mobileTheme.spacing.sm,
+          paddingVertical: mobileTheme.spacing.md,
+          borderRadius: mobileTheme.radius.pill,
+          borderWidth: 1,
+          borderColor: mobileTheme.colors.borderStrong
+        }}
+      >
+        <LogOut size={16} color={mobileTheme.colors.danger} />
+        <Text
+          style={{
+            color: mobileTheme.colors.danger,
+            fontWeight: "600",
+            fontSize: mobileTheme.typography.caption.fontSize,
+            fontFamily: "Inter_600SemiBold"
+          }}
+        >
+          Sign out
+        </Text>
+      </Pressable>
 
-      <PetDetailModal pet={selectedPet} visible={Boolean(selectedPet)} onClose={() => setSelectedPetId(null)} />
-    </ScreenShell>
+      <PetDetailModal
+        pet={selectedPet}
+        visible={Boolean(selectedPet)}
+        onClose={() => setSelectedPetId(null)}
+      />
+    </ScrollView>
   );
 }
 
@@ -142,18 +261,33 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <View
       style={{
         flex: 1,
-        borderRadius: 24,
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: mobileTheme.colors.border,
-        padding: 16,
-        gap: 6
+        borderRadius: mobileTheme.radius.md,
+        backgroundColor: mobileTheme.colors.background,
+        padding: mobileTheme.spacing.lg,
+        gap: mobileTheme.spacing.xs
       }}
     >
-      <Text selectable style={{ color: mobileTheme.colors.muted, fontSize: 12, fontWeight: "700", letterSpacing: 1 }}>
-        {label.toUpperCase()}
+      <Text
+        style={{
+          color: mobileTheme.colors.muted,
+          fontSize: mobileTheme.typography.label.fontSize,
+          fontWeight: mobileTheme.typography.label.fontWeight,
+          fontFamily: "Inter_700Bold",
+          letterSpacing: mobileTheme.typography.label.letterSpacing,
+          textTransform: "uppercase"
+        }}
+      >
+        {label}
       </Text>
-      <Text selectable numberOfLines={1} style={{ color: mobileTheme.colors.ink, fontSize: 20, fontWeight: "800" }}>
+      <Text
+        numberOfLines={1}
+        style={{
+          color: mobileTheme.colors.ink,
+          fontSize: mobileTheme.typography.subheading.fontSize,
+          fontWeight: mobileTheme.typography.subheading.fontWeight,
+          fontFamily: "Inter_600SemiBold"
+        }}
+      >
         {value}
       </Text>
     </View>

@@ -3,7 +3,6 @@ import { useLocalSearchParams, Stack, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,7 +10,9 @@ import {
   TextInput,
   View
 } from "react-native";
+import { ChevronLeft, Send } from "lucide-react-native";
 
+import { Avatar } from "@/components/avatar";
 import { listMessages, sendMessage } from "@/lib/api";
 import { mobileTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -83,46 +84,50 @@ export default function ConversationPage() {
       key={msg.id}
       style={{
         alignSelf: msg.isMine ? "flex-end" : "flex-start",
-        maxWidth: "80%",
-        marginHorizontal: 14,
-        marginBottom: 4
+        maxWidth: "78%",
+        marginHorizontal: mobileTheme.spacing.lg,
+        marginBottom: mobileTheme.spacing.sm
       }}
     >
       <View
         style={{
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderRadius: 20,
+          paddingHorizontal: mobileTheme.spacing.lg,
+          paddingVertical: mobileTheme.spacing.sm + 4,
+          borderRadius: mobileTheme.radius.lg,
           backgroundColor: msg.isMine
-            ? mobileTheme.colors.secondary
-            : "#FFFFFF",
-          borderTopRightRadius: msg.isMine ? 4 : 20,
-          borderTopLeftRadius: msg.isMine ? 20 : 4,
-          shadowColor: "#000",
-          shadowOpacity: 0.04,
-          shadowRadius: 4,
-          shadowOffset: { width: 0, height: 1 }
+            ? mobileTheme.colors.primary
+            : mobileTheme.colors.white,
+          borderTopRightRadius: msg.isMine
+            ? mobileTheme.radius.xs
+            : mobileTheme.radius.lg,
+          borderTopLeftRadius: msg.isMine
+            ? mobileTheme.radius.lg
+            : mobileTheme.radius.xs,
+          ...mobileTheme.shadow.sm
         }}
       >
         <Text
           selectable
           style={{
-            color: msg.isMine ? "#FFFFFF" : mobileTheme.colors.ink,
-            lineHeight: 21,
-            fontSize: 15
+            color: msg.isMine
+              ? mobileTheme.colors.white
+              : mobileTheme.colors.ink,
+            lineHeight: mobileTheme.typography.body.lineHeight,
+            fontSize: mobileTheme.typography.body.fontSize,
+            fontFamily: "Inter_400Regular"
           }}
         >
           {msg.body}
         </Text>
       </View>
       <Text
-        selectable
         style={{
-          fontSize: 11,
+          fontSize: 10,
           color: mobileTheme.colors.muted,
-          marginTop: 4,
-          marginHorizontal: 4,
-          alignSelf: msg.isMine ? "flex-end" : "flex-start"
+          marginTop: 3,
+          marginHorizontal: mobileTheme.spacing.sm,
+          alignSelf: msg.isMine ? "flex-end" : "flex-start",
+          fontFamily: "Inter_400Regular"
         }}
       >
         {new Date(msg.createdAt).toLocaleTimeString("en-GB", {
@@ -135,7 +140,7 @@ export default function ConversationPage() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#F5F0EB" }}
+      style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -144,11 +149,11 @@ export default function ConversationPage() {
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 12,
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-          paddingTop: 60,
-          backgroundColor: "#FFFFFF",
+          gap: mobileTheme.spacing.md,
+          paddingHorizontal: mobileTheme.spacing.lg,
+          paddingVertical: mobileTheme.spacing.md,
+          paddingTop: mobileTheme.spacing["3xl"],
+          backgroundColor: mobileTheme.colors.white,
           borderBottomWidth: 1,
           borderBottomColor: mobileTheme.colors.border
         }}
@@ -156,52 +161,39 @@ export default function ConversationPage() {
         <Pressable
           onPress={() => router.back()}
           hitSlop={12}
-          style={{ padding: 4 }}
-        >
-          <Text
-            selectable
-            style={{
-              color: mobileTheme.colors.secondary,
-              fontSize: 28,
-              fontWeight: "300"
-            }}
-          >
-            ‹
-          </Text>
-        </Pressable>
-        <View
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 999,
-            backgroundColor: mobileTheme.colors.surface,
-            overflow: "hidden"
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: mobileTheme.colors.background,
+            alignItems: "center",
+            justifyContent: "center"
           }}
         >
-          <Image
-            source={
-              session?.user.avatarUrl
-                ? { uri: session.user.avatarUrl }
-                : undefined
-            }
-            style={{ width: "100%", height: "100%" }}
-            resizeMode="cover"
-          />
-        </View>
+          <ChevronLeft size={20} color={mobileTheme.colors.ink} />
+        </Pressable>
+        <Avatar
+          uri={session?.user.avatarUrl}
+          name={session?.user.firstName}
+          size="sm"
+        />
         <View style={{ flex: 1 }}>
           <Text
-            selectable
             style={{
-              fontSize: 17,
-              fontWeight: "700",
-              color: mobileTheme.colors.ink
+              fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+              fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+              color: mobileTheme.colors.ink,
+              fontFamily: "Inter_700Bold"
             }}
           >
             Conversation
           </Text>
           <Text
-            selectable
-            style={{ fontSize: 13, color: mobileTheme.colors.muted }}
+            style={{
+              fontSize: mobileTheme.typography.micro.fontSize,
+              color: mobileTheme.colors.likeGreen,
+              fontFamily: "Inter_600SemiBold"
+            }}
           >
             Online
           </Text>
@@ -213,24 +205,29 @@ export default function ConversationPage() {
         data={groupedMessages}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingVertical: 12 }}
+        contentContainerStyle={{ paddingVertical: mobileTheme.spacing.md }}
         renderItem={({ item: group }) => (
           <View>
-            <View style={{ alignItems: "center", marginVertical: 12 }}>
+            <View
+              style={{
+                alignItems: "center",
+                marginVertical: mobileTheme.spacing.md
+              }}
+            >
               <View
                 style={{
-                  backgroundColor: "rgba(164, 121, 86, 0.12)",
-                  borderRadius: 12,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6
+                  backgroundColor: mobileTheme.colors.secondarySoft,
+                  borderRadius: mobileTheme.radius.pill,
+                  paddingHorizontal: mobileTheme.spacing.md,
+                  paddingVertical: mobileTheme.spacing.xs + 2
                 }}
               >
                 <Text
-                  selectable
                   style={{
-                    fontSize: 12,
+                    fontSize: mobileTheme.typography.micro.fontSize,
                     fontWeight: "600",
-                    color: mobileTheme.colors.secondary
+                    color: mobileTheme.colors.secondary,
+                    fontFamily: "Inter_600SemiBold"
                   }}
                 >
                   {group.date}
@@ -246,11 +243,11 @@ export default function ConversationPage() {
         style={{
           flexDirection: "row",
           alignItems: "flex-end",
-          gap: 10,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          paddingBottom: 34,
-          backgroundColor: "#FFFFFF",
+          gap: mobileTheme.spacing.sm,
+          paddingHorizontal: mobileTheme.spacing.lg,
+          paddingVertical: mobileTheme.spacing.sm,
+          paddingBottom: mobileTheme.spacing["3xl"],
+          backgroundColor: mobileTheme.colors.white,
           borderTopWidth: 1,
           borderTopColor: mobileTheme.colors.border
         }}
@@ -263,13 +260,15 @@ export default function ConversationPage() {
           multiline
           style={{
             flex: 1,
-            borderRadius: 24,
-            backgroundColor: "#F5F0EB",
-            paddingHorizontal: 18,
-            paddingVertical: 12,
+            borderRadius: mobileTheme.radius.pill,
+            backgroundColor: mobileTheme.colors.background,
+            paddingHorizontal: mobileTheme.spacing.lg,
+            paddingVertical: mobileTheme.spacing.sm + 4,
             maxHeight: 120,
-            fontSize: 15,
-            color: mobileTheme.colors.ink
+            fontSize: mobileTheme.typography.body.fontSize,
+            color: mobileTheme.colors.ink,
+            fontFamily: "Inter_400Regular",
+            lineHeight: mobileTheme.typography.body.lineHeight
           }}
         />
         <Pressable
@@ -278,19 +277,22 @@ export default function ConversationPage() {
           style={{
             width: 44,
             height: 44,
-            borderRadius: 999,
+            borderRadius: 22,
             backgroundColor: draft.trim()
-              ? mobileTheme.colors.secondary
-              : "#D4C5B9",
+              ? mobileTheme.colors.primary
+              : mobileTheme.colors.border,
             alignItems: "center",
             justifyContent: "center",
             marginBottom: 2,
             opacity: mutation.isPending ? 0.5 : 1
           }}
         >
-          <Text style={{ color: "#FFFFFF", fontSize: 18, fontWeight: "700" }}>
-            ↑
-          </Text>
+          <Send
+            size={18}
+            color={
+              draft.trim() ? mobileTheme.colors.white : mobileTheme.colors.muted
+            }
+          />
         </Pressable>
       </View>
     </KeyboardAvoidingView>

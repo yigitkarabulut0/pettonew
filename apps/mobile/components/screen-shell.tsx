@@ -1,4 +1,5 @@
 import { ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { mobileTheme } from "@/lib/theme";
 
@@ -7,14 +8,17 @@ interface ScreenShellProps {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  noBottomPadding?: boolean;
 }
 
 export function ScreenShell({
   eyebrow,
   title,
   subtitle,
-  children
+  children,
+  noBottomPadding = false
 }: ScreenShellProps) {
+  const insets = useSafeAreaInsets();
   return (
     <View
       style={{
@@ -23,51 +27,53 @@ export function ScreenShell({
       }}
     >
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
-          padding: 20,
-          gap: 18,
-          paddingBottom: 132
+          padding: mobileTheme.spacing.xl,
+          gap: mobileTheme.spacing.xl,
+          paddingBottom: noBottomPadding ? mobileTheme.spacing.xl : 120
         }}
       >
         <View
           style={{
-            gap: 6,
-            paddingTop: 12
+            gap: mobileTheme.spacing.sm,
+            paddingTop: insets.top + mobileTheme.spacing.md
           }}
         >
           {eyebrow ? (
             <Text
-              selectable
               style={{
                 color: mobileTheme.colors.primary,
                 textTransform: "uppercase",
-                letterSpacing: 1.6,
-                fontSize: 12,
-                fontWeight: "700"
+                letterSpacing: mobileTheme.typography.label.letterSpacing,
+                fontSize: mobileTheme.typography.label.fontSize,
+                fontWeight: mobileTheme.typography.label.fontWeight,
+                fontFamily: "Inter_700Bold"
               }}
             >
               {eyebrow}
             </Text>
           ) : null}
           <Text
-            selectable
             style={{
               color: mobileTheme.colors.ink,
-              fontSize: 34,
-              lineHeight: 38,
-              fontWeight: "700"
+              fontSize: mobileTheme.typography.display.fontSize,
+              lineHeight: mobileTheme.typography.display.lineHeight,
+              fontWeight: mobileTheme.typography.display.fontWeight,
+              letterSpacing: mobileTheme.typography.display.letterSpacing,
+              fontFamily: "Inter_800ExtraBold"
             }}
           >
             {title}
           </Text>
           {subtitle ? (
             <Text
-              selectable
               style={{
                 color: mobileTheme.colors.muted,
-                fontSize: 16,
-                lineHeight: 24
+                fontSize: mobileTheme.typography.body.fontSize,
+                lineHeight: mobileTheme.typography.body.lineHeight,
+                fontFamily: "Inter_400Regular"
               }}
             >
               {subtitle}

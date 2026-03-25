@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 import { router } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
+import { MapPin } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
@@ -88,29 +89,39 @@ export default function LocationOnboardingPage() {
     >
       <View
         style={{
-          gap: 16,
-          padding: 20,
-          borderRadius: 28,
-          backgroundColor: mobileTheme.colors.surface,
-          borderWidth: 1,
-          borderColor: mobileTheme.colors.border
+          gap: mobileTheme.spacing.lg,
+          padding: mobileTheme.spacing.xl,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: mobileTheme.colors.white,
+          ...mobileTheme.shadow.sm
         }}
       >
-        <View
+        <Text
+          selectable
           style={{
-            gap: 10,
-            borderRadius: 22,
-            padding: 18,
-            backgroundColor: "#FFFDFC"
+            ...mobileTheme.typography.micro,
+            color: mobileTheme.colors.muted,
+            fontFamily: "Inter_600SemiBold"
           }}
         >
+          Step 1 of 3
+        </Text>
+
+        <View
+          style={{
+            gap: mobileTheme.spacing.md,
+            borderRadius: mobileTheme.radius.lg,
+            padding: mobileTheme.spacing.xl,
+            backgroundColor: mobileTheme.colors.background
+          }}
+        >
+          <MapPin size={20} color={mobileTheme.colors.primary} />
           <Text
             selectable
             style={{
+              ...mobileTheme.typography.label,
               color: mobileTheme.colors.secondary,
-              fontWeight: "700",
-              fontSize: 13,
-              letterSpacing: 0.4
+              fontFamily: "Inter_700Bold"
             }}
           >
             Current location
@@ -118,17 +129,20 @@ export default function LocationOnboardingPage() {
           <Text
             selectable
             style={{
+              ...mobileTheme.typography.subheading,
               color: mobileTheme.colors.ink,
-              fontSize: 24,
-              lineHeight: 30,
-              fontWeight: "700"
+              fontFamily: "Inter_600SemiBold"
             }}
           >
             {resolvedLabel || "Not shared yet"}
           </Text>
           <Text
             selectable
-            style={{ color: mobileTheme.colors.muted, lineHeight: 22 }}
+            style={{
+              ...mobileTheme.typography.body,
+              color: mobileTheme.colors.muted,
+              fontFamily: "Inter_400Regular"
+            }}
           >
             {statusText}
           </Text>
@@ -141,7 +155,11 @@ export default function LocationOnboardingPage() {
         {errorMessage ? (
           <Text
             selectable
-            style={{ color: mobileTheme.colors.danger, lineHeight: 22 }}
+            style={{
+              ...mobileTheme.typography.body,
+              color: mobileTheme.colors.danger,
+              fontFamily: "Inter_400Regular"
+            }}
           >
             {errorMessage}
           </Text>

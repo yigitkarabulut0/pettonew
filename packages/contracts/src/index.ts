@@ -4,8 +4,19 @@ export type SwipeDirection = "like" | "pass" | "super-like";
 export type MatchStatus = "active" | "blocked" | "archived";
 export type ReportStatus = "open" | "in_review" | "resolved";
 export type UserStatus = "active" | "suspended" | "pending_verification";
-export type TaxonomyKind = "species" | "breeds" | "hobbies" | "compatibility" | "cities";
-export type VenueCategory = "park" | "cafe" | "bar" | "beach" | "trail" | "other";
+export type TaxonomyKind =
+  | "species"
+  | "breeds"
+  | "hobbies"
+  | "compatibility"
+  | "cities";
+export type VenueCategory =
+  | "park"
+  | "cafe"
+  | "bar"
+  | "beach"
+  | "trail"
+  | "other";
 export type EventAudience = "everyone" | "women-only" | "men-only";
 export type EventPetFocus = "all-pets" | "dogs-only" | "cats-only";
 
@@ -67,10 +78,12 @@ export interface MatchPreview {
   pet: Pet;
   matchedPet: Pet;
   matchedOwnerName: string;
+  matchedOwnerAvatarUrl?: string;
   lastMessagePreview: string;
   unreadCount: number;
   createdAt: string;
   status: MatchStatus;
+  conversationId: string;
 }
 
 export interface Message {
@@ -83,6 +96,15 @@ export interface Message {
   isMine: boolean;
 }
 
+export interface MatchPetPair {
+  myPetId: string;
+  myPetName: string;
+  myPetPhotoUrl?: string;
+  matchedPetId: string;
+  matchedPetName: string;
+  matchedPetPhotoUrl?: string;
+}
+
 export interface Conversation {
   id: string;
   matchId: string;
@@ -91,6 +113,8 @@ export interface Conversation {
   unreadCount: number;
   lastMessageAt: string;
   messages: Message[];
+  userIds: string[];
+  matchPetPairs: MatchPetPair[];
 }
 
 export interface TaxonomyItem {
@@ -140,7 +164,10 @@ export interface ExploreEvent {
 
 export interface HomePost {
   id: string;
-  author: Pick<UserProfile, "id" | "firstName" | "lastName" | "avatarUrl" | "cityLabel">;
+  author: Pick<
+    UserProfile,
+    "id" | "firstName" | "lastName" | "avatarUrl" | "cityLabel"
+  >;
   body: string;
   imageUrl?: string;
   taggedPets: Pet[];
@@ -186,6 +213,12 @@ export interface AdminUserDetail {
   totalLikesReceived: number;
 }
 
+export interface AdminPetDetail {
+  pet: Pet;
+  owner: UserProfile;
+  matches: MatchPreview[];
+}
+
 export interface ReportSummary {
   id: string;
   reason: string;
@@ -224,10 +257,12 @@ export const PETTO_COPY = {
   brandName: "Petto",
   brandTagline: "Meaningful matches for pets and their people.",
   emptyStates: {
-    discovery: "No new pets nearby right now. Try broadening your filters later.",
+    discovery:
+      "No new pets nearby right now. Try broadening your filters later.",
     inbox: "No conversations yet. Start with a like and let the pets lead.",
     pets: "Add your first pet to unlock discovery.",
     home: "No posts yet. Share the first update from your pet world.",
-    explore: "No nearby spots or events yet. Add a place from the admin panel to bring this map to life."
+    explore:
+      "No nearby spots or events yet. Add a place from the admin panel to bring this map to life."
   }
 } as const;

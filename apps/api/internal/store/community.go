@@ -366,6 +366,20 @@ func (s *MemoryStore) ListPostsAdmin() []domain.HomePost {
 	return s.ListHomeFeed("")
 }
 
+func (s *MemoryStore) DeletePost(postID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.posts[postID]; !ok {
+		return fmt.Errorf("post not found")
+	}
+
+	delete(s.posts, postID)
+	delete(s.postLikes, postID)
+	delete(s.postCreatedAt, postID)
+	return nil
+}
+
 func (s *MemoryStore) likesReceivedForUser(userID string) int {
 	total := 0
 	for postID, post := range s.posts {

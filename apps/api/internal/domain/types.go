@@ -53,14 +53,16 @@ type OwnerBrief struct {
 }
 
 type MatchPreview struct {
-	ID                 string `json:"id"`
-	Pet                Pet    `json:"pet"`
-	MatchedPet         Pet    `json:"matchedPet"`
-	MatchedOwnerName   string `json:"matchedOwnerName"`
-	LastMessagePreview string `json:"lastMessagePreview"`
-	UnreadCount        int    `json:"unreadCount"`
-	CreatedAt          string `json:"createdAt"`
-	Status             string `json:"status"`
+	ID                    string `json:"id"`
+	Pet                   Pet    `json:"pet"`
+	MatchedPet            Pet    `json:"matchedPet"`
+	MatchedOwnerName      string `json:"matchedOwnerName"`
+	MatchedOwnerAvatarURL string `json:"matchedOwnerAvatarUrl,omitempty"`
+	LastMessagePreview    string `json:"lastMessagePreview"`
+	UnreadCount           int    `json:"unreadCount"`
+	CreatedAt             string `json:"createdAt"`
+	Status                string `json:"status"`
+	ConversationID        string `json:"conversationId"`
 }
 
 type Message struct {
@@ -73,14 +75,25 @@ type Message struct {
 	IsMine          bool   `json:"isMine"`
 }
 
+type MatchPetPair struct {
+	MyPetID            string `json:"myPetId"`
+	MyPetName          string `json:"myPetName"`
+	MyPetPhotoURL      string `json:"myPetPhotoUrl,omitempty"`
+	MatchedPetID       string `json:"matchedPetId"`
+	MatchedPetName     string `json:"matchedPetName"`
+	MatchedPetPhotoURL string `json:"matchedPetPhotoUrl,omitempty"`
+}
+
 type Conversation struct {
-	ID            string    `json:"id"`
-	MatchID       string    `json:"matchId"`
-	Title         string    `json:"title"`
-	Subtitle      string    `json:"subtitle"`
-	UnreadCount   int       `json:"unreadCount"`
-	LastMessageAt string    `json:"lastMessageAt"`
-	Messages      []Message `json:"messages"`
+	ID            string         `json:"id"`
+	MatchID       string         `json:"matchId"`
+	Title         string         `json:"title"`
+	Subtitle      string         `json:"subtitle"`
+	UnreadCount   int            `json:"unreadCount"`
+	LastMessageAt string         `json:"lastMessageAt"`
+	Messages      []Message      `json:"messages"`
+	UserIDs       []string       `json:"userIds"`
+	MatchPetPairs []MatchPetPair `json:"matchPetPairs"`
 }
 
 type TaxonomyItem struct {
@@ -177,6 +190,12 @@ type AdminUserDetail struct {
 	Conversations      []Conversation `json:"conversations"`
 	Posts              []HomePost     `json:"posts"`
 	TotalLikesReceived int            `json:"totalLikesReceived"`
+}
+
+type AdminPetDetail struct {
+	Pet     Pet            `json:"pet"`
+	Owner   UserProfile    `json:"owner"`
+	Matches []MatchPreview `json:"matches"`
 }
 
 type AppUser struct {

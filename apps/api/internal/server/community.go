@@ -80,6 +80,15 @@ func (s *Server) handleAdminPosts(writer http.ResponseWriter, request *http.Requ
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListPostsAdmin()})
 }
 
+func (s *Server) handleAdminDeletePost(writer http.ResponseWriter, request *http.Request) {
+	postID := chi.URLParam(request, "postID")
+	if err := s.store.DeletePost(postID); err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]string{"id": postID}})
+}
+
 func (s *Server) handleAdminVenues(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListVenues()})
 }
