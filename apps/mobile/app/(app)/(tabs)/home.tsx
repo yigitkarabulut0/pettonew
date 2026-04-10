@@ -245,6 +245,7 @@ export default function HomePage() {
           <LottieLoading size={70} />
         </View>
       ) : (
+      <>
       {/* Cat animation behind the scroll - visible during pull down */}
       <Animated.View
         pointerEvents="none"
@@ -395,6 +396,7 @@ export default function HomePage() {
           </View>
         )}
       </Animated.ScrollView>
+      </>
       )}
 
       <Modal visible={composerOpen} animationType="slide">
