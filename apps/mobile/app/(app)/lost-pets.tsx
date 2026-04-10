@@ -343,32 +343,19 @@ function DetailModal({
     listing.petAge === 1 ? "1 yr" : `${listing.petAge} yrs`;
 
   const handleCall = () => {
-    if (listing.contactPhone) {
-      Linking.openURL(`tel:${listing.contactPhone}`).catch(() => {
-        Linking.openURL(`sms:${listing.contactPhone}&body=Hi, I'm interested in adopting ${listing.petName} from Pett.`).catch(() => {});
-      });
-    }
+    if (!listing.contactPhone) return;
+    Linking.openURL(`tel:${listing.contactPhone}`);
   };
 
   const handleEmail = () => {
-    if (listing.contactEmail) {
-      Linking.openURL(
-        `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}&body=Hi, I saw ${listing.petName} on Pett. and I'm interested in adopting.`
-      ).catch(() => {});
-    }
+    if (!listing.contactEmail) return;
+    Linking.openURL(`mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`);
   };
 
   const handleContact = () => {
-    // Open SMS with pre-filled message
-    const phone = listing.contactPhone;
-    const name = listing.petName;
-    if (phone) {
-      Linking.openURL(`sms:${phone}&body=Hi! I found ${name} on Pett. and I'd love to learn more about adopting. Is ${name} still available?`).catch(() => {
-        if (listing.contactEmail) handleEmail();
-      });
-    } else if (listing.contactEmail) {
-      handleEmail();
-    }
+    // Open in-app conversation with the listing owner
+    onClose();
+    router.push(`/(app)/conversations`);
   };
 
   return (
@@ -770,7 +757,7 @@ function DetailModal({
               </View>
 
               <PrimaryButton
-                label="Contact to Adopt"
+                label="Message to Adopt"
                 onPress={handleContact}
               />
             </View>
@@ -992,8 +979,7 @@ export default function AdoptionPage() {
 
   const canSubmit =
     petName.trim().length > 0 &&
-    petAge.trim().length > 0 &&
-    (contactPhone.trim().length > 0 || contactEmail.trim().length > 0);
+    petAge.trim().length > 0;
 
   /* --- render --- */
   if (!tutorialChecked) {
