@@ -369,7 +369,7 @@ export function PetDetailModal({
             <Pressable
               onPress={() => {
                 Share.share({
-                  message: `Check out ${pet.name} on Petto! ${pet.speciesLabel} - ${pet.breedLabel}. Download Petto to find playmates for your pet.`,
+                  message: `Check out ${pet.name} on Pett.! ${pet.speciesLabel} - ${pet.breedLabel}. Download Pett. to find playmates for your pet.`,
                   title: `Meet ${pet.name} on Petto`
                 });
               }}

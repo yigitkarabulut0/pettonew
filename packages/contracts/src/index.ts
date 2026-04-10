@@ -517,7 +517,7 @@ export interface ApiResponse<T> {
 }
 
 export const PETTO_COPY = {
-  brandName: "Petto",
+  brandName: "Pett.",
   brandTagline: "Meaningful matches for pets and their people.",
   emptyStates: {
     discovery:

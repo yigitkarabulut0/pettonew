@@ -274,7 +274,7 @@ export default function PetSittersPage() {
                 <Pressable
                   onPress={() =>
                     Linking.openURL(
-                      `sms:?body=Hi ${sitter.name}, I found you on Petto and would like to inquire about your pet sitting services.`
+                      `sms:?body=Hi ${sitter.name}, I found you on Pett. and would like to inquire about your pet sitting services.`
                     )
                   }
                   style={({ pressed }) => ({

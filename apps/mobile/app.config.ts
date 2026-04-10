@@ -1,11 +1,17 @@
 export default {
-  name: "Petto",
+  name: "Pett.",
   slug: "petto-mobile",
   scheme: "petto",
   version: "0.1.0",
   orientation: "portrait",
   userInterfaceStyle: "light",
   newArchEnabled: true,
+  icon: "./assets/images/icon.png",
+  splash: {
+    image: "./assets/images/splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#E6694A"
+  },
   experiments: {
     typedRoutes: true
   },
@@ -17,7 +23,7 @@ export default {
       "expo-location",
       {
         locationWhenInUsePermission:
-          "Petto uses your current location to show nearby pet matches."
+          "Pett. uses your current location to show nearby pet matches."
       }
     ]
   ],
@@ -30,12 +36,16 @@ export default {
     supportsTablet: true,
     bundleIdentifier: "app.petto.mobile",
     infoPlist: {
-      ITSAppUsesNonExemptEncryption: false
+      ITSAppUsesNonExemptEncryption: false,
+      NSAppTransportSecurity: {
+        NSAllowsArbitraryLoads: true
+      }
     }
   },
   android: {
     package: "app.petto.mobile",
     adaptiveIcon: {
+      foregroundImage: "./assets/images/adaptive-icon.png",
       backgroundColor: "#E6694A"
     }
   }
