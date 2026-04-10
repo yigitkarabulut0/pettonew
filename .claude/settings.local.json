@@ -56,7 +56,13 @@
       "Bash(curl -s -X POST http://148.230.123.242/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"demo@petto.app\",\"password\":\"Demo1234!\"}')",
       "Bash(curl -s -X POST http://148.230.123.242/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"demo@petto.app\",\"password\":\"Demo1234!\"}')",
       "Bash(curl -s -X POST http://148.230.123.242/v1/admin/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"owner@petto.app\",\"password\":\"Admin123!\"}')",
-      "Bash(git commit -m 'fix: update Neon DB credentials for production:*)"
+      "Bash(git commit -m 'fix: update Neon DB credentials for production:*)",
+      "Bash(psql \"postgresql://neondb_owner:npg_dTO1QrFgyXA8@ep-long-firefly-an4728wm-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require\" -c \"\\\\dt\")",
+      "Bash(psql \"postgresql://neondb_owner:npg_dTO1QrFgyXA8@ep-long-firefly-an4728wm-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require\" -c \"SELECT id, length\\(snapshot::text\\) as snapshot_size, updated_at FROM app_state\")",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"persist-test@petto.app\",\"password\":\"Test1234!\"}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('User ID:', d['data']['user']['id']\\)\")",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"persist-test@petto.app\",\"password\":\"Test1234!\"}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Login OK - User:', d['data']['user']['email']\\)\")"
     ]
   }
 }

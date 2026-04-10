@@ -11,27 +11,47 @@ import (
 )
 
 type snapshotState struct {
-	Users              map[string]*domain.AppUser       `json:"users"`
-	UsersByEmail       map[string]string                `json:"usersByEmail"`
-	AdminsByEmail      map[string]*domain.AdminUser     `json:"adminsByEmail"`
-	Pets               map[string]*domain.Pet           `json:"pets"`
-	Swipes             map[string]map[string]string     `json:"swipes"`
-	Matches            map[string]*domain.MatchPreview  `json:"matches"`
-	Conversations      map[string]*domain.Conversation  `json:"conversations"`
-	Posts              map[string]*domain.HomePost      `json:"posts"`
-	PostLikes          map[string]map[string]struct{}   `json:"postLikes"`
-	Venues             map[string]*domain.ExploreVenue  `json:"venues"`
-	Events             map[string]*domain.ExploreEvent  `json:"events"`
-	PetCreatedAt       map[string]time.Time             `json:"petCreatedAt"`
-	MatchCreatedAt     map[string]time.Time             `json:"matchCreatedAt"`
-	PostCreatedAt      map[string]time.Time             `json:"postCreatedAt"`
-	EventCreatedAt     map[string]time.Time             `json:"eventCreatedAt"`
-	VerificationTokens map[string]string                `json:"verificationTokens"`
-	ResetTokens        map[string]string                `json:"resetTokens"`
-	Taxonomies         map[string][]domain.TaxonomyItem `json:"taxonomies"`
-	Reports            []domain.ReportSummary           `json:"reports"`
-	PushTokens         map[string][]domain.PushToken    `json:"pushTokens"`
-	Notifications      []domain.Notification            `json:"notifications"`
+	Users              map[string]*domain.AppUser          `json:"users"`
+	UsersByEmail       map[string]string                   `json:"usersByEmail"`
+	AdminsByEmail      map[string]*domain.AdminUser        `json:"adminsByEmail"`
+	Pets               map[string]*domain.Pet              `json:"pets"`
+	Swipes             map[string]map[string]string        `json:"swipes"`
+	Matches            map[string]*domain.MatchPreview     `json:"matches"`
+	Conversations      map[string]*domain.Conversation     `json:"conversations"`
+	Posts              map[string]*domain.HomePost         `json:"posts"`
+	PostLikes          map[string]map[string]struct{}      `json:"postLikes"`
+	Venues             map[string]*domain.ExploreVenue     `json:"venues"`
+	Events             map[string]*domain.ExploreEvent     `json:"events"`
+	PetCreatedAt       map[string]time.Time                `json:"petCreatedAt"`
+	MatchCreatedAt     map[string]time.Time                `json:"matchCreatedAt"`
+	PostCreatedAt      map[string]time.Time                `json:"postCreatedAt"`
+	EventCreatedAt     map[string]time.Time                `json:"eventCreatedAt"`
+	VerificationTokens map[string]string                   `json:"verificationTokens"`
+	ResetTokens        map[string]string                   `json:"resetTokens"`
+	Taxonomies         map[string][]domain.TaxonomyItem    `json:"taxonomies"`
+	Reports            []domain.ReportSummary              `json:"reports"`
+	PushTokens         map[string][]domain.PushToken       `json:"pushTokens"`
+	Notifications      []domain.Notification               `json:"notifications"`
+	Favorites          map[string]map[string]bool           `json:"favorites"`
+	DiaryEntries       map[string][]domain.DiaryEntry       `json:"diaryEntries"`
+	HealthRecords      map[string][]domain.HealthRecord     `json:"healthRecords"`
+	WeightEntries      map[string][]domain.WeightEntry      `json:"weightEntries"`
+	VetContacts        map[string][]domain.VetContact       `json:"vetContacts"`
+	FeedingSchedules   map[string][]domain.FeedingSchedule  `json:"feedingSchedules"`
+	Playdates          map[string]*domain.Playdate          `json:"playdates"`
+	Groups             map[string]*domain.CommunityGroup    `json:"groups"`
+	LostPetAlerts      map[string]*domain.LostPetAlert      `json:"lostPetAlerts"`
+	Badges             map[string][]domain.Badge            `json:"badges"`
+	TrainingTips       []domain.TrainingTip                 `json:"trainingTips"`
+	PetSitters         map[string]*domain.PetSitter         `json:"petSitters"`
+	VetClinics         map[string]*domain.VetClinic         `json:"vetClinics"`
+	VenueReviews       map[string][]domain.VenueReview      `json:"venueReviews"`
+	TipBookmarks       map[string]map[string]bool           `json:"tipBookmarks"`
+	TipCompleted       map[string]map[string]bool           `json:"tipCompleted"`
+	WalkRoutes         map[string]*domain.WalkRoute         `json:"walkRoutes"`
+	Adoptions          map[string]*domain.AdoptionListing   `json:"adoptions"`
+	PetAlbums          map[string][]domain.PetAlbum         `json:"petAlbums"`
+	PetMilestones      map[string][]domain.PetMilestone     `json:"petMilestones"`
 }
 
 type PersistentStore struct {
@@ -147,6 +167,26 @@ func (s *PersistentStore) captureState() snapshotState {
 		Reports:            s.reports,
 		PushTokens:         s.pushTokens,
 		Notifications:      s.notifications,
+		Favorites:          s.favorites,
+		DiaryEntries:       s.diaryEntries,
+		HealthRecords:      s.healthRecords,
+		WeightEntries:      s.weightEntries,
+		VetContacts:        s.vetContacts,
+		FeedingSchedules:   s.feedingSchedules,
+		Playdates:          s.playdates,
+		Groups:             s.groups,
+		LostPetAlerts:      s.lostPetAlerts,
+		Badges:             s.badges,
+		TrainingTips:       s.trainingTips,
+		PetSitters:         s.petSitters,
+		VetClinics:         s.vetClinics,
+		VenueReviews:       s.venueReviews,
+		TipBookmarks:       s.tipBookmarks,
+		TipCompleted:       s.tipCompleted,
+		WalkRoutes:         s.walkRoutes,
+		Adoptions:          s.adoptions,
+		PetAlbums:          s.petAlbums,
+		PetMilestones:      s.petMilestones,
 	}
 }
 
@@ -178,6 +218,66 @@ func (s *PersistentStore) applyState(state snapshotState) {
 	}
 	if state.Notifications != nil {
 		s.notifications = state.Notifications
+	}
+	if state.Favorites != nil {
+		s.favorites = state.Favorites
+	}
+	if state.DiaryEntries != nil {
+		s.diaryEntries = state.DiaryEntries
+	}
+	if state.HealthRecords != nil {
+		s.healthRecords = state.HealthRecords
+	}
+	if state.WeightEntries != nil {
+		s.weightEntries = state.WeightEntries
+	}
+	if state.VetContacts != nil {
+		s.vetContacts = state.VetContacts
+	}
+	if state.FeedingSchedules != nil {
+		s.feedingSchedules = state.FeedingSchedules
+	}
+	if state.Playdates != nil {
+		s.playdates = state.Playdates
+	}
+	if state.Groups != nil {
+		s.groups = state.Groups
+	}
+	if state.LostPetAlerts != nil {
+		s.lostPetAlerts = state.LostPetAlerts
+	}
+	if state.Badges != nil {
+		s.badges = state.Badges
+	}
+	if state.TrainingTips != nil {
+		s.trainingTips = state.TrainingTips
+	}
+	if state.PetSitters != nil {
+		s.petSitters = state.PetSitters
+	}
+	if state.VetClinics != nil {
+		s.vetClinics = state.VetClinics
+	}
+	if state.VenueReviews != nil {
+		s.venueReviews = state.VenueReviews
+	}
+	if state.TipBookmarks != nil {
+		s.tipBookmarks = state.TipBookmarks
+	}
+	if state.TipCompleted != nil {
+		s.tipCompleted = state.TipCompleted
+	}
+	if state.WalkRoutes != nil {
+		s.walkRoutes = state.WalkRoutes
+	}
+	if state.Adoptions != nil {
+		s.adoptions = state.Adoptions
+	}
+	if state.PetAlbums != nil {
+		s.petAlbums = state.PetAlbums
+	}
+	if state.PetMilestones != nil {
+		s.petMilestones = state.PetMilestones
 	}
 }
 
@@ -345,6 +445,144 @@ func (s *PersistentStore) SavePushToken(userID string, token string, platform st
 func (s *PersistentStore) SaveNotification(notification domain.Notification) {
 	s.MemoryStore.SaveNotification(notification)
 	_ = s.persist(context.Background())
+}
+
+func (s *PersistentStore) AddFavorite(userID string, petID string) error {
+	return s.persistAfter(s.MemoryStore.AddFavorite(userID, petID))
+}
+
+func (s *PersistentStore) RemoveFavorite(userID string, petID string) error {
+	return s.persistAfter(s.MemoryStore.RemoveFavorite(userID, petID))
+}
+
+func (s *PersistentStore) CreateDiaryEntry(userID string, petID string, body string, imageURL *string, mood string) domain.DiaryEntry {
+	entry := s.MemoryStore.CreateDiaryEntry(userID, petID, body, imageURL, mood)
+	_ = s.persist(context.Background())
+	return entry
+}
+
+func (s *PersistentStore) CreateHealthRecord(petID string, record domain.HealthRecord) domain.HealthRecord {
+	result := s.MemoryStore.CreateHealthRecord(petID, record)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) DeleteHealthRecord(petID string, recordID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteHealthRecord(petID, recordID))
+}
+
+func (s *PersistentStore) CreateWeightEntry(petID string, entry domain.WeightEntry) domain.WeightEntry {
+	result := s.MemoryStore.CreateWeightEntry(petID, entry)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) CreateVetContact(userID string, contact domain.VetContact) domain.VetContact {
+	result := s.MemoryStore.CreateVetContact(userID, contact)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) DeleteVetContact(userID string, contactID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteVetContact(userID, contactID))
+}
+
+func (s *PersistentStore) CreateFeedingSchedule(petID string, schedule domain.FeedingSchedule) domain.FeedingSchedule {
+	result := s.MemoryStore.CreateFeedingSchedule(petID, schedule)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) DeleteFeedingSchedule(petID string, scheduleID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteFeedingSchedule(petID, scheduleID))
+}
+
+func (s *PersistentStore) CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate {
+	result := s.MemoryStore.CreatePlaydate(userID, playdate)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) JoinPlaydate(userID string, playdateID string) error {
+	return s.persistAfter(s.MemoryStore.JoinPlaydate(userID, playdateID))
+}
+
+func (s *PersistentStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {
+	result := s.MemoryStore.CreateGroup(group)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) JoinGroup(userID string, groupID string) error {
+	return s.persistAfter(s.MemoryStore.JoinGroup(userID, groupID))
+}
+
+func (s *PersistentStore) CreateLostPetAlert(alert domain.LostPetAlert) domain.LostPetAlert {
+	result := s.MemoryStore.CreateLostPetAlert(alert)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) UpdateLostPetStatus(alertID string, status string) error {
+	return s.persistAfter(s.MemoryStore.UpdateLostPetStatus(alertID, status))
+}
+
+func (s *PersistentStore) AwardBadge(userID string, badgeType string, title string, description string) {
+	s.MemoryStore.AwardBadge(userID, badgeType, title, description)
+	_ = s.persist(context.Background())
+}
+
+func (s *PersistentStore) CreateTrainingTip(tip domain.TrainingTip) domain.TrainingTip {
+	result := s.MemoryStore.CreateTrainingTip(tip)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) CreatePetSitter(sitter domain.PetSitter) domain.PetSitter {
+	result := s.MemoryStore.CreatePetSitter(sitter)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) MarkMessagesRead(userID string, conversationID string) {
+	s.MemoryStore.MarkMessagesRead(userID, conversationID)
+	_ = s.persist(context.Background())
+}
+
+func (s *PersistentStore) CreateWalkRoute(route domain.WalkRoute) domain.WalkRoute {
+	result := s.MemoryStore.CreateWalkRoute(route)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) DeleteWalkRoute(routeID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteWalkRoute(routeID))
+}
+
+func (s *PersistentStore) CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing {
+	result := s.MemoryStore.CreateAdoption(listing)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) UpdateAdoptionStatus(listingID string, status string) error {
+	return s.persistAfter(s.MemoryStore.UpdateAdoptionStatus(listingID, status))
+}
+
+func (s *PersistentStore) CreatePetAlbum(album domain.PetAlbum) domain.PetAlbum {
+	result := s.MemoryStore.CreatePetAlbum(album)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) AwardMilestone(petID string, milestoneType string, title string, description string) {
+	s.MemoryStore.AwardMilestone(petID, milestoneType, title, description)
+	_ = s.persist(context.Background())
+}
+
+func (s *PersistentStore) SendGroupMessage(userID string, groupID string, body string) (domain.Message, error) {
+	msg, err := s.MemoryStore.SendGroupMessage(userID, groupID, body)
+	return msg, s.persistAfter(err)
 }
 
 func defaultUsers(value map[string]*domain.AppUser) map[string]*domain.AppUser {
