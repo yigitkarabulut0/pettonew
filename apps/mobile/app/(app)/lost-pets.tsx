@@ -331,9 +331,10 @@ function DetailModal({
 
   if (!listing) return null;
 
+  const safePhotos = listing.photos ?? [];
   const allPhotos =
-    listing.photos.length > 0
-      ? listing.photos
+    safePhotos.length > 0
+      ? safePhotos
       : listing.imageUrl
         ? [{ id: "main", url: listing.imageUrl, isPrimary: true }]
         : [];
@@ -565,7 +566,7 @@ function DetailModal({
             </View>
 
             {/* Character traits */}
-            {listing.characterTraits.length > 0 && (
+            {(listing.characterTraits ?? []).length > 0 && (
               <View>
                 <Text
                   style={{
@@ -584,7 +585,7 @@ function DetailModal({
                     gap: mobileTheme.spacing.sm
                   }}
                 >
-                  {listing.characterTraits.map((trait, idx) => {
+                  {(listing.characterTraits ?? []).map((trait, idx) => {
                     const chipColor =
                       TRAIT_COLORS[idx % TRAIT_COLORS.length];
                     return (
@@ -1567,7 +1568,7 @@ export default function AdoptionPage() {
 
         {/* Pet cards */}
         {listings.map((listing) => {
-          const primaryPhoto = listing.photos.find((p) => p.isPrimary);
+          const primaryPhoto = (listing.photos ?? []).find((p) => p.isPrimary);
           const photoUrl =
             primaryPhoto?.url || listing.imageUrl || null;
           const ageLabel =
