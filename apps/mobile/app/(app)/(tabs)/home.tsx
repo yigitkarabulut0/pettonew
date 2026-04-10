@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   Text,
   TextInput,
   View
