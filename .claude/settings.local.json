@@ -78,7 +78,8 @@
       "Bash(git commit -m 'tweak: bigger paw, name at bottom only, no slogan:*)",
       "Bash(git commit -m 'tweak: even bigger paw 420px:*)",
       "Bash(ls ~/Downloads/*.json)",
-      "Bash(git commit -m 'feat: replace all loading spinners with Lottie pet animation:*)"
+      "Bash(git commit -m 'feat: replace all loading spinners with Lottie pet animation:*)",
+      "Bash(git commit -m 'fix: like soft update + tutorial safe area + discover gap + loading rename:*)"
     ]
   }
 }

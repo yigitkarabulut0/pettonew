@@ -139,12 +139,16 @@ export default function HomePage() {
   const likeMutation = useMutation({
     mutationFn: (postId: string) =>
       toggleHomePostLike(session!.tokens.accessToken, postId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["home-feed", session?.tokens.accessToken]
-      });
-      queryClient.invalidateQueries({ queryKey: ["admin-posts"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    onSuccess: (updatedPost) => {
+      queryClient.setQueryData(
+        ["home-feed", session?.tokens.accessToken],
+        (old: any[] | undefined) =>
+          old?.map((p) =>
+            p.id === updatedPost.id
+              ? { ...p, likeCount: updatedPost.likeCount, likedByMe: updatedPost.likedByMe }
+              : p
+          ) ?? []
+      );
     }
   });
 

@@ -9,7 +9,7 @@ export function LottieLoading({ size = 60 }: Props) {
   return (
     <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 8 }}>
       <LottieView
-        source={require("@/assets/animations/pet-loading.json")}
+        source={require("@/assets/animations/loading.json")}
         style={{ width: size, height: size }}
         autoPlay
         loop

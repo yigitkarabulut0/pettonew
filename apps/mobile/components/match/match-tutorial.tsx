@@ -185,7 +185,7 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
 
       <View
         style={{
-          paddingBottom: insets.bottom + 24,
+          paddingBottom: insets.bottom + 80,
           paddingHorizontal: mobileTheme.spacing["3xl"],
           gap: mobileTheme.spacing.xl,
           alignItems: "center"

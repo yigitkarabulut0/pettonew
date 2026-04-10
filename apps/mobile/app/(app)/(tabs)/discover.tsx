@@ -1024,7 +1024,7 @@ export default function DiscoverPage() {
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: tabBarOffset - 24,
+          bottom: tabBarOffset - 28,
           height: EXPANDED_SHEET,
           transform: [{ translateY: sheetAnim }]
         }}
