@@ -247,43 +247,47 @@ export default function HomePage() {
         </View>
       ) : (
       <>
-      {/* Cat animation covers the native spinner - follows the pull gap */}
-      <Animated.View
+      {/* Cat animation - clips inside the pull gap only */}
+      <View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 90,
+          top: insets.top + 55,
           left: 0,
           right: 0,
+          height: 80,
           alignItems: "center",
-          zIndex: 999,
-          opacity: scrollY.interpolate({
-            inputRange: [-60, -15, 0],
-            outputRange: [1, 0.5, 0],
-            extrapolate: "clamp"
-          }),
-          transform: [{
-            translateY: Animated.multiply(scrollY, -0.5)
-          }, {
-            scale: scrollY.interpolate({
-              inputRange: [-80, -20, 0],
-              outputRange: [1, 0.6, 0.2],
-              extrapolate: "clamp"
-            })
-          }]
+          justifyContent: "center",
+          zIndex: -1,
+          overflow: "hidden"
         }}
       >
-        <View style={{ backgroundColor: theme.colors.background, borderRadius: 40, padding: 4 }}>
+        <Animated.View
+          style={{
+            opacity: scrollY.interpolate({
+              inputRange: [-70, -10, 0],
+              outputRange: [1, 0.3, 0],
+              extrapolate: "clamp"
+            }),
+            transform: [{
+              translateY: scrollY.interpolate({
+                inputRange: [-100, 0],
+                outputRange: [0, 60],
+                extrapolate: "clamp"
+              })
+            }]
+          }}
+        >
           <LottieView
             ref={catRef}
             source={require("@/assets/animations/cat.json")}
-            style={{ width: 60, height: 60 }}
+            style={{ width: 65, height: 65 }}
             autoPlay
             loop
             speed={0.7}
           />
-        </View>
-      </Animated.View>
+        </Animated.View>
+      </View>
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
