@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
-  const { data: users = [] } = useQuery({
+  const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin-users"],
     queryFn: getUsers
   });
@@ -42,6 +42,17 @@ export default function UsersPage() {
           </p>
         </div>
       </div>
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
+        </div>
+      )}
+      {!isLoading && users.length === 0 && (
+        <div className="mt-6 rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+          No items found.
+        </div>
+      )}
+      {!isLoading && users.length > 0 && (
       <div className="mt-6 overflow-hidden rounded-[24px] border border-[var(--petto-border)]">
         <table className="w-full border-collapse text-left">
           <thead className="bg-white/70">
@@ -120,6 +131,7 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
+      )}
     </Card>
   );
 }

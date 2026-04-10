@@ -1,0 +1,175 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "done": "Done",
+    "next": "Next",
+    "skip": "Skip",
+    "back": "Back",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "comingSoon": "Coming Soon",
+    "signOut": "Sign out"
+  },
+  "tabs": {
+    "home": "Home",
+    "match": "Match",
+    "discover": "Discover",
+    "shop": "Shop",
+    "profile": "Profile"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signUp": "Sign up",
+    "signingIn": "Signing in...",
+    "signingUp": "Signing up...",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "emailPlaceholder": "your@email.com",
+    "passwordPlaceholder": "Minimum 8 characters",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?",
+    "signInError": "Unable to sign in. Please check your credentials.",
+    "signUpError": "Unable to create account. Please try again.",
+    "passwordMismatch": "Passwords must match"
+  },
+  "onboarding": {
+    "location": {
+      "eyebrow": "Location",
+      "title": "Where are your pets hanging out?",
+      "subtitle": "We use your location to find pets and events nearby.",
+      "allow": "Allow location access",
+      "permissionRequired": "Location permission is required to discover pets near you.",
+      "step": "Step 1 of 3"
+    },
+    "profile": {
+      "eyebrow": "Your profile",
+      "title": "Tell us about yourself",
+      "subtitle": "Other pet parents will see your name and photo.",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "birthDate": "Birth date",
+      "gender": "Gender",
+      "bio": "Bio",
+      "bioPlaceholder": "A few words about you and your pets",
+      "step": "Step 2 of 3",
+      "saveProfile": "Save profile",
+      "saving": "Saving..."
+    },
+    "pets": {
+      "eyebrow": "Pet onboarding",
+      "title": "Create a profile pets would actually swipe right on.",
+      "subtitle": "Set species, breed, hobbies, energy level, and photos.",
+      "petName": "Pet name",
+      "petNamePlaceholder": "For example Milo",
+      "petAge": "Pet age",
+      "petAgePlaceholder": "Enter age in years",
+      "gender": "Gender",
+      "male": "Male",
+      "female": "Female",
+      "species": "Species",
+      "selectSpecies": "Select a species",
+      "breed": "Breed",
+      "selectBreed": "Select a breed",
+      "chooseSpeciesFirst": "Choose species first",
+      "hobbies": "Hobbies",
+      "addHobby": "+ Add",
+      "goodWith": "Good with",
+      "characters": "Characters",
+      "addCharacter": "+ Add Character",
+      "describePersonality": "Describe your pet's personality",
+      "activityLevel": "Activity level",
+      "neutered": "Neutered",
+      "petBio": "Pet bio",
+      "petBioPlaceholder": "Tell other pet parents about your pet's personality",
+      "photos": "Photos",
+      "addPhotos": "Add up to 6 photos",
+      "savePet": "Save pet",
+      "saving": "Saving...",
+      "step": "Step 3 of 3",
+      "photoRequired": "Please add at least one pet photo.",
+      "fixFields": "Please fix the highlighted fields and try again."
+    }
+  },
+  "home": {
+    "title": "Home",
+    "createPost": "Create post",
+    "whatsNew": "What's new with your pet?",
+    "post": "Post",
+    "posting": "Posting...",
+    "emptyFeed": "No posts yet. Share the first update from your pet world.",
+    "likes": "{{count}} likes",
+    "like": "Like"
+  },
+  "match": {
+    "title": "Discover",
+    "petsNearYou": "{{count}} pets near you",
+    "matches": "Matches",
+    "matchCount": "{{count}} matches",
+    "discover": "Discover",
+    "startDiscovering": "Start discovering",
+    "noMatches": "No matches yet",
+    "noMatchesDescription": "Keep swiping to find your pet's perfect playmate.",
+    "tutorial": {
+      "welcome": "Welcome to Match",
+      "welcomeDesc": "Find perfect playmates for your pet. Swipe through profiles and discover pets nearby who share your vibe.",
+      "swipeRight": "Swipe Right to Like",
+      "swipeRightDesc": "See a pet you like? Swipe right or tap the heart button. If they like you back, it's a match!",
+      "swipeLeft": "Swipe Left to Pass",
+      "swipeLeftDesc": "Not the right fit? Swipe left to skip. No worries — there are always more pets to discover.",
+      "matchChat": "Match & Chat",
+      "matchChatDesc": "When both pets like each other, you get a match! Start a conversation and plan your first meetup.",
+      "getStarted": "Get Started"
+    },
+    "celebration": {
+      "itsAMatch": "It's a Match!",
+      "sendMessage": "Send a message",
+      "keepSwiping": "Keep swiping"
+    }
+  },
+  "discover": {
+    "title": "Explore",
+    "venues": "Venues",
+    "events": "Events",
+    "checkIn": "Check in",
+    "rsvp": "RSVP",
+    "noVenues": "No nearby spots or events yet."
+  },
+  "shop": {
+    "title": "Shop",
+    "comingSoon": "Coming Soon",
+    "description": "Pet supplies, treats, and more — all in one place."
+  },
+  "profile": {
+    "title": "Profile",
+    "editProfile": "Edit Profile",
+    "yourPets": "Your Pets",
+    "addPet": "+ Add pet",
+    "noPets": "No pets yet",
+    "noPetsDescription": "Add your first pet to unlock discovery, matches, and chat.",
+    "currentlyActive": "Currently active",
+    "setAsActive": "Set as active",
+    "visible": "Visible",
+    "hidden": "Hidden",
+    "pets": "Pets",
+    "active": "Active"
+  },
+  "chat": {
+    "messages": "Messages",
+    "noConversations": "No conversations yet",
+    "noConversationsDescription": "Match with pets and start chatting with their owners.",
+    "startConversation": "Start the conversation.",
+    "typeMessage": "Type a message...",
+    "send": "Send"
+  },
+  "report": {
+    "title": "Report",
+    "reason": "What's the issue?",
+    "submit": "Submit report",
+    "submitting": "Reporting..."
+  }
+}

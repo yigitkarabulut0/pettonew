@@ -21,7 +21,7 @@ function formatTime(iso: string) {
 
 export default function PostsPage() {
   const queryClient = useQueryClient();
-  const { data: posts = [] } = useQuery({
+  const { data: posts = [], isLoading } = useQuery({
     queryKey: ["admin-posts"],
     queryFn: getPosts
   });
@@ -44,10 +44,15 @@ export default function PostsPage() {
         </h1>
       </Card>
 
-      {!posts.length && (
-        <Card>
-          <p className="text-sm text-[var(--petto-muted)]">No posts yet.</p>
-        </Card>
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
+        </div>
+      )}
+      {!isLoading && posts.length === 0 && (
+        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+          No items found.
+        </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">

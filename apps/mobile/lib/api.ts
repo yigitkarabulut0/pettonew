@@ -1,17 +1,30 @@
 import type {
+  Badge,
+  CommunityGroup,
   Conversation,
+  DiaryEntry,
   DiscoveryCard,
   ExploreEvent,
   ExploreVenue,
+  FeedingSchedule,
+  HealthRecord,
   HomePost,
+  LostPetAlert,
   MatchPreview,
   Message,
   Pet,
+  PetSitter,
+  Playdate,
   SessionPayload,
   TaxonomyItem,
   TaxonomyKind,
+  TrainingTip,
   UploadedAsset,
-  UserProfile
+  UserProfile,
+  VetClinic,
+  VetContact,
+  VenueReview,
+  WeightEntry
 } from "@petto/contracts";
 
 import { useSessionStore } from "@/store/session";
@@ -162,6 +175,7 @@ function normalizePet(pet: Partial<Pet> | null | undefined): Pet {
     ownerId: pet?.ownerId ?? "",
     name: pet?.name ?? "",
     ageYears: typeof pet?.ageYears === "number" ? pet.ageYears : 0,
+    gender: (pet?.gender === "male" || pet?.gender === "female") ? pet.gender : "male",
     speciesId: pet?.speciesId ?? "",
     speciesLabel: pet?.speciesLabel ?? "",
     breedId: pet?.breedId ?? "",
@@ -174,6 +188,9 @@ function normalizePet(pet: Partial<Pet> | null | undefined): Pet {
       : [],
     goodWith: Array.isArray(pet?.goodWith)
       ? pet.goodWith.filter((item): item is string => typeof item === "string")
+      : [],
+    characters: Array.isArray(pet?.characters)
+      ? pet.characters.filter((item): item is string => typeof item === "string")
       : [],
     isNeutered: Boolean(pet?.isNeutered),
     bio: pet?.bio ?? "",
@@ -284,6 +301,10 @@ function normalizeHomePost(
     taggedPets: Array.isArray(post?.taggedPets)
       ? post.taggedPets.map((pet) => normalizePet(pet))
       : [],
+    venueId: post?.venueId,
+    venueName: post?.venueName,
+    eventId: post?.eventId,
+    eventName: post?.eventName,
     likeCount: typeof post?.likeCount === "number" ? post.likeCount : 0,
     likedByMe: Boolean(post?.likedByMe),
     createdAt: post?.createdAt ?? new Date(0).toISOString()
@@ -379,6 +400,22 @@ export async function savePet(
   return normalizePet(savedPet);
 }
 
+export async function updatePet(
+  accessToken: string,
+  petId: string,
+  pet: Partial<Pet> & Pick<Pet, "name" | "ageYears">
+): Promise<Pet> {
+  const updatedPet = await request<Pet>(`/v1/me/pets/${petId}`, {
+    method: "PUT",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(pet)
+  });
+  return normalizePet(updatedPet);
+}
+
 export async function listTaxonomies(
   accessToken: string,
   kind: TaxonomyKind
@@ -460,7 +497,7 @@ export async function listHomeFeed(accessToken: string): Promise<HomePost[]> {
 
 export async function createHomePost(
   accessToken: string,
-  payload: { body: string; imageUrl?: string; taggedPetIds: string[] }
+  payload: { body: string; imageUrl?: string; taggedPetIds: string[]; venueId?: string }
 ): Promise<HomePost> {
   const post = await request<HomePost>("/v1/home/posts", {
     method: "POST",
@@ -485,9 +522,12 @@ export async function toggleHomePostLike(
 }
 
 export async function listExploreVenues(
-  accessToken: string
+  accessToken: string,
+  lat?: number,
+  lng?: number
 ): Promise<ExploreVenue[]> {
-  const venues = await request<ExploreVenue[] | null>("/v1/explore/venues", {
+  const query = lat && lng ? `?lat=${lat}&lng=${lng}` : "";
+  const venues = await request<ExploreVenue[] | null>(`/v1/explore/venues${query}`, {
     headers: authHeaders(accessToken)
   });
   return Array.isArray(venues)
@@ -628,6 +668,7 @@ export async function submitReport(
   accessToken: string,
   reason: string,
   targetType: string,
+  targetID: string,
   targetLabel: string
 ) {
   return request("/v1/reports", {
@@ -636,6 +677,214 @@ export async function submitReport(
       ...authHeaders(accessToken),
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ reason, targetType, targetLabel })
+    body: JSON.stringify({ reason, targetType, targetID, targetLabel })
   });
+}
+
+export async function setPetVisibility(
+  accessToken: string,
+  petId: string,
+  hidden: boolean
+): Promise<void> {
+  await request(`/v1/me/pets/${petId}/visibility`, {
+    method: "PATCH",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ hidden })
+  });
+}
+
+export async function markMessagesRead(
+  accessToken: string,
+  conversationId: string
+): Promise<void> {
+  await request("/v1/messages/read", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ conversationId })
+  });
+}
+
+export async function listFavorites(
+  accessToken: string
+): Promise<Pet[]> {
+  const pets = await request<Pet[] | null>("/v1/favorites", {
+    headers: authHeaders(accessToken)
+  });
+  return (pets ?? []).map(normalizePet);
+}
+
+export async function addFavorite(
+  accessToken: string,
+  petId: string
+): Promise<void> {
+  await request("/v1/favorites", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ petId })
+  });
+}
+
+export async function removeFavorite(
+  accessToken: string,
+  petId: string
+): Promise<void> {
+  await request(`/v1/favorites/${petId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function listDiary(
+  accessToken: string,
+  petId: string
+): Promise<DiaryEntry[]> {
+  const entries = await request<DiaryEntry[] | null>(
+    `/v1/pets/${petId}/diary`,
+    { headers: authHeaders(accessToken) }
+  );
+  return entries ?? [];
+}
+
+export async function createDiaryEntry(
+  accessToken: string,
+  petId: string,
+  body: string,
+  mood: string,
+  imageUrl?: string
+): Promise<DiaryEntry> {
+  return request<DiaryEntry>(`/v1/pets/${petId}/diary`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ body, mood, imageUrl })
+  });
+}
+
+// Health Records
+export async function listHealthRecords(accessToken: string, petId: string): Promise<HealthRecord[]> {
+  const data = await request<HealthRecord[] | null>(`/v1/pets/${petId}/health`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createHealthRecord(accessToken: string, petId: string, record: Omit<HealthRecord, "id" | "petId" | "createdAt">): Promise<HealthRecord> {
+  return request<HealthRecord>(`/v1/pets/${petId}/health`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(record) });
+}
+
+// Weight
+export async function listWeightEntries(accessToken: string, petId: string): Promise<WeightEntry[]> {
+  const data = await request<WeightEntry[] | null>(`/v1/pets/${petId}/weight`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createWeightEntry(accessToken: string, petId: string, weight: number, unit: string): Promise<WeightEntry> {
+  return request<WeightEntry>(`/v1/pets/${petId}/weight`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ weight, unit, date: new Date().toISOString() }) });
+}
+
+// Vet Contacts
+export async function listVetContacts(accessToken: string): Promise<VetContact[]> {
+  const data = await request<VetContact[] | null>("/v1/vet-contacts", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createVetContact(accessToken: string, contact: Omit<VetContact, "id" | "userId">): Promise<VetContact> {
+  return request<VetContact>("/v1/vet-contacts", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(contact) });
+}
+
+// Feeding
+export async function listFeedingSchedules(accessToken: string, petId: string): Promise<FeedingSchedule[]> {
+  const data = await request<FeedingSchedule[] | null>(`/v1/pets/${petId}/feeding`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createFeedingSchedule(accessToken: string, petId: string, schedule: Omit<FeedingSchedule, "id" | "petId">): Promise<FeedingSchedule> {
+  return request<FeedingSchedule>(`/v1/pets/${petId}/feeding`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(schedule) });
+}
+
+// Playdates
+export async function listPlaydates(accessToken: string): Promise<Playdate[]> {
+  const data = await request<Playdate[] | null>("/v1/playdates", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createPlaydate(accessToken: string, playdate: Omit<Playdate, "id" | "organizerId" | "attendees" | "createdAt">): Promise<Playdate> {
+  return request<Playdate>("/v1/playdates", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(playdate) });
+}
+export async function joinPlaydate(accessToken: string, playdateId: string): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/join`, { method: "POST", headers: authHeaders(accessToken) });
+}
+
+// Community Groups
+export async function listGroups(accessToken: string): Promise<CommunityGroup[]> {
+  const data = await request<CommunityGroup[] | null>("/v1/groups", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function joinGroup(accessToken: string, groupId: string): Promise<void> {
+  await request(`/v1/groups/${groupId}/join`, { method: "POST", headers: authHeaders(accessToken) });
+}
+
+// Lost Pets
+export async function listLostPets(accessToken: string): Promise<LostPetAlert[]> {
+  const data = await request<LostPetAlert[] | null>("/v1/lost-pets", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createLostPetAlert(accessToken: string, alert: Omit<LostPetAlert, "id" | "userId" | "status" | "createdAt">): Promise<LostPetAlert> {
+  return request<LostPetAlert>("/v1/lost-pets", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(alert) });
+}
+
+// Badges
+export async function listBadges(accessToken: string): Promise<Badge[]> {
+  const data = await request<Badge[] | null>("/v1/badges", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+
+// Training Tips
+export async function listTrainingTips(accessToken: string, petType?: string): Promise<TrainingTip[]> {
+  const query = petType ? `?petType=${petType}` : "";
+  const data = await request<TrainingTip[] | null>(`/v1/training-tips${query}`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+
+// Pet Sitters
+export async function listPetSitters(accessToken: string, lat?: number, lng?: number): Promise<PetSitter[]> {
+  const query = lat && lng ? `?lat=${lat}&lng=${lng}` : "";
+  const data = await request<PetSitter[] | null>(`/v1/pet-sitters${query}`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createPetSitter(accessToken: string, sitter: Omit<PetSitter, "id" | "userId" | "rating" | "reviewCount">): Promise<PetSitter> {
+  return request<PetSitter>("/v1/pet-sitters", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(sitter) });
+}
+
+// Training Tip Detail
+export async function getTrainingTip(accessToken: string, tipId: string): Promise<TrainingTip> {
+  return request<TrainingTip>(`/v1/training-tips/${tipId}`, { headers: authHeaders(accessToken) });
+}
+export async function bookmarkTip(accessToken: string, tipId: string): Promise<void> {
+  await request(`/v1/training-tips/${tipId}/bookmark`, { method: "POST", headers: authHeaders(accessToken) });
+}
+export async function unbookmarkTip(accessToken: string, tipId: string): Promise<void> {
+  await request(`/v1/training-tips/${tipId}/bookmark`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+export async function completeTip(accessToken: string, tipId: string): Promise<void> {
+  await request(`/v1/training-tips/${tipId}/complete`, { method: "POST", headers: authHeaders(accessToken) });
+}
+
+// Vet Clinics (location-based)
+export async function listVetClinics(accessToken: string, lat: number, lng: number): Promise<VetClinic[]> {
+  const data = await request<VetClinic[] | null>(`/v1/vet-clinics?lat=${lat}&lng=${lng}`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+
+// Venue Reviews
+export async function listVenueReviews(accessToken: string, venueId: string): Promise<VenueReview[]> {
+  const data = await request<VenueReview[] | null>(`/v1/venues/${venueId}/reviews`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createVenueReview(accessToken: string, venueId: string, rating: number, comment: string): Promise<VenueReview> {
+  return request<VenueReview>(`/v1/venues/${venueId}/reviews`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ rating, comment }) });
 }

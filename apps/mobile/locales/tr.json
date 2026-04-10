@@ -1,0 +1,175 @@
+{
+  "common": {
+    "save": "Kaydet",
+    "cancel": "Iptal",
+    "delete": "Sil",
+    "edit": "Duzenle",
+    "done": "Tamam",
+    "next": "Ileri",
+    "skip": "Atla",
+    "back": "Geri",
+    "loading": "Yukleniyor...",
+    "error": "Bir hata olustu",
+    "retry": "Tekrar dene",
+    "comingSoon": "Cok Yakinda",
+    "signOut": "Cikis yap"
+  },
+  "tabs": {
+    "home": "Ana Sayfa",
+    "match": "Eslesme",
+    "discover": "Kesif",
+    "shop": "Magaza",
+    "profile": "Profil"
+  },
+  "auth": {
+    "signIn": "Giris yap",
+    "signUp": "Kayit ol",
+    "signingIn": "Giris yapiliyor...",
+    "signingUp": "Kayit olunuyor...",
+    "email": "E-posta",
+    "password": "Sifre",
+    "confirmPassword": "Sifre tekrar",
+    "emailPlaceholder": "ornek@email.com",
+    "passwordPlaceholder": "Minimum 8 karakter",
+    "noAccount": "Hesabin yok mu?",
+    "haveAccount": "Zaten hesabin var mi?",
+    "signInError": "Giris yapilamadi. Lutfen bilgilerinizi kontrol edin.",
+    "signUpError": "Hesap olusturulamadi. Lutfen tekrar deneyin.",
+    "passwordMismatch": "Sifreler eslesmiyor"
+  },
+  "onboarding": {
+    "location": {
+      "eyebrow": "Konum",
+      "title": "Evcil hayvanlariniz nerede takilir?",
+      "subtitle": "Yakininizdaki evcil hayvanlari ve etkinlikleri bulmak icin konumunuzu kullaniriz.",
+      "allow": "Konuma erisime izin ver",
+      "permissionRequired": "Yakininizdaki evcil hayvanlari kesfetmek icin konum izni gereklidir.",
+      "step": "Adim 1/3"
+    },
+    "profile": {
+      "eyebrow": "Profiliniz",
+      "title": "Bize kendinizden bahsedin",
+      "subtitle": "Diger evcil hayvan sahipleri adinizi ve fotografinizi gorecek.",
+      "firstName": "Ad",
+      "lastName": "Soyad",
+      "birthDate": "Dogum tarihi",
+      "gender": "Cinsiyet",
+      "bio": "Hakkinda",
+      "bioPlaceholder": "Siz ve evcil hayvanlariniz hakkinda birkaç soz",
+      "step": "Adim 2/3",
+      "saveProfile": "Profili kaydet",
+      "saving": "Kaydediliyor..."
+    },
+    "pets": {
+      "eyebrow": "Evcil hayvan",
+      "title": "Evcil hayvanlar icin saga kaydirmak isteyecekleri bir profil olusturun.",
+      "subtitle": "Tur, cins, hobiler, enerji seviyesi ve fotograflari ayarlayin.",
+      "petName": "Hayvan adi",
+      "petNamePlaceholder": "Ornegin Milo",
+      "petAge": "Hayvan yasi",
+      "petAgePlaceholder": "Yasi yil olarak girin",
+      "gender": "Cinsiyet",
+      "male": "Erkek",
+      "female": "Disi",
+      "species": "Tur",
+      "selectSpecies": "Bir tur secin",
+      "breed": "Cins",
+      "selectBreed": "Bir cins secin",
+      "chooseSpeciesFirst": "Once tur secin",
+      "hobbies": "Hobiler",
+      "addHobby": "+ Ekle",
+      "goodWith": "Uyumlu",
+      "characters": "Karakter",
+      "addCharacter": "+ Karakter Ekle",
+      "describePersonality": "Evcil hayvaninizin kisiligini tanitin",
+      "activityLevel": "Aktivite seviyesi",
+      "neutered": "Kisirlastirilmis",
+      "petBio": "Hayvan hakkinda",
+      "petBioPlaceholder": "Diger evcil hayvan sahiplerine hayvaninizin kisiligini anlatin",
+      "photos": "Fotograflar",
+      "addPhotos": "6 adete kadar fotograf ekleyin",
+      "savePet": "Hayvani kaydet",
+      "saving": "Kaydediliyor...",
+      "step": "Adim 3/3",
+      "photoRequired": "Lutfen en az bir fotograf ekleyin.",
+      "fixFields": "Lutfen isaretli alanlari duzeltin ve tekrar deneyin."
+    }
+  },
+  "home": {
+    "title": "Ana Sayfa",
+    "createPost": "Gonderi olustur",
+    "whatsNew": "Evcil hayvaninizda ne var ne yok?",
+    "post": "Paylas",
+    "posting": "Paylasiliyor...",
+    "emptyFeed": "Henuz gonderi yok. Evcil hayvan dünyanizdan ilk güncellemeyi paylasin.",
+    "likes": "{{count}} begeni",
+    "like": "Begen"
+  },
+  "match": {
+    "title": "Kesfet",
+    "petsNearYou": "Yakininizdaki {{count}} evcil hayvan",
+    "matches": "Eslesmeler",
+    "matchCount": "{{count}} eslesme",
+    "discover": "Kesfet",
+    "startDiscovering": "Kesfetmeye basla",
+    "noMatches": "Henuz eslesme yok",
+    "noMatchesDescription": "Evcil hayvaniniz icin mukemmel oyun arkadasini bulmak icin kaydirmaya devam edin.",
+    "tutorial": {
+      "welcome": "Eslesmeye Hos Geldin",
+      "welcomeDesc": "Evcil hayvaniniz icin mukemmel oyun arkadaslari bulun. Profilleri kaydirin ve yakininizdaki evcil hayvanlari kesfedin.",
+      "swipeRight": "Begenmek icin Saga Kaydir",
+      "swipeRightDesc": "Begendginiz bir evcil hayvan mi gordunuz? Saga kayidirin veya kalp butonuna basin. Karsi taraf da sizi begenirse eslesme olur!",
+      "swipeLeft": "Gecmek icin Sola Kaydir",
+      "swipeLeftDesc": "Tam uygun degil mi? Atlamak icin sola kayidirin. Merak etmeyin — kesfedecek daha cok evcil hayvan var.",
+      "matchChat": "Esles ve Sohbet Et",
+      "matchChatDesc": "Iki evcil hayvan birbirini begendiginde eslesme olur! Bir sohbet baslatiin ve ilk bulusmanizi planlayin.",
+      "getStarted": "Baslayalim"
+    },
+    "celebration": {
+      "itsAMatch": "Eslesme Oldu!",
+      "sendMessage": "Mesaj gonder",
+      "keepSwiping": "Kaydirmaya devam et"
+    }
+  },
+  "discover": {
+    "title": "Kesif",
+    "venues": "Mekanlar",
+    "events": "Etkinlikler",
+    "checkIn": "Giris yap",
+    "rsvp": "Katilim bildir",
+    "noVenues": "Henuz yakin mekan veya etkinlik yok."
+  },
+  "shop": {
+    "title": "Magaza",
+    "comingSoon": "Cok Yakinda",
+    "description": "Evcil hayvan malzemeleri, oduller ve daha fazlasi — tek bir yerde."
+  },
+  "profile": {
+    "title": "Profil",
+    "editProfile": "Profili Duzenle",
+    "yourPets": "Evcil Hayvanlarim",
+    "addPet": "+ Hayvan ekle",
+    "noPets": "Henuz evcil hayvan yok",
+    "noPetsDescription": "Kesfetme, eslesme ve sohbet icin ilk evcil hayvaninizi ekleyin.",
+    "currentlyActive": "Simdi aktif",
+    "setAsActive": "Aktif yap",
+    "visible": "Gorunur",
+    "hidden": "Gizli",
+    "pets": "Hayvanlar",
+    "active": "Aktif"
+  },
+  "chat": {
+    "messages": "Mesajlar",
+    "noConversations": "Henuz sohbet yok",
+    "noConversationsDescription": "Evcil hayvanlarla eslesin ve sahipleriyle sohbete baslayin.",
+    "startConversation": "Sohbete baslayin.",
+    "typeMessage": "Mesaj yazin...",
+    "send": "Gonder"
+  },
+  "report": {
+    "title": "Sikayet",
+    "reason": "Sorun nedir?",
+    "submit": "Sikayet gonder",
+    "submitting": "Gonderiliyor..."
+  }
+}

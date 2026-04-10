@@ -6,10 +6,13 @@ import { Text, TextInput, View } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { useTranslation } from "react-i18next";
+
+import { AnimatedLogo } from "@/components/animated-logo";
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { listMyPets, signIn } from "@/lib/api";
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 const signInSchema = z.object({
@@ -19,19 +22,9 @@ const signInSchema = z.object({
 
 type SignInValues = z.infer<typeof signInSchema>;
 
-const inputStyle = {
-  borderRadius: mobileTheme.radius.md,
-  backgroundColor: mobileTheme.colors.background,
-  borderWidth: 1,
-  borderColor: mobileTheme.colors.border,
-  paddingHorizontal: mobileTheme.spacing.lg,
-  paddingVertical: mobileTheme.spacing.md + 3,
-  color: mobileTheme.colors.ink,
-  fontSize: mobileTheme.typography.body.fontSize,
-  fontFamily: "Inter_400Regular"
-} as const;
-
 export default function SignInPage() {
+  const { t } = useTranslation();
+  const theme = useTheme();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setSession = useSessionStore((state) => state.setSession);
   const setPetCount = useSessionStore((state) => state.setPetCount);
@@ -40,6 +33,18 @@ export default function SignInPage() {
     defaultValues: { email: "", password: "" },
     resolver: zodResolver(signInSchema)
   });
+
+  const inputStyle = {
+    borderRadius: mobileTheme.radius.md,
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: mobileTheme.spacing.lg,
+    paddingVertical: mobileTheme.spacing.md + 3,
+    color: theme.colors.ink,
+    fontSize: mobileTheme.typography.body.fontSize,
+    fontFamily: "Inter_400Regular"
+  } as const;
 
   const mutation = useMutation({
     mutationFn: async (values: SignInValues) => {
@@ -66,14 +71,17 @@ export default function SignInPage() {
       title="Welcome back."
       subtitle="Sign in to continue discovering and matching."
     >
+      <View style={{ alignItems: "center", marginBottom: mobileTheme.spacing.md }}>
+        <AnimatedLogo size="sm" />
+      </View>
       <View
         style={{
           gap: mobileTheme.spacing.lg,
           padding: mobileTheme.spacing.xl,
           borderRadius: mobileTheme.radius.lg,
-          backgroundColor: mobileTheme.colors.white,
+          backgroundColor: theme.colors.white,
           borderWidth: 1,
-          borderColor: mobileTheme.colors.border,
+          borderColor: theme.colors.border,
           ...mobileTheme.shadow.sm
         }}
       >
@@ -83,8 +91,10 @@ export default function SignInPage() {
           render={({ field: { onChange, value } }) => (
             <TextInput
               autoCapitalize="none"
+              keyboardType="email-address"
+              returnKeyType="next"
               placeholder="Email"
-              placeholderTextColor={mobileTheme.colors.muted}
+              placeholderTextColor={theme.colors.muted}
               value={value}
               onChangeText={onChange}
               style={inputStyle}
@@ -97,8 +107,9 @@ export default function SignInPage() {
           render={({ field: { onChange, value } }) => (
             <TextInput
               secureTextEntry
+              returnKeyType="done"
               placeholder="Password"
-              placeholderTextColor={mobileTheme.colors.muted}
+              placeholderTextColor={theme.colors.muted}
               value={value}
               onChangeText={onChange}
               style={inputStyle}
@@ -108,7 +119,7 @@ export default function SignInPage() {
         {errorMessage ? (
           <Text
             style={{
-              color: mobileTheme.colors.danger,
+              color: theme.colors.danger,
               fontSize: mobileTheme.typography.caption.fontSize,
               fontFamily: "Inter_600SemiBold",
               fontWeight: "600"
@@ -124,7 +135,7 @@ export default function SignInPage() {
       </View>
       <Text
         style={{
-          color: mobileTheme.colors.muted,
+          color: theme.colors.muted,
           lineHeight: mobileTheme.typography.body.lineHeight,
           fontSize: mobileTheme.typography.body.fontSize,
           fontFamily: "Inter_400Regular"
@@ -133,7 +144,7 @@ export default function SignInPage() {
         Need an account?{" "}
         <Link
           href="/(auth)/sign-up"
-          style={{ color: mobileTheme.colors.primary, fontWeight: "700" }}
+          style={{ color: theme.colors.primary, fontWeight: "700" }}
         >
           Create one
         </Link>

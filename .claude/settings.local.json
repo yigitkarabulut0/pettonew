@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose up:*)",
+      "Bash(docker compose:*)",
+      "Bash(pg_isready)",
+      "Bash(brew services:*)",
+      "Bash(go version:*)",
+      "Bash(npm --version)",
+      "Bash(pnpm --version)",
+      "Bash(npx --version)",
+      "Read(//Users/yigitkarabulut/go/bin/**)",
+      "Bash(echo $PATH)",
+      "Bash(export PATH=\"$HOME/go/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\")",
+      "Bash(source ~/.nvm/nvm.sh)",
+      "Bash(pnpm dev:api)",
+      "Bash(go build:*)",
+      "Bash(mv matches.tsx match.tsx)",
+      "Bash(mv explore.tsx discover.tsx)",
+      "Bash(npx expo:*)",
+      "Bash(go run:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(EXPO_NO_INSTALL=1 npx expo start)",
+      "Bash(pnpm add:*)",
+      "Bash(node -e \"const j=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\);const p=JSON.parse\\(j\\);console.log\\('main:', p.main\\);console.log\\('types:', p.types\\)\")",
+      "Bash(ls -la /Users/yigitkarabulut/Desktop/Projects/Petto/node_modules/.pnpm/expo-router@55.0.11*/node_modules/expo-router/entry-classic.js)",
+      "Bash(node -e ':*)",
+      "Read(//Users/yigitkarabulut/.claude/projects/-Users-yigitkarabulut-Desktop-Projects-Petto/e15c687d-7480-40b1-91a2-daa8b024d1ff/subagents/**)",
+      "Bash(curl -s http://localhost:8080/healthz)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(rm -f /Users/yigitkarabulut/Desktop/Projects/Petto/.git/index.lock)"
+    ]
+  }
+}

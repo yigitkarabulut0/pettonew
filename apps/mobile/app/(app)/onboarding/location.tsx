@@ -8,10 +8,11 @@ import { MapPin } from "lucide-react-native";
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { updateProfile } from "@/lib/api";
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function LocationOnboardingPage() {
+  const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const setSession = useSessionStore((state) => state.setSession);
   const [statusText, setStatusText] = useState(
@@ -92,7 +93,7 @@ export default function LocationOnboardingPage() {
           gap: mobileTheme.spacing.lg,
           padding: mobileTheme.spacing.xl,
           borderRadius: mobileTheme.radius.lg,
-          backgroundColor: mobileTheme.colors.white,
+          backgroundColor: theme.colors.white,
           ...mobileTheme.shadow.sm
         }}
       >
@@ -100,7 +101,7 @@ export default function LocationOnboardingPage() {
           selectable
           style={{
             ...mobileTheme.typography.micro,
-            color: mobileTheme.colors.muted,
+            color: theme.colors.muted,
             fontFamily: "Inter_600SemiBold"
           }}
         >
@@ -112,15 +113,15 @@ export default function LocationOnboardingPage() {
             gap: mobileTheme.spacing.md,
             borderRadius: mobileTheme.radius.lg,
             padding: mobileTheme.spacing.xl,
-            backgroundColor: mobileTheme.colors.background
+            backgroundColor: theme.colors.background
           }}
         >
-          <MapPin size={20} color={mobileTheme.colors.primary} />
+          <MapPin size={20} color={theme.colors.primary} />
           <Text
             selectable
             style={{
               ...mobileTheme.typography.label,
-              color: mobileTheme.colors.secondary,
+              color: theme.colors.secondary,
               fontFamily: "Inter_700Bold"
             }}
           >
@@ -130,7 +131,7 @@ export default function LocationOnboardingPage() {
             selectable
             style={{
               ...mobileTheme.typography.subheading,
-              color: mobileTheme.colors.ink,
+              color: theme.colors.ink,
               fontFamily: "Inter_600SemiBold"
             }}
           >
@@ -140,7 +141,7 @@ export default function LocationOnboardingPage() {
             selectable
             style={{
               ...mobileTheme.typography.body,
-              color: mobileTheme.colors.muted,
+              color: theme.colors.muted,
               fontFamily: "Inter_400Regular"
             }}
           >
@@ -149,7 +150,7 @@ export default function LocationOnboardingPage() {
         </View>
 
         {mutation.isPending ? (
-          <ActivityIndicator color={mobileTheme.colors.primary} />
+          <ActivityIndicator color={theme.colors.primary} />
         ) : null}
 
         {errorMessage ? (
@@ -157,7 +158,7 @@ export default function LocationOnboardingPage() {
             selectable
             style={{
               ...mobileTheme.typography.body,
-              color: mobileTheme.colors.danger,
+              color: theme.colors.danger,
               fontFamily: "Inter_400Regular"
             }}
           >

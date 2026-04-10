@@ -10,7 +10,7 @@ import { getPets, updatePetVisibility } from "@/lib/admin-api";
 
 export default function PetsPage() {
   const queryClient = useQueryClient();
-  const { data: pets = [] } = useQuery({
+  const { data: pets = [], isLoading } = useQuery({
     queryKey: ["admin-pets"],
     queryFn: getPets
   });
@@ -30,6 +30,16 @@ export default function PetsPage() {
       <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
         Discovery inventory
       </h1>
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
+        </div>
+      )}
+      {!isLoading && pets.length === 0 && (
+        <div className="mt-6 rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+          No items found.
+        </div>
+      )}
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {pets.map((pet) => (
           <div

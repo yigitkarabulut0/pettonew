@@ -9,7 +9,8 @@ export type TaxonomyKind =
   | "breeds"
   | "hobbies"
   | "compatibility"
-  | "cities";
+  | "cities"
+  | "characters";
 export type VenueCategory =
   | "park"
   | "cafe"
@@ -37,6 +38,7 @@ export interface UserProfile {
   cityLabel: string;
   avatarUrl?: string;
   bio?: string;
+  isVisibleOnMap?: boolean;
   status: UserStatus;
   createdAt: string;
 }
@@ -47,11 +49,15 @@ export interface PetPhoto {
   isPrimary: boolean;
 }
 
+export type PetGender = "male" | "female";
+
 export interface Pet {
   id: string;
   ownerId: string;
   name: string;
   ageYears: number;
+  gender: PetGender;
+  birthDate?: string;
   speciesId: string;
   speciesLabel: string;
   breedId: string;
@@ -59,11 +65,13 @@ export interface Pet {
   activityLevel: 1 | 2 | 3 | 4 | 5;
   hobbies: string[];
   goodWith: string[];
+  characters: string[];
   isNeutered: boolean;
   bio: string;
   photos: PetPhoto[];
   cityLabel: string;
   isHidden?: boolean;
+  themeColor?: string;
 }
 
 export interface DiscoveryCard {
@@ -94,6 +102,7 @@ export interface Message {
   body: string;
   createdAt: string;
   isMine: boolean;
+  readAt?: string;
 }
 
 export interface MatchPetPair {
@@ -123,6 +132,8 @@ export interface TaxonomyItem {
   slug: string;
   speciesId?: string;
   isActive: boolean;
+  icon?: string;
+  color?: string;
 }
 
 export interface VenueCheckIn {
@@ -145,6 +156,7 @@ export interface ExploreVenue {
   latitude: number;
   longitude: number;
   imageUrl?: string;
+  hours?: string;
   currentCheckIns: VenueCheckIn[];
 }
 
@@ -156,6 +168,7 @@ export interface ExploreEvent {
   venueId?: string;
   venueName?: string;
   startsAt: string;
+  endsAt?: string;
   audience: EventAudience;
   petFocus: EventPetFocus;
   attendeeCount: number;
@@ -171,6 +184,10 @@ export interface HomePost {
   body: string;
   imageUrl?: string;
   taggedPets: Pet[];
+  venueId?: string;
+  venueName?: string;
+  eventId?: string;
+  eventName?: string;
   likeCount: number;
   likedByMe: boolean;
   createdAt: string;
@@ -222,11 +239,53 @@ export interface AdminPetDetail {
 export interface ReportSummary {
   id: string;
   reason: string;
+  reporterID: string;
   reporterName: string;
-  targetType: "user" | "pet" | "message";
+  targetType: "chat" | "pet" | "post";
+  targetID: string;
   targetLabel: string;
   status: ReportStatus;
+  notes?: string;
+  resolvedAt?: string;
   createdAt: string;
+}
+
+export interface ReportDetail extends ReportSummary {
+  targetType: "chat" | "pet" | "post";
+  chatMessages?: Array<{
+    id: string;
+    senderProfileID: string;
+    senderName: string;
+    body: string;
+    createdAt: string;
+  }>;
+  chatUsers?: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    avatarUrl?: string;
+  }>;
+  pet?: {
+    id: string;
+    name: string;
+    speciesLabel: string;
+    breedLabel: string;
+    isHidden: boolean;
+    photos: Array<{ id: string; url: string }>;
+    ownerID: string;
+    ownerName: string;
+    ownerAvatarUrl?: string;
+  };
+  post?: {
+    id: string;
+    body: string;
+    imageUrl?: string;
+    authorID: string;
+    authorName: string;
+    authorAvatarUrl?: string;
+    likeCount: number;
+    createdAt: string;
+  };
 }
 
 export interface UploadedAsset {
@@ -243,6 +302,210 @@ export interface AuthTokens {
 export interface SessionPayload {
   user: UserProfile;
   tokens: AuthTokens;
+}
+
+export interface DiaryEntry {
+  id: string;
+  petId: string;
+  userId: string;
+  body: string;
+  imageUrl?: string;
+  mood: string;
+  createdAt: string;
+}
+
+export interface HealthRecord {
+  id: string;
+  petId: string;
+  type: "vaccine" | "checkup" | "surgery" | "other";
+  title: string;
+  date: string;
+  notes: string;
+  nextDueDate?: string;
+  createdAt: string;
+}
+
+export interface WeightEntry {
+  id: string;
+  petId: string;
+  weight: number;
+  unit: string;
+  date: string;
+}
+
+export interface VetContact {
+  id: string;
+  userId: string;
+  name: string;
+  phone: string;
+  address: string;
+  isEmergency: boolean;
+}
+
+export interface FeedingSchedule {
+  id: string;
+  petId: string;
+  mealName: string;
+  time: string;
+  foodType: string;
+  amount: string;
+  notes: string;
+}
+
+export interface Playdate {
+  id: string;
+  organizerId: string;
+  title: string;
+  description: string;
+  date: string;
+  location: string;
+  maxPets: number;
+  attendees: string[];
+  createdAt: string;
+}
+
+export interface CommunityGroup {
+  id: string;
+  name: string;
+  description: string;
+  petType: string;
+  memberCount: number;
+  imageUrl?: string;
+  conversationId?: string;
+  createdAt: string;
+}
+
+export interface LostPetAlert {
+  id: string;
+  petId: string;
+  userId: string;
+  description: string;
+  lastSeenLocation: string;
+  lastSeenDate: string;
+  status: "active" | "found";
+  contactPhone: string;
+  imageUrl?: string;
+  createdAt: string;
+}
+
+export interface Badge {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  description: string;
+  earnedAt: string;
+}
+
+export interface TrainingTipStep {
+  order: number;
+  title: string;
+  description: string;
+  videoUrl?: string;
+}
+
+export interface TrainingTip {
+  id: string;
+  title: string;
+  body: string;
+  summary: string;
+  steps: TrainingTipStep[];
+  videoUrl?: string;
+  category: string;
+  petType: string;
+  difficulty: "easy" | "medium" | "hard";
+}
+
+export interface VetClinic {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  city: string;
+  isEmergency: boolean;
+  website?: string;
+  hours?: string;
+  distance?: number;
+}
+
+export interface VenueReview {
+  id: string;
+  venueId: string;
+  userId: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface PetSitter {
+  id: string;
+  userId: string;
+  name: string;
+  bio: string;
+  hourlyRate: number;
+  currency: string;
+  phone: string;
+  rating: number;
+  reviewCount: number;
+  services: string[];
+  cityLabel: string;
+  avatarUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  distance?: number;
+}
+
+export interface WalkRouteCoord {
+  lat: number;
+  lng: number;
+}
+
+export interface WalkRoute {
+  id: string;
+  name: string;
+  description: string;
+  distance: string;
+  estimatedTime: string;
+  difficulty: string;
+  coordinates: WalkRouteCoord[];
+  cityLabel: string;
+  createdAt: string;
+}
+
+export interface AdoptionListing {
+  id: string;
+  petName: string;
+  petAge: number;
+  petSpecies: string;
+  petBreed: string;
+  description: string;
+  contactPhone: string;
+  contactEmail: string;
+  location: string;
+  imageUrl?: string;
+  status: "active" | "adopted";
+  userId: string;
+  createdAt: string;
+}
+
+export interface PetAlbum {
+  id: string;
+  petId: string;
+  title: string;
+  photos: PetPhoto[];
+  createdAt: string;
+}
+
+export interface PetMilestone {
+  id: string;
+  petId: string;
+  type: string;
+  title: string;
+  description: string;
+  achievedAt: string;
 }
 
 export interface ApiListResponse<T> {

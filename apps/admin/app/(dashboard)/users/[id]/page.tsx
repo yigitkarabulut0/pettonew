@@ -1,27 +1,68 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ImageIcon,
   Heart,
   MessageCircle,
-  PawPrint
+  PawPrint,
+  Pencil,
+  X
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getUserDetail } from "@/lib/admin-api";
+import { Input } from "@/components/ui/input";
+import { getUserDetail, updateUser } from "@/lib/admin-api";
 
 export default function UserDetailPage() {
   const params = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["admin-user-detail", params.id],
     queryFn: () => getUserDetail(params.id),
     enabled: Boolean(params.id)
   });
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    bio: "",
+    cityLabel: "",
+    gender: "",
+    birthDate: ""
+  });
+
+  const editMutation = useMutation({
+    mutationFn: (fields: Parameters<typeof updateUser>[1]) =>
+      updateUser(params.id, fields),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", params.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      setEditing(false);
+    }
+  });
+
+  function startEditing() {
+    if (!data) return;
+    setForm({
+      firstName: data.user.firstName || "",
+      lastName: data.user.lastName || "",
+      bio: data.user.bio || "",
+      cityLabel: data.user.cityLabel || "",
+      gender: data.user.gender || "",
+      birthDate: data.user.birthDate
+        ? new Date(data.user.birthDate).toISOString().slice(0, 10)
+        : ""
+    });
+    setEditing(true);
+  }
 
   if (isLoading) {
     return (
@@ -70,33 +111,118 @@ export default function UserDetailPage() {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl text-[var(--petto-ink)]">
-                {data.user.firstName || "Unnamed"} {data.user.lastName}
-              </h1>
-              <Badge
-                tone={data.user.status === "active" ? "success" : "warning"}
+            {editing ? (
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  editMutation.mutate({
+                    firstName: form.firstName,
+                    lastName: form.lastName,
+                    bio: form.bio,
+                    cityLabel: form.cityLabel,
+                    gender: form.gender,
+                    birthDate: form.birthDate || undefined
+                  });
+                }}
               >
-                {data.user.status}
-              </Badge>
-            </div>
-            <p className="mt-1 text-sm text-[var(--petto-muted)]">
-              {data.user.email}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-4 text-sm text-[var(--petto-secondary)]">
-              {data.user.cityLabel && <span>{data.user.cityLabel}</span>}
-              <span>{data.user.gender}</span>
-              {data.user.birthDate && (
-                <span>
-                  Born{" "}
-                  {new Date(data.user.birthDate).toLocaleDateString("en-GB")}
-                </span>
-              )}
-            </div>
-            {data.user.bio && (
-              <p className="mt-3 text-sm leading-6 text-[var(--petto-muted)]">
-                {data.user.bio}
-              </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    placeholder="First name"
+                    value={form.firstName}
+                    onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Last name"
+                    value={form.lastName}
+                    onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                  />
+                  <Input
+                    placeholder="City"
+                    value={form.cityLabel}
+                    onChange={(e) => setForm({ ...form, cityLabel: e.target.value })}
+                  />
+                  <select
+                    className="h-12 w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 text-sm text-[var(--petto-ink)] outline-none focus:border-[var(--petto-primary)]"
+                    value={form.gender}
+                    onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                  >
+                    <option value="">Select gender</option>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <Input
+                    type="date"
+                    placeholder="Birth date"
+                    value={form.birthDate}
+                    onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
+                  />
+                </div>
+                <textarea
+                  className="w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 py-3 text-sm text-[var(--petto-ink)] outline-none placeholder:text-[var(--petto-muted)] focus:border-[var(--petto-primary)]"
+                  placeholder="Bio"
+                  rows={3}
+                  value={form.bio}
+                  onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                />
+                {editMutation.isError && (
+                  <p className="text-sm text-rose-600">
+                    {editMutation.error?.message || "Failed to save changes."}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={editMutation.isPending}>
+                    {editMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setEditing(false)}
+                    disabled={editMutation.isPending}
+                  >
+                    <X className="mr-1 h-4 w-4" /> Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h1 className="text-2xl text-[var(--petto-ink)]">
+                    {data.user.firstName || "Unnamed"} {data.user.lastName}
+                  </h1>
+                  <Badge
+                    tone={data.user.status === "active" ? "success" : "warning"}
+                  >
+                    {data.user.status}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--petto-border)] bg-white/60 px-3 py-1.5 text-xs font-semibold text-[var(--petto-secondary)] transition-all hover:bg-white"
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
+                  </button>
+                </div>
+                <p className="mt-1 text-sm text-[var(--petto-muted)]">
+                  {data.user.email}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-4 text-sm text-[var(--petto-secondary)]">
+                  {data.user.cityLabel && <span>{data.user.cityLabel}</span>}
+                  <span>{data.user.gender}</span>
+                  {data.user.birthDate && (
+                    <span>
+                      Born{" "}
+                      {new Date(data.user.birthDate).toLocaleDateString("en-GB")}
+                    </span>
+                  )}
+                </div>
+                {data.user.bio && (
+                  <p className="mt-3 text-sm leading-6 text-[var(--petto-muted)]">
+                    {data.user.bio}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>

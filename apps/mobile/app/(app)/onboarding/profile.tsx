@@ -11,18 +11,20 @@ import {
   Image,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View
 } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { User } from "lucide-react-native";
+import { Camera, X } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
-import { ScreenShell } from "@/components/screen-shell";
 import { updateProfile, uploadMedia } from "@/lib/api";
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 const schema = z.object({
@@ -36,8 +38,10 @@ const schema = z.object({
 type ProfileValues = z.infer<typeof schema>;
 
 export default function ProfileOnboardingPage() {
+  const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const setSession = useSessionStore((state) => state.setSession);
+  const insets = useSafeAreaInsets();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [avatarAsset, setAvatarAsset] = useState<{
@@ -58,6 +62,8 @@ export default function ProfileOnboardingPage() {
     resolver: zodResolver(schema)
   });
   const birthDateValue = watch("birthDate");
+
+  const isEditing = Boolean(session?.user.firstName && session?.user.lastName);
 
   const selectedDate = useMemo(() => {
     const parsed = new Date(birthDateValue);
@@ -96,7 +102,11 @@ export default function ProfileOnboardingPage() {
         ...session,
         user
       });
-      router.replace("/");
+      if (isEditing) {
+        router.back();
+      } else {
+        router.replace("/");
+      }
     },
     onError: (error) => {
       setErrorMessage(
@@ -145,182 +155,220 @@ export default function ProfileOnboardingPage() {
   };
 
   return (
-    <ScreenShell
-      eyebrow="Onboarding"
-      title="Tell us about the human behind the pet."
-      subtitle="Birth date stays private and is used only for age verification."
-    >
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View
         style={{
-          gap: mobileTheme.spacing.lg,
-          padding: mobileTheme.spacing.xl,
-          borderRadius: mobileTheme.radius.lg,
-          backgroundColor: mobileTheme.colors.white
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingTop: insets.top + mobileTheme.spacing.md,
+          paddingBottom: mobileTheme.spacing.md,
+          paddingHorizontal: mobileTheme.spacing.xl
         }}
       >
-        <View
+        <Pressable
+          onPress={() => (isEditing ? router.back() : undefined)}
+          hitSlop={12}
           style={{
-            flexDirection: "row",
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: theme.colors.surface,
             alignItems: "center",
-            gap: mobileTheme.spacing.sm
+            justifyContent: "center"
           }}
         >
-          <User size={16} color={mobileTheme.colors.muted} />
-          <Text
-            selectable
-            style={{
-              ...mobileTheme.typography.micro,
-              color: mobileTheme.colors.muted,
-              fontFamily: "Inter_600SemiBold"
-            }}
-          >
-            Step 2 of 3
-          </Text>
-        </View>
+          {isEditing ? <X size={20} color={theme.colors.ink} /> : null}
+        </Pressable>
+        <Text
+          style={{
+            fontSize: mobileTheme.typography.heading.fontSize,
+            fontWeight: mobileTheme.typography.heading.fontWeight,
+            color: theme.colors.ink,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          {isEditing ? "Edit Profile" : "Your Profile"}
+        </Text>
+        <View style={{ width: 36 }} />
+      </View>
 
-        <View style={{ gap: mobileTheme.spacing.md }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{
+          paddingHorizontal: mobileTheme.spacing.xl,
+          paddingVertical: mobileTheme.spacing.sm,
+          gap: mobileTheme.spacing.xl,
+          paddingBottom: insets.bottom + mobileTheme.spacing["2xl"]
+        }}
+      >
+        {!isEditing && (
           <Text
-            selectable
             style={{
-              ...mobileTheme.typography.label,
-              color: mobileTheme.colors.secondary,
-              fontFamily: "Inter_700Bold"
+              color: theme.colors.muted,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular",
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              textAlign: "center",
+              marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Profile photo
+            Birth date stays private and is used only for age verification.
           </Text>
-          <View
-            style={{
-              borderRadius: mobileTheme.radius.lg,
-              borderWidth: 1,
-              borderColor: mobileTheme.colors.borderStrong,
-              backgroundColor: mobileTheme.colors.background,
-              padding: mobileTheme.spacing.xl,
+        )}
+
+        <View
+          style={{
+            alignItems: "center",
+            gap: mobileTheme.spacing.lg
+          }}
+        >
+          <Pressable
+            onPress={() => void pickAvatar()}
+            style={({ pressed }) => ({
+              width: 120,
+              height: 120,
+              borderRadius: mobileTheme.radius.xl,
+              overflow: "hidden",
+              backgroundColor: theme.colors.surface,
               alignItems: "center",
-              gap: mobileTheme.spacing.lg
+              justifyContent: "center",
+              opacity: pressed ? 0.85 : 1,
+              borderWidth: 2,
+              borderColor: theme.colors.border
+            })}
+          >
+            {currentAvatarUri ? (
+              <Image
+                source={{ uri: currentAvatarUri }}
+                style={{ width: "100%", height: "100%" }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: theme.colors.primaryBg,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Camera size={22} color={theme.colors.primary} />
+              </View>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              if (currentAvatarUri) {
+                setAvatarAsset(null);
+                setRemoveAvatar(true);
+              } else {
+                void pickAvatar();
+              }
             }}
           >
-            <View
+            <Text
               style={{
-                width: 116,
-                height: 116,
-                borderRadius: mobileTheme.radius.pill,
-                overflow: "hidden",
-                backgroundColor: mobileTheme.colors.white,
-                alignItems: "center",
-                justifyContent: "center"
+                color: theme.colors.primary,
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontFamily: "Inter_600SemiBold",
+                fontWeight: "600"
               }}
             >
-              {currentAvatarUri ? (
-                <Image
-                  source={{ uri: currentAvatarUri }}
-                  style={{ width: "100%", height: "100%" }}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text
-                  selectable
-                  style={{
-                    ...mobileTheme.typography.caption,
-                    color: mobileTheme.colors.muted,
-                    fontFamily: "Inter_600SemiBold"
-                  }}
-                >
-                  No photo
-                </Text>
-              )}
-            </View>
-            <View style={{ width: "100%", gap: mobileTheme.spacing.md }}>
-              <PrimaryButton
-                label={
-                  currentAvatarUri
-                    ? "Change profile photo"
-                    : "Add profile photo"
-                }
-                variant="secondary"
-                onPress={() => {
-                  void pickAvatar();
-                }}
-              />
-              {currentAvatarUri ? (
-                <PrimaryButton
-                  label="Remove photo"
-                  variant="ghost"
-                  onPress={() => {
-                    setAvatarAsset(null);
-                    setRemoveAvatar(true);
-                  }}
-                />
-              ) : null}
-            </View>
-          </View>
+              {currentAvatarUri ? "Change photo" : "Add photo"}
+            </Text>
+          </Pressable>
         </View>
 
         {(["firstName", "lastName", "bio"] as const).map((field) => (
-          <Controller
-            key={field}
-            control={control}
-            name={field}
-            render={({ field: { onChange, value } }) => (
-              <TextInput
-                placeholder={
-                  field === "bio"
-                    ? "Short bio"
-                    : field === "firstName"
-                      ? "First name"
-                      : "Last name"
-                }
-                placeholderTextColor={mobileTheme.colors.muted}
-                multiline={field === "bio"}
-                value={value}
-                onChangeText={onChange}
+          <View key={field}>
+            {field !== "bio" ? (
+              <Text
                 style={{
-                  borderRadius: mobileTheme.radius.md,
-                  backgroundColor: mobileTheme.colors.background,
-                  borderWidth: 1,
-                  borderColor: mobileTheme.colors.borderStrong,
-                  paddingHorizontal: mobileTheme.spacing.lg,
-                  paddingVertical:
-                    field === "bio"
-                      ? mobileTheme.spacing.xl
-                      : mobileTheme.spacing.lg,
-                  minHeight: field === "bio" ? 110 : undefined,
-                  color: mobileTheme.colors.ink,
-                  textAlignVertical: field === "bio" ? "top" : "auto",
-                  fontFamily: "Inter_400Regular"
+                  fontSize: mobileTheme.typography.label.fontSize,
+                  fontWeight: mobileTheme.typography.label.fontWeight,
+                  color: theme.colors.muted,
+                  fontFamily: "Inter_700Bold",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                  marginBottom: mobileTheme.spacing.sm
                 }}
-              />
-            )}
-          />
+              >
+                {field === "firstName" ? "First Name" : "Last Name"}
+              </Text>
+            ) : null}
+            <Controller
+              control={control}
+              name={field}
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  placeholder={
+                    field === "bio"
+                      ? "Write a short bio..."
+                      : field === "firstName"
+                        ? "First name"
+                        : "Last name"
+                  }
+                  placeholderTextColor={theme.colors.muted}
+                  multiline={field === "bio"}
+                  value={value}
+                  onChangeText={onChange}
+                  style={{
+                    borderRadius: mobileTheme.radius.md,
+                    backgroundColor: theme.colors.white,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    paddingHorizontal: mobileTheme.spacing.lg,
+                    paddingVertical:
+                      field === "bio"
+                        ? mobileTheme.spacing.lg
+                        : mobileTheme.spacing.md,
+                    minHeight: field === "bio" ? 100 : undefined,
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_400Regular",
+                    lineHeight: mobileTheme.typography.body.lineHeight,
+                    textAlignVertical: field === "bio" ? "top" : "center"
+                  }}
+                />
+              )}
+            />
+          </View>
         ))}
 
-        <View style={{ gap: mobileTheme.spacing.md }}>
+        <View>
           <Text
-            selectable
             style={{
-              ...mobileTheme.typography.label,
-              color: mobileTheme.colors.secondary,
-              fontFamily: "Inter_700Bold"
+              fontSize: mobileTheme.typography.label.fontSize,
+              fontWeight: mobileTheme.typography.label.fontWeight,
+              color: theme.colors.muted,
+              fontFamily: "Inter_700Bold",
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Birth date
+            Birth Date
           </Text>
           <Pressable
             onPress={() => setShowDatePicker(true)}
             style={{
               borderRadius: mobileTheme.radius.md,
-              backgroundColor: mobileTheme.colors.background,
+              backgroundColor: theme.colors.white,
               borderWidth: 1,
-              borderColor: mobileTheme.colors.borderStrong,
+              borderColor: theme.colors.border,
               paddingHorizontal: mobileTheme.spacing.lg,
-              paddingVertical: mobileTheme.spacing.lg
+              paddingVertical: mobileTheme.spacing.md
             }}
           >
             <Text
-              selectable
               style={{
-                ...mobileTheme.typography.body,
-                color: mobileTheme.colors.ink,
+                fontSize: mobileTheme.typography.body.fontSize,
+                color: theme.colors.ink,
                 fontFamily: "Inter_400Regular"
               }}
             >
@@ -331,9 +379,9 @@ export default function ProfileOnboardingPage() {
             <View
               style={{
                 borderRadius: mobileTheme.radius.md,
-                backgroundColor: mobileTheme.colors.background,
+                backgroundColor: theme.colors.white,
                 borderWidth: 1,
-                borderColor: mobileTheme.colors.borderStrong,
+                borderColor: theme.colors.border,
                 overflow: "hidden"
               }}
             >
@@ -348,13 +396,16 @@ export default function ProfileOnboardingPage() {
           ) : null}
         </View>
 
-        <View style={{ gap: mobileTheme.spacing.md }}>
+        <View>
           <Text
-            selectable
             style={{
-              ...mobileTheme.typography.label,
-              color: mobileTheme.colors.secondary,
-              fontFamily: "Inter_700Bold"
+              fontSize: mobileTheme.typography.label.fontSize,
+              fontWeight: mobileTheme.typography.label.fontWeight,
+              color: theme.colors.muted,
+              fontFamily: "Inter_700Bold",
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              marginBottom: mobileTheme.spacing.sm
             }}
           >
             Gender
@@ -362,9 +413,9 @@ export default function ProfileOnboardingPage() {
           <View
             style={{
               borderRadius: mobileTheme.radius.md,
-              backgroundColor: mobileTheme.colors.background,
+              backgroundColor: theme.colors.white,
               borderWidth: 1,
-              borderColor: mobileTheme.colors.borderStrong,
+              borderColor: theme.colors.border,
               overflow: "hidden"
             }}
           >
@@ -388,11 +439,11 @@ export default function ProfileOnboardingPage() {
 
         {errorMessage ? (
           <Text
-            selectable
             style={{
-              ...mobileTheme.typography.body,
-              color: mobileTheme.colors.danger,
-              fontFamily: "Inter_400Regular"
+              color: theme.colors.danger,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular",
+              textAlign: "center"
             }}
           >
             {errorMessage}
@@ -400,11 +451,11 @@ export default function ProfileOnboardingPage() {
         ) : null}
 
         <PrimaryButton
-          label={mutation.isPending ? "Saving..." : "Save profile"}
+          label={mutation.isPending ? "Saving..." : "Save"}
           onPress={handleSubmit((values) => mutation.mutate(values))}
         />
-      </View>
-    </ScreenShell>
+      </ScrollView>
+    </View>
   );
 }
 

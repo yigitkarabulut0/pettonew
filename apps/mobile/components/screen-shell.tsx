@@ -1,7 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 
 interface ScreenShellProps {
   eyebrow?: string;
@@ -18,21 +18,23 @@ export function ScreenShell({
   children,
   noBottomPadding = false
 }: ScreenShellProps) {
+  const theme = useTheme();
   const insets = useSafeAreaInsets();
   return (
     <View
       style={{
         flex: 1,
-        backgroundColor: mobileTheme.colors.background
+        backgroundColor: theme.colors.background
       }}
     >
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           padding: mobileTheme.spacing.xl,
           gap: mobileTheme.spacing.xl,
-          paddingBottom: noBottomPadding ? mobileTheme.spacing.xl : 120
+          paddingBottom: noBottomPadding ? mobileTheme.spacing.xl : 100 + insets.bottom
         }}
       >
         <View
@@ -44,7 +46,7 @@ export function ScreenShell({
           {eyebrow ? (
             <Text
               style={{
-                color: mobileTheme.colors.primary,
+                color: theme.colors.primary,
                 textTransform: "uppercase",
                 letterSpacing: mobileTheme.typography.label.letterSpacing,
                 fontSize: mobileTheme.typography.label.fontSize,
@@ -57,12 +59,12 @@ export function ScreenShell({
           ) : null}
           <Text
             style={{
-              color: mobileTheme.colors.ink,
+              color: theme.colors.ink,
               fontSize: mobileTheme.typography.display.fontSize,
               lineHeight: mobileTheme.typography.display.lineHeight,
               fontWeight: mobileTheme.typography.display.fontWeight,
               letterSpacing: mobileTheme.typography.display.letterSpacing,
-              fontFamily: "Inter_800ExtraBold"
+              fontFamily: "Inter_700Bold"
             }}
           >
             {title}
@@ -70,7 +72,7 @@ export function ScreenShell({
           {subtitle ? (
             <Text
               style={{
-                color: mobileTheme.colors.muted,
+                color: theme.colors.muted,
                 fontSize: mobileTheme.typography.body.fontSize,
                 lineHeight: mobileTheme.typography.body.lineHeight,
                 fontFamily: "Inter_400Regular"

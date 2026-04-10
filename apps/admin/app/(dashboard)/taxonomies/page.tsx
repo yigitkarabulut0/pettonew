@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { deleteTaxonomy, getTaxonomy, upsertTaxonomy } from "@/lib/admin-api";
 
-const taxonomyKinds = ["species", "breeds", "hobbies", "compatibility"] as const;
+const taxonomyKinds = ["species", "breeds", "hobbies", "compatibility", "characters"] as const;
 
 const sectionMeta = {
   species: {
@@ -31,6 +31,11 @@ const sectionMeta = {
     eyebrow: "Compatibility",
     title: "Good-with tags",
     description: "Tags like children, dogs, and cats help owners describe social fit fast."
+  },
+  characters: {
+    eyebrow: "Characters",
+    title: "Personality traits",
+    description: "Character bubbles shown during pet creation. Keep traits simple and relatable."
   }
 } as const;
 
@@ -47,6 +52,7 @@ export default function TaxonomiesPage() {
   const breeds = results[1]?.data ?? [];
   const hobbies = results[2]?.data ?? [];
   const compatibility = results[3]?.data ?? [];
+  const characters = results[4]?.data ?? [];
 
   const speciesCounts = useMemo(() => {
     return species.map((item) => ({
@@ -97,7 +103,7 @@ export default function TaxonomiesPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Taxonomies</p>
         <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Keep profile inputs clean, consistent, and easy to manage.</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--petto-muted)]">
-          Species, breeds, hobbies, and compatibility tags all flow straight into the mobile onboarding experience. Remove
+          Species, breeds, hobbies, compatibility tags, and character traits all flow straight into the mobile onboarding experience. Remove
           clutter here and the product feels better everywhere.
         </p>
       </Card>
@@ -152,6 +158,19 @@ export default function TaxonomiesPage() {
           onSubmit={(payload) => createMutation.mutate({ kind: "compatibility", ...payload })}
           onDelete={(itemId, label) =>
             confirmDelete(() => deleteMutation.mutate({ kind: "compatibility", itemId }), label)
+          }
+        />
+
+        <TaxonomySection
+          kind="characters"
+          items={characters}
+          title={sectionMeta.characters.title}
+          eyebrow={sectionMeta.characters.eyebrow}
+          description={sectionMeta.characters.description}
+          addLabel="Add character trait"
+          onSubmit={(payload) => createMutation.mutate({ kind: "characters", ...payload })}
+          onDelete={(itemId, label) =>
+            confirmDelete(() => deleteMutation.mutate({ kind: "characters", itemId }), label)
           }
         />
       </section>

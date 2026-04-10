@@ -30,6 +30,8 @@ type snapshotState struct {
 	ResetTokens        map[string]string                `json:"resetTokens"`
 	Taxonomies         map[string][]domain.TaxonomyItem `json:"taxonomies"`
 	Reports            []domain.ReportSummary           `json:"reports"`
+	PushTokens         map[string][]domain.PushToken    `json:"pushTokens"`
+	Notifications      []domain.Notification            `json:"notifications"`
 }
 
 type PersistentStore struct {
@@ -143,6 +145,8 @@ func (s *PersistentStore) captureState() snapshotState {
 		ResetTokens:        s.resetTokens,
 		Taxonomies:         s.taxonomies,
 		Reports:            s.reports,
+		PushTokens:         s.pushTokens,
+		Notifications:      s.notifications,
 	}
 }
 
@@ -169,6 +173,12 @@ func (s *PersistentStore) applyState(state snapshotState) {
 	s.resetTokens = defaultStringMap(state.ResetTokens)
 	s.taxonomies = defaultTaxonomies(state.Taxonomies)
 	s.reports = defaultReports(state.Reports)
+	if state.PushTokens != nil {
+		s.pushTokens = state.PushTokens
+	}
+	if state.Notifications != nil {
+		s.notifications = state.Notifications
+	}
 }
 
 func (s *PersistentStore) persistAfter(err error) error {
@@ -211,8 +221,8 @@ func (s *PersistentStore) BlockUser(userID string, targetUserID string) error {
 	return s.persistAfter(s.MemoryStore.BlockUser(userID, targetUserID))
 }
 
-func (s *PersistentStore) CreateReport(reporterName string, reason string, targetType string, targetLabel string) domain.ReportSummary {
-	report := s.MemoryStore.CreateReport(reporterName, reason, targetType, targetLabel)
+func (s *PersistentStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) domain.ReportSummary {
+	report := s.MemoryStore.CreateReport(reporterID, reporterName, reason, targetType, targetID, targetLabel)
 	_ = s.persist(context.Background())
 	return report
 }
@@ -243,8 +253,12 @@ func (s *PersistentStore) DeleteTaxonomy(kind string, itemID string) error {
 	return s.persistAfter(s.MemoryStore.DeleteTaxonomy(kind, itemID))
 }
 
-func (s *PersistentStore) ResolveReport(reportID string) error {
-	return s.persistAfter(s.MemoryStore.ResolveReport(reportID))
+func (s *PersistentStore) ResolveReport(reportID string, notes string) error {
+	return s.persistAfter(s.MemoryStore.ResolveReport(reportID, notes))
+}
+
+func (s *PersistentStore) GetReportDetail(reportID string) (*domain.ReportDetail, error) {
+	return s.MemoryStore.GetReportDetail(reportID)
 }
 
 func (s *PersistentStore) CreatePost(userID string, input PostInput) (domain.HomePost, error) {
@@ -289,6 +303,50 @@ func (s *PersistentStore) RSVPEvent(userID string, eventID string, petIDs []stri
 	event, err := s.MemoryStore.RSVPEvent(userID, eventID, petIDs)
 	return event, s.persistAfter(err)
 }
+
+func (s *PersistentStore) UpdateTrainingTip(tip domain.TrainingTip) (domain.TrainingTip, error) {
+	result, err := s.MemoryStore.UpdateTrainingTip(tip)
+	return result, s.persistAfter(err)
+}
+
+func (s *PersistentStore) BookmarkTip(userID, tipID string) error {
+	return s.persistAfter(s.MemoryStore.BookmarkTip(userID, tipID))
+}
+
+func (s *PersistentStore) UnbookmarkTip(userID, tipID string) error {
+	return s.persistAfter(s.MemoryStore.UnbookmarkTip(userID, tipID))
+}
+
+func (s *PersistentStore) CompleteTip(userID, tipID string) error {
+	return s.persistAfter(s.MemoryStore.CompleteTip(userID, tipID))
+}
+
+func (s *PersistentStore) CreateVetClinic(clinic domain.VetClinic) domain.VetClinic {
+	result := s.MemoryStore.CreateVetClinic(clinic)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) DeleteVetClinic(clinicID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteVetClinic(clinicID))
+}
+
+func (s *PersistentStore) CreateVenueReview(review domain.VenueReview) domain.VenueReview {
+	result := s.MemoryStore.CreateVenueReview(review)
+	_ = s.persist(context.Background())
+	return result
+}
+
+func (s *PersistentStore) SavePushToken(userID string, token string, platform string) {
+	s.MemoryStore.SavePushToken(userID, token, platform)
+	_ = s.persist(context.Background())
+}
+
+func (s *PersistentStore) SaveNotification(notification domain.Notification) {
+	s.MemoryStore.SaveNotification(notification)
+	_ = s.persist(context.Background())
+}
+
 func defaultUsers(value map[string]*domain.AppUser) map[string]*domain.AppUser {
 	if value == nil {
 		return map[string]*domain.AppUser{}

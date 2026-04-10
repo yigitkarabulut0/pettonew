@@ -13,6 +13,10 @@ type PostInput struct {
 	Body         string   `json:"body"`
 	ImageURL     *string  `json:"imageUrl"`
 	TaggedPetIDs []string `json:"taggedPetIds"`
+	VenueID      *string  `json:"venueId"`
+	VenueName    *string  `json:"venueName"`
+	EventID      *string  `json:"eventId,omitempty"`
+	EventName    *string  `json:"eventName,omitempty"`
 }
 
 type VenueInput struct {
@@ -24,6 +28,7 @@ type VenueInput struct {
 	Latitude    float64 `json:"latitude"`
 	Longitude   float64 `json:"longitude"`
 	ImageURL    *string `json:"imageUrl"`
+	Hours       string  `json:"hours"`
 }
 
 type EventInput struct {
@@ -32,13 +37,16 @@ type EventInput struct {
 	CityLabel   string  `json:"cityLabel"`
 	VenueID     *string `json:"venueId"`
 	StartsAt    string  `json:"startsAt"`
+	EndsAt      string  `json:"endsAt"`
 	Audience    string  `json:"audience"`
 	PetFocus    string  `json:"petFocus"`
 }
 
 type VenueCheckInInput struct {
-	VenueID string   `json:"venueId"`
-	PetIDs  []string `json:"petIds"`
+	VenueID   string   `json:"venueId"`
+	PetIDs    []string `json:"petIds"`
+	Latitude  float64  `json:"latitude"`
+	Longitude float64  `json:"longitude"`
 }
 
 func (s *MemoryStore) ListHomeFeed(userID string) []domain.HomePost {
@@ -88,6 +96,17 @@ func (s *MemoryStore) CreatePost(userID string, input PostInput) (domain.HomePos
 		LikeCount:  0,
 		LikedByMe:  false,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		VenueID:    input.VenueID,
+		VenueName:  input.VenueName,
+		EventID:    input.EventID,
+		EventName:  input.EventName,
+	}
+	// Look up venue name from store if venueId provided but name missing
+	if post.VenueID != nil && *post.VenueID != "" && (post.VenueName == nil || *post.VenueName == "") {
+		if venue, ok := s.venues[*post.VenueID]; ok {
+			name := venue.Name
+			post.VenueName = &name
+		}
 	}
 	s.posts[postID] = post
 	s.postCreatedAt[postID] = time.Now().UTC()
@@ -172,6 +191,7 @@ func (s *MemoryStore) UpsertVenue(venueID string, input VenueInput) domain.Explo
 		Latitude:        input.Latitude,
 		Longitude:       input.Longitude,
 		ImageURL:        input.ImageURL,
+		Hours:           input.Hours,
 		CurrentCheckIns: currentCheckIns,
 	}
 	s.venues[venueID] = venue
@@ -193,6 +213,18 @@ func (s *MemoryStore) DeleteVenue(venueID string) error {
 		}
 	}
 	return nil
+}
+
+func (s *MemoryStore) GetVenue(venueID string) (*domain.ExploreVenue, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	venue, ok := s.venues[venueID]
+	if !ok {
+		return nil, fmt.Errorf("venue not found")
+	}
+	copy := *venue
+	return &copy, nil
 }
 
 func (s *MemoryStore) CheckInVenue(userID string, input VenueCheckInInput) (domain.ExploreVenue, error) {
@@ -284,6 +316,7 @@ func (s *MemoryStore) UpsertEvent(eventID string, input EventInput) (domain.Expl
 		VenueID:       input.VenueID,
 		VenueName:     venueName,
 		StartsAt:      input.StartsAt,
+		EndsAt:        input.EndsAt,
 		Audience:      input.Audience,
 		PetFocus:      input.PetFocus,
 		AttendeeCount: len(attendees),

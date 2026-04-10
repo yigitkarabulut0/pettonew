@@ -10,20 +10,36 @@ import {
   TextInput,
   View
 } from "react-native";
-import { ChevronLeft, Send } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft, Flag, Send } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
+import { ReportModal } from "@/components/report-modal";
 import { listMessages, sendMessage } from "@/lib/api";
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
+import type { Conversation } from "@petto/contracts";
 
 export default function ConversationPage() {
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const conversations = queryClient.getQueryData<Conversation[]>([
+    "conversations",
+    session?.tokens.accessToken
+  ]);
+  const conversation = conversations?.find((c) => c.id === id) ?? null;
+
+  const otherUserName = conversation?.title ?? "Conversation";
+  const otherUserAvatar = conversation?.matchPetPairs[0]?.matchedPetPhotoUrl;
+  const subtitle = conversation?.subtitle ?? "";
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id, session?.tokens.accessToken],
@@ -79,7 +95,7 @@ export default function ConversationPage() {
     }
   }, [messages.length]);
 
-  const renderMessage = (msg: (typeof messages)[0]) => (
+  const renderMessage = (msg: (typeof messages)[0], showTimestamp: boolean) => (
     <View
       key={msg.id}
       style={{
@@ -95,8 +111,8 @@ export default function ConversationPage() {
           paddingVertical: mobileTheme.spacing.sm + 4,
           borderRadius: mobileTheme.radius.lg,
           backgroundColor: msg.isMine
-            ? mobileTheme.colors.primary
-            : mobileTheme.colors.white,
+            ? theme.colors.primary
+            : theme.colors.white,
           borderTopRightRadius: msg.isMine
             ? mobileTheme.radius.xs
             : mobileTheme.radius.lg,
@@ -110,8 +126,8 @@ export default function ConversationPage() {
           selectable
           style={{
             color: msg.isMine
-              ? mobileTheme.colors.white
-              : mobileTheme.colors.ink,
+              ? theme.colors.white
+              : theme.colors.ink,
             lineHeight: mobileTheme.typography.body.lineHeight,
             fontSize: mobileTheme.typography.body.fontSize,
             fontFamily: "Inter_400Regular"
@@ -120,27 +136,29 @@ export default function ConversationPage() {
           {msg.body}
         </Text>
       </View>
-      <Text
-        style={{
-          fontSize: 10,
-          color: mobileTheme.colors.muted,
-          marginTop: 3,
-          marginHorizontal: mobileTheme.spacing.sm,
-          alignSelf: msg.isMine ? "flex-end" : "flex-start",
-          fontFamily: "Inter_400Regular"
-        }}
-      >
-        {new Date(msg.createdAt).toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit"
-        })}
-      </Text>
+      {showTimestamp && (
+        <Text
+          style={{
+            fontSize: 10,
+            color: theme.colors.muted,
+            marginTop: 3,
+            marginHorizontal: mobileTheme.spacing.sm,
+            alignSelf: msg.isMine ? "flex-end" : "flex-start",
+            fontFamily: "Inter_400Regular"
+          }}
+        >
+          {new Date(msg.createdAt).toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit"
+          })}
+        </Text>
+      )}
     </View>
   );
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: mobileTheme.colors.background }}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <Stack.Screen options={{ headerShown: false }} />
@@ -151,11 +169,11 @@ export default function ConversationPage() {
           alignItems: "center",
           gap: mobileTheme.spacing.md,
           paddingHorizontal: mobileTheme.spacing.lg,
-          paddingVertical: mobileTheme.spacing.md,
-          paddingTop: mobileTheme.spacing["3xl"],
-          backgroundColor: mobileTheme.colors.white,
+          paddingBottom: mobileTheme.spacing.md,
+          paddingTop: insets.top + mobileTheme.spacing.md,
+          backgroundColor: theme.colors.white,
           borderBottomWidth: 1,
-          borderBottomColor: mobileTheme.colors.border
+          borderBottomColor: theme.colors.border
         }}
       >
         <Pressable
@@ -165,39 +183,51 @@ export default function ConversationPage() {
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: mobileTheme.colors.background,
+            backgroundColor: theme.colors.background,
             alignItems: "center",
             justifyContent: "center"
           }}
         >
-          <ChevronLeft size={20} color={mobileTheme.colors.ink} />
+          <ChevronLeft size={20} color={theme.colors.ink} />
         </Pressable>
-        <Avatar
-          uri={session?.user.avatarUrl}
-          name={session?.user.firstName}
-          size="sm"
-        />
+        <Avatar uri={otherUserAvatar} name={otherUserName} size="sm" />
         <View style={{ flex: 1 }}>
           <Text
             style={{
               fontSize: mobileTheme.typography.bodySemiBold.fontSize,
               fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
-              color: mobileTheme.colors.ink,
+              color: theme.colors.ink,
               fontFamily: "Inter_700Bold"
             }}
           >
-            Conversation
+            {otherUserName}
           </Text>
-          <Text
-            style={{
-              fontSize: mobileTheme.typography.micro.fontSize,
-              color: mobileTheme.colors.likeGreen,
-              fontFamily: "Inter_600SemiBold"
-            }}
-          >
-            Online
-          </Text>
+          {subtitle ? (
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.micro.fontSize,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
+        <Pressable
+          onPress={() => setReportOpen(true)}
+          hitSlop={12}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: theme.colors.background,
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <Flag size={18} color={theme.colors.muted} />
+        </Pressable>
       </View>
 
       <FlatList
@@ -205,7 +235,7 @@ export default function ConversationPage() {
         data={groupedMessages}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingVertical: mobileTheme.spacing.md }}
+        contentContainerStyle={{ paddingVertical: mobileTheme.spacing.md, paddingBottom: 80 }}
         renderItem={({ item: group }) => (
           <View>
             <View
@@ -216,7 +246,7 @@ export default function ConversationPage() {
             >
               <View
                 style={{
-                  backgroundColor: mobileTheme.colors.secondarySoft,
+                  backgroundColor: theme.colors.secondarySoft,
                   borderRadius: mobileTheme.radius.pill,
                   paddingHorizontal: mobileTheme.spacing.md,
                   paddingVertical: mobileTheme.spacing.xs + 2
@@ -226,7 +256,7 @@ export default function ConversationPage() {
                   style={{
                     fontSize: mobileTheme.typography.micro.fontSize,
                     fontWeight: "600",
-                    color: mobileTheme.colors.secondary,
+                    color: theme.colors.secondary,
                     fontFamily: "Inter_600SemiBold"
                   }}
                 >
@@ -234,7 +264,16 @@ export default function ConversationPage() {
                 </Text>
               </View>
             </View>
-            {group.messages.map(renderMessage)}
+            {group.messages.map((msg, idx) => {
+              const next = group.messages[idx + 1];
+              const sameMinute =
+                next &&
+                new Date(msg.createdAt).getHours() ===
+                  new Date(next.createdAt).getHours() &&
+                new Date(msg.createdAt).getMinutes() ===
+                  new Date(next.createdAt).getMinutes();
+              return renderMessage(msg, !sameMinute);
+            })}
           </View>
         )}
       />
@@ -246,27 +285,27 @@ export default function ConversationPage() {
           gap: mobileTheme.spacing.sm,
           paddingHorizontal: mobileTheme.spacing.lg,
           paddingVertical: mobileTheme.spacing.sm,
-          paddingBottom: mobileTheme.spacing["3xl"],
-          backgroundColor: mobileTheme.colors.white,
+          paddingBottom: insets.bottom + mobileTheme.spacing.md,
+          backgroundColor: theme.colors.white,
           borderTopWidth: 1,
-          borderTopColor: mobileTheme.colors.border
+          borderTopColor: theme.colors.border
         }}
       >
         <TextInput
           placeholder="Type a message..."
-          placeholderTextColor={mobileTheme.colors.muted}
+          placeholderTextColor={theme.colors.muted}
           value={draft}
           onChangeText={setDraft}
           multiline
           style={{
             flex: 1,
             borderRadius: mobileTheme.radius.pill,
-            backgroundColor: mobileTheme.colors.background,
+            backgroundColor: theme.colors.background,
             paddingHorizontal: mobileTheme.spacing.lg,
             paddingVertical: mobileTheme.spacing.sm + 4,
             maxHeight: 120,
             fontSize: mobileTheme.typography.body.fontSize,
-            color: mobileTheme.colors.ink,
+            color: theme.colors.ink,
             fontFamily: "Inter_400Regular",
             lineHeight: mobileTheme.typography.body.lineHeight
           }}
@@ -279,8 +318,8 @@ export default function ConversationPage() {
             height: 44,
             borderRadius: 22,
             backgroundColor: draft.trim()
-              ? mobileTheme.colors.primary
-              : mobileTheme.colors.border,
+              ? theme.colors.primary
+              : theme.colors.border,
             alignItems: "center",
             justifyContent: "center",
             marginBottom: 2,
@@ -290,11 +329,19 @@ export default function ConversationPage() {
           <Send
             size={18}
             color={
-              draft.trim() ? mobileTheme.colors.white : mobileTheme.colors.muted
+              draft.trim() ? theme.colors.white : theme.colors.muted
             }
           />
         </Pressable>
       </View>
+
+      <ReportModal
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="chat"
+        targetID={id}
+        targetLabel={otherUserName}
+      />
     </KeyboardAvoidingView>
   );
 }

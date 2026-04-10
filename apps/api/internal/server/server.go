@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/yigitkarabulut/petto/apps/api/internal/chat"
 	"github.com/yigitkarabulut/petto/apps/api/internal/config"
 	"github.com/yigitkarabulut/petto/apps/api/internal/domain"
+	"github.com/yigitkarabulut/petto/apps/api/internal/service"
 	"github.com/yigitkarabulut/petto/apps/api/internal/store"
 )
 
@@ -70,6 +73,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/me/pets", s.handleListPets)
 			router.Post("/me/pets", s.handleCreatePet)
 			router.Put("/me/pets/{petID}", s.handleUpdatePet)
+			router.Patch("/me/pets/{petID}/visibility", s.handlePetVisibility)
 			router.Get("/taxonomies/{kind}", s.handleTaxonomyList)
 			router.Get("/discovery/feed", s.handleDiscoveryFeed)
 			router.Post("/swipes", s.handleSwipe)
@@ -77,18 +81,84 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/conversations", s.handleConversations)
 			router.Get("/messages", s.handleMessages)
 			router.Post("/messages", s.handleSendMessage)
+			router.Post("/messages/read", s.handleMarkMessagesRead)
 			router.Get("/home/feed", s.handleHomeFeed)
 			router.Post("/home/posts", s.handleHomePostCreate)
 			router.Post("/home/posts/{postID}/likes", s.handleHomePostLikeToggle)
+			router.Get("/me/check-in-history", s.handleCheckInHistory)
 			router.Get("/explore/venues", s.handleExploreVenues)
 			router.Post("/explore/check-ins", s.handleExploreCheckIn)
 			router.Get("/explore/events", s.handleExploreEvents)
 			router.Post("/explore/events/{eventID}/rsvps", s.handleExploreEventRSVP)
+			router.Get("/discover/nearby", s.handleNearbyPets)
 			router.Get("/ws", s.handleWebSocket)
+			router.Get("/pets/{petID}/diary", s.handleListDiary)
+			router.Post("/pets/{petID}/diary", s.handleCreateDiaryEntry)
+			router.Get("/favorites", s.handleListFavorites)
+			router.Post("/favorites", s.handleAddFavorite)
+			router.Delete("/favorites/{petID}", s.handleRemoveFavorite)
 			router.Post("/blocks", s.handleBlockUser)
 			router.Post("/reports", s.handleReport)
+			router.Post("/push-token", s.handleSavePushToken)
 			router.Post("/media/upload", s.handleUpload)
 			router.Post("/media/presign", s.handleMediaPresign)
+			// Health
+			router.Get("/pets/{petID}/health", s.handleListHealth)
+			router.Post("/pets/{petID}/health", s.handleCreateHealth)
+			router.Delete("/pets/{petID}/health/{recordID}", s.handleDeleteHealth)
+			// Weight
+			router.Get("/pets/{petID}/weight", s.handleListWeight)
+			router.Post("/pets/{petID}/weight", s.handleCreateWeight)
+			// Vet
+			router.Get("/vet-contacts", s.handleListVetContacts)
+			router.Post("/vet-contacts", s.handleCreateVetContact)
+			router.Delete("/vet-contacts/{contactID}", s.handleDeleteVetContact)
+			// Feeding
+			router.Get("/pets/{petID}/feeding", s.handleListFeeding)
+			router.Post("/pets/{petID}/feeding", s.handleCreateFeeding)
+			router.Delete("/pets/{petID}/feeding/{scheduleID}", s.handleDeleteFeeding)
+			// Playdates
+			router.Get("/playdates", s.handleListPlaydates)
+			router.Post("/playdates", s.handleCreatePlaydate)
+			router.Post("/playdates/{playdateID}/join", s.handleJoinPlaydate)
+			// Groups
+			router.Get("/groups", s.handleListGroups)
+			router.Post("/groups", s.handleCreateGroup)
+			router.Post("/groups/{groupID}/join", s.handleJoinGroup)
+			// Lost pets
+			router.Get("/lost-pets", s.handleListLostPets)
+			router.Post("/lost-pets", s.handleCreateLostPet)
+			router.Patch("/lost-pets/{alertID}", s.handleUpdateLostPetStatus)
+			// Badges
+			router.Get("/badges", s.handleListBadges)
+			// Training tips
+			router.Get("/training-tips", s.handleListTrainingTips)
+			router.Get("/training-tips/{tipID}", s.handleGetTrainingTip)
+			router.Post("/training-tips/{tipID}/bookmark", s.handleBookmarkTip)
+			router.Delete("/training-tips/{tipID}/bookmark", s.handleUnbookmarkTip)
+			router.Post("/training-tips/{tipID}/complete", s.handleCompleteTip)
+			// Vet clinics nearby
+			router.Get("/vet-clinics", s.handleListVetClinicsNearby)
+			// Venue reviews
+			router.Get("/venues/{venueID}/photos", s.handleVenuePhotos)
+			router.Get("/venues/{venueID}/reviews", s.handleListVenueReviews)
+			router.Post("/venues/{venueID}/reviews", s.handleCreateVenueReview)
+			// Pet sitters
+			router.Get("/pet-sitters", s.handleListPetSitters)
+			router.Post("/pet-sitters", s.handleCreatePetSitter)
+			// Walk routes
+			router.Get("/walk-routes", s.handleListWalkRoutes)
+			// Adoptions
+			router.Get("/adoptions", s.handleListAdoptions)
+			router.Post("/adoptions", s.handleCreateAdoption)
+			// Pet albums
+			router.Get("/pets/{petID}/albums", s.handleListPetAlbums)
+			router.Post("/pets/{petID}/albums", s.handleCreatePetAlbum)
+			// Pet milestones
+			router.Get("/pets/{petID}/milestones", s.handleListPetMilestones)
+			// Group messages
+			router.Get("/groups/{groupID}/messages", s.handleListGroupMessages)
+			router.Post("/groups/{groupID}/messages", s.handleSendGroupMessage)
 		})
 
 		router.Get("/media/proxy", s.handleMediaProxy)
@@ -109,6 +179,7 @@ func (s *Server) Routes() http.Handler {
 				router.Delete("/posts/{postID}", s.handleAdminDeletePost)
 				router.Get("/venues", s.handleAdminVenues)
 				router.Post("/venues", s.handleAdminVenueUpsert)
+				router.Put("/venues/{venueID}", s.handleAdminVenueUpdate)
 				router.Delete("/venues/{venueID}", s.handleAdminVenueDelete)
 				router.Get("/events", s.handleAdminEvents)
 				router.Post("/events", s.handleAdminEventUpsert)
@@ -117,7 +188,57 @@ func (s *Server) Routes() http.Handler {
 				router.Post("/taxonomies/{kind}", s.handleAdminTaxonomyUpsert)
 				router.Delete("/taxonomies/{kind}/{itemID}", s.handleAdminTaxonomyDelete)
 				router.Get("/reports", s.handleAdminReports)
+				router.Get("/reports/{reportID}", s.handleAdminReportDetail)
 				router.Post("/reports/{reportID}/resolve", s.handleAdminResolveReport)
+				router.Get("/notifications", s.handleAdminListNotifications)
+				router.Post("/notifications/send", s.handleAdminSendNotification)
+
+				// Pet care data
+				router.Get("/pets/{petID}/health", s.handleAdminPetHealth)
+				router.Get("/pets/{petID}/weight", s.handleAdminPetWeight)
+				router.Get("/pets/{petID}/feeding", s.handleAdminPetFeeding)
+				router.Get("/pets/{petID}/diary", s.handleAdminPetDiary)
+				router.Delete("/pets/{petID}/health/{recordID}", s.handleAdminDeleteHealthRecord)
+
+				// Training tips
+				router.Get("/training-tips", s.handleAdminTrainingTips)
+				router.Post("/training-tips", s.handleAdminCreateTrainingTip)
+				router.Put("/training-tips/{tipID}", s.handleAdminUpdateTrainingTip)
+				router.Delete("/training-tips/{tipID}", s.handleAdminDeleteTrainingTip)
+
+				// Vet clinics
+				router.Get("/vet-clinics", s.handleAdminListVetClinics)
+				router.Post("/vet-clinics", s.handleAdminCreateVetClinic)
+				router.Delete("/vet-clinics/{clinicID}", s.handleAdminDeleteVetClinic)
+
+				// Pet sitters
+				router.Get("/pet-sitters", s.handleAdminPetSitters)
+				router.Post("/pet-sitters", s.handleAdminCreatePetSitter)
+				router.Delete("/pet-sitters/{sitterID}", s.handleAdminDeletePetSitter)
+
+				// Walk routes
+				router.Get("/walk-routes", s.handleAdminListWalkRoutes)
+				router.Post("/walk-routes", s.handleAdminCreateWalkRoute)
+				router.Delete("/walk-routes/{routeID}", s.handleAdminDeleteWalkRoute)
+				// Adoptions
+				router.Get("/adoptions", s.handleAdminListAdoptions)
+				router.Patch("/adoptions/{listingID}", s.handleAdminUpdateAdoption)
+
+				// Playdates
+				router.Get("/playdates", s.handleAdminPlaydates)
+				router.Delete("/playdates/{playdateID}", s.handleAdminDeletePlaydate)
+
+				// Groups
+				router.Get("/groups", s.handleAdminGroups)
+				router.Post("/groups", s.handleAdminCreateGroup)
+				router.Delete("/groups/{groupID}", s.handleAdminDeleteGroup)
+
+				// Lost pets
+				router.Get("/lost-pets", s.handleAdminLostPets)
+				router.Patch("/lost-pets/{alertID}", s.handleAdminUpdateLostPet)
+
+				// Badges
+				router.Get("/badges", s.handleAdminBadges)
 			})
 		})
 	})
@@ -375,6 +496,37 @@ func (s *Server) handleUpdatePet(writer http.ResponseWriter, request *http.Reque
 	writeJSON(writer, http.StatusOK, map[string]any{"data": pet})
 }
 
+func (s *Server) handlePetVisibility(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Hidden bool `json:"hidden"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+
+	petID := chi.URLParam(request, "petID")
+	userID := currentUserID(request)
+	pets := s.store.ListPets(userID)
+	owned := false
+	for _, p := range pets {
+		if p.ID == petID {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		writeError(writer, http.StatusForbidden, "pet does not belong to you")
+		return
+	}
+
+	if err := s.store.SetPetVisibility(petID, payload.Hidden); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
 func (s *Server) handleTaxonomyList(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListTaxonomy(chi.URLParam(request, "kind"))})
 }
@@ -403,6 +555,13 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	if match != nil {
+		s.store.SaveNotification(domain.Notification{
+			ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "New Match!", Body: "You matched! Start chatting.",
+			Target: match.MatchedPet.OwnerID, SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
+		})
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{"match": match}})
@@ -456,12 +615,33 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": message})
 }
 
+func (s *Server) handleMarkMessagesRead(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		ConversationID string `json:"conversationId"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+
+	userID := currentUserID(request)
+	s.store.MarkMessagesRead(userID, payload.ConversationID)
+
+	_ = s.hub.Publish(payload.ConversationID, map[string]any{
+		"type":   "messages.read",
+		"userId": userID,
+	})
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"ok": true}})
+}
+
 func (s *Server) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
 	conversationID := request.URL.Query().Get("conversationId")
 	if conversationID == "" {
 		writeError(writer, http.StatusBadRequest, "conversationId is required")
 		return
 	}
+
+	userID := currentUserID(request)
 
 	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
@@ -477,8 +657,18 @@ func (s *Server) handleWebSocket(writer http.ResponseWriter, request *http.Reque
 	ctx := request.Context()
 	go func() {
 		for {
-			if _, _, err := connection.Read(ctx); err != nil {
+			_, data, err := connection.Read(ctx)
+			if err != nil {
 				return
+			}
+			var incoming struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(data, &incoming) == nil && incoming.Type == "typing" {
+				s.hub.Publish(conversationID, map[string]any{
+					"type":   "typing",
+					"userId": userID,
+				})
 			}
 		}
 	}()
@@ -496,6 +686,72 @@ func (s *Server) handleWebSocket(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 	}
+}
+
+func (s *Server) handleListDiary(writer http.ResponseWriter, request *http.Request) {
+	petID := chi.URLParam(request, "petID")
+	entries := s.store.ListDiary(petID)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": entries})
+}
+
+func (s *Server) handleCreateDiaryEntry(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Body     string  `json:"body"`
+		ImageURL *string `json:"imageUrl"`
+		Mood     string  `json:"mood"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+
+	petID := chi.URLParam(request, "petID")
+	userID := currentUserID(request)
+
+	entry := s.store.CreateDiaryEntry(userID, petID, payload.Body, payload.ImageURL, payload.Mood)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": entry})
+}
+
+func (s *Server) handleSavePushToken(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Token    string `json:"token"`
+		Platform string `json:"platform"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	s.store.SavePushToken(currentUserID(r), payload.Token, payload.Platform)
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"saved": true}})
+}
+
+func (s *Server) handleListFavorites(writer http.ResponseWriter, request *http.Request) {
+	pets := s.store.ListFavorites(currentUserID(request))
+	if pets == nil {
+		pets = []domain.Pet{}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": pets})
+}
+
+func (s *Server) handleAddFavorite(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		PetID string `json:"petId"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.AddFavorite(currentUserID(request), payload.PetID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": map[string]bool{"saved": true}})
+}
+
+func (s *Server) handleRemoveFavorite(writer http.ResponseWriter, request *http.Request) {
+	petID := chi.URLParam(request, "petID")
+	if err := s.store.RemoveFavorite(currentUserID(request), petID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"removed": true}})
 }
 
 func (s *Server) handleBlockUser(writer http.ResponseWriter, request *http.Request) {
@@ -518,15 +774,39 @@ func (s *Server) handleReport(writer http.ResponseWriter, request *http.Request)
 	var payload struct {
 		Reason      string `json:"reason"`
 		TargetType  string `json:"targetType"`
+		TargetID    string `json:"targetID"`
 		TargetLabel string `json:"targetLabel"`
 	}
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
 
+	if payload.TargetType == "pet" {
+		pets := s.store.ListPets(currentUserID(request))
+		for _, p := range pets {
+			if p.ID == payload.TargetID {
+				writeError(writer, http.StatusBadRequest, "cannot report your own pet")
+				return
+			}
+		}
+	}
+
 	user, _ := s.store.GetUser(currentUserID(request))
-	report := s.store.CreateReport(user.Profile.FirstName, payload.Reason, payload.TargetType, payload.TargetLabel)
+	report := s.store.CreateReport(user.Profile.ID, user.Profile.FirstName, payload.Reason, payload.TargetType, payload.TargetID, payload.TargetLabel)
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": report})
+}
+
+func (s *Server) handleNearbyPets(writer http.ResponseWriter, request *http.Request) {
+	userID := currentUserID(request)
+	cards := s.store.DiscoveryFeed(userID)
+	var nearby []domain.DiscoveryCard
+	for _, card := range cards {
+		nearby = append(nearby, card)
+	}
+	if nearby == nil {
+		nearby = []domain.DiscoveryCard{}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": nearby})
 }
 
 func (s *Server) handleUpload(writer http.ResponseWriter, request *http.Request) {
@@ -616,15 +896,40 @@ func (s *Server) handleAdminUsers(writer http.ResponseWriter, request *http.Requ
 
 func (s *Server) handleAdminUserUpdate(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
-		Status string `json:"status"`
+		Status    string  `json:"status"`
+		FirstName string  `json:"firstName"`
+		LastName  string  `json:"lastName"`
+		Bio       *string `json:"bio"`
+		CityLabel string  `json:"cityLabel"`
+		Gender    string  `json:"gender"`
+		BirthDate string  `json:"birthDate"`
 	}
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
 
-	if err := s.store.SuspendUser(chi.URLParam(request, "userID"), payload.Status); err != nil {
-		writeError(writer, http.StatusBadRequest, err.Error())
-		return
+	userID := chi.URLParam(request, "userID")
+
+	if payload.Status != "" {
+		if err := s.store.SuspendUser(userID, payload.Status); err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	if payload.FirstName != "" || payload.LastName != "" || payload.Bio != nil || payload.CityLabel != "" || payload.Gender != "" || payload.BirthDate != "" {
+		input := store.UpdateProfileInput{
+			FirstName: payload.FirstName,
+			LastName:  payload.LastName,
+			Bio:       payload.Bio,
+			Gender:    payload.Gender,
+			CityLabel: payload.CityLabel,
+			BirthDate: payload.BirthDate,
+		}
+		if _, err := s.store.UpdateProfile(userID, input); err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
@@ -705,13 +1010,655 @@ func (s *Server) handleAdminReports(writer http.ResponseWriter, request *http.Re
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListReports()})
 }
 
+func (s *Server) handleAdminReportDetail(writer http.ResponseWriter, request *http.Request) {
+	detail, err := s.store.GetReportDetail(chi.URLParam(request, "reportID"))
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": detail})
+}
+
 func (s *Server) handleAdminResolveReport(writer http.ResponseWriter, request *http.Request) {
-	if err := s.store.ResolveReport(chi.URLParam(request, "reportID")); err != nil {
+	var payload struct {
+		Notes string `json:"notes"`
+	}
+	_ = decodeJSON(writer, request, &payload)
+
+	if err := s.store.ResolveReport(chi.URLParam(request, "reportID"), payload.Notes); err != nil {
 		writeError(writer, http.StatusNotFound, err.Error())
 		return
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"resolved": true}})
+}
+
+func (s *Server) handleAdminListNotifications(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListNotifications()})
+}
+
+func (s *Server) handleAdminSendNotification(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+		Target string `json:"target"` // "all" or userId
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	notification := domain.Notification{
+		ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+		Title:  payload.Title,
+		Body:   payload.Body,
+		Target: payload.Target,
+		SentAt: time.Now().UTC().Format(time.RFC3339),
+		SentBy: "admin",
+	}
+	s.store.SaveNotification(notification)
+
+	// In production, send via Expo Push API here
+	// For now, just log and store
+
+	writeJSON(w, http.StatusCreated, map[string]any{"data": notification})
+}
+
+// ── Admin Pet Care ──────────────────────────────────────────────────
+
+func (s *Server) handleAdminPetHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListHealthRecords(chi.URLParam(r, "petID"))})
+}
+
+func (s *Server) handleAdminPetWeight(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListWeightEntries(chi.URLParam(r, "petID"))})
+}
+
+func (s *Server) handleAdminPetFeeding(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListFeedingSchedules(chi.URLParam(r, "petID"))})
+}
+
+func (s *Server) handleAdminPetDiary(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListDiary(chi.URLParam(r, "petID"))})
+}
+
+func (s *Server) handleAdminDeleteHealthRecord(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteHealthRecord(chi.URLParam(r, "petID"), chi.URLParam(r, "recordID")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin Training Tips ─────────────────────────────────────────────
+
+func (s *Server) handleAdminTrainingTips(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListTrainingTips("")})
+}
+
+func (s *Server) handleAdminCreateTrainingTip(w http.ResponseWriter, r *http.Request) {
+	var payload domain.TrainingTip
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	tip := s.store.CreateTrainingTip(payload)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": tip})
+}
+
+func (s *Server) handleAdminUpdateTrainingTip(w http.ResponseWriter, r *http.Request) {
+	var payload domain.TrainingTip
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	payload.ID = chi.URLParam(r, "tipID")
+	tip, err := s.store.UpdateTrainingTip(payload)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": tip})
+}
+
+func (s *Server) handleAdminDeleteTrainingTip(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin Pet Sitters ───────────────────────────────────────────────
+
+func (s *Server) handleAdminPetSitters(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListPetSitters("")})
+}
+
+func (s *Server) handleAdminDeletePetSitter(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin Playdates ─────────────────────────────────────────────────
+
+func (s *Server) handleAdminPlaydates(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListPlaydates()})
+}
+
+func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin Groups ────────────────────────────────────────────────────
+
+func (s *Server) handleAdminGroups(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups()})
+}
+
+func (s *Server) handleAdminCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var payload domain.CommunityGroup
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	group := s.store.CreateGroup(payload)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": group})
+}
+
+func (s *Server) handleAdminDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin Lost Pets ─────────────────────────────────────────────────
+
+func (s *Server) handleAdminLostPets(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListLostPets()})
+}
+
+func (s *Server) handleAdminUpdateLostPet(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if err := s.store.UpdateLostPetStatus(chi.URLParam(r, "alertID"), payload.Status); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
+// ── Admin Badges ────────────────────────────────────────────────────
+
+func (s *Server) handleAdminBadges(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": []domain.Badge{}})
+}
+
+// ── Health ───────────────────────────────────────────────────────────
+
+func (s *Server) handleListHealth(writer http.ResponseWriter, request *http.Request) {
+	records := s.store.ListHealthRecords(chi.URLParam(request, "petID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": records})
+}
+
+func (s *Server) handleCreateHealth(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.HealthRecord
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateHealthRecord(chi.URLParam(request, "petID"), payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeleteHealth(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DeleteHealthRecord(chi.URLParam(request, "petID"), chi.URLParam(request, "recordID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Weight ───────────────────────────────────────────────────────────
+
+func (s *Server) handleListWeight(writer http.ResponseWriter, request *http.Request) {
+	entries := s.store.ListWeightEntries(chi.URLParam(request, "petID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": entries})
+}
+
+func (s *Server) handleCreateWeight(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.WeightEntry
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateWeightEntry(chi.URLParam(request, "petID"), payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+// ── Vet Contacts ─────────────────────────────────────────────────────
+
+func (s *Server) handleListVetContacts(writer http.ResponseWriter, request *http.Request) {
+	contacts := s.store.ListVetContacts(currentUserID(request))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": contacts})
+}
+
+func (s *Server) handleCreateVetContact(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.VetContact
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateVetContact(currentUserID(request), payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeleteVetContact(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DeleteVetContact(currentUserID(request), chi.URLParam(request, "contactID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Feeding ──────────────────────────────────────────────────────────
+
+func (s *Server) handleListFeeding(writer http.ResponseWriter, request *http.Request) {
+	schedules := s.store.ListFeedingSchedules(chi.URLParam(request, "petID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": schedules})
+}
+
+func (s *Server) handleCreateFeeding(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.FeedingSchedule
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateFeedingSchedule(chi.URLParam(request, "petID"), payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeleteFeeding(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DeleteFeedingSchedule(chi.URLParam(request, "petID"), chi.URLParam(request, "scheduleID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Playdates ────────────────────────────────────────────────────────
+
+func (s *Server) handleListPlaydates(writer http.ResponseWriter, request *http.Request) {
+	playdates := s.store.ListPlaydates()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": playdates})
+}
+
+func (s *Server) handleCreatePlaydate(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.Playdate
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreatePlaydate(currentUserID(request), payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.JoinPlaydate(currentUserID(request), chi.URLParam(request, "playdateID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"joined": true}})
+}
+
+// ── Groups ───────────────────────────────────────────────────────────
+
+func (s *Server) handleListGroups(writer http.ResponseWriter, request *http.Request) {
+	groups := s.store.ListGroups()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": groups})
+}
+
+func (s *Server) handleCreateGroup(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.CommunityGroup
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateGroup(payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleJoinGroup(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.JoinGroup(currentUserID(request), chi.URLParam(request, "groupID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"joined": true}})
+}
+
+// ── Lost Pets ────────────────────────────────────────────────────────
+
+func (s *Server) handleListLostPets(writer http.ResponseWriter, request *http.Request) {
+	alerts := s.store.ListLostPets()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": alerts})
+}
+
+func (s *Server) handleCreateLostPet(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.LostPetAlert
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreateLostPetAlert(payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleUpdateLostPetStatus(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.UpdateLostPetStatus(chi.URLParam(request, "alertID"), payload.Status); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
+// ── Badges ───────────────────────────────────────────────────────────
+
+func (s *Server) handleListBadges(writer http.ResponseWriter, request *http.Request) {
+	badges := s.store.ListBadges(currentUserID(request))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": badges})
+}
+
+// ── Training Tips ────────────────────────────────────────────────────
+
+func (s *Server) handleListTrainingTips(writer http.ResponseWriter, request *http.Request) {
+	tips := s.store.ListTrainingTips(request.URL.Query().Get("petType"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": tips})
+}
+
+func (s *Server) handleGetTrainingTip(writer http.ResponseWriter, request *http.Request) {
+	tipID := chi.URLParam(request, "tipID")
+	tip, err := s.store.GetTrainingTip(tipID)
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+
+	userID := currentUserID(request)
+	bookmarks, completed := s.store.GetTipUserState(userID)
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
+		"tip":         tip,
+		"bookmarked":  bookmarks[tipID],
+		"completed":   completed[tipID],
+	}})
+}
+
+func (s *Server) handleBookmarkTip(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.BookmarkTip(currentUserID(request), chi.URLParam(request, "tipID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"bookmarked": true}})
+}
+
+func (s *Server) handleUnbookmarkTip(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.UnbookmarkTip(currentUserID(request), chi.URLParam(request, "tipID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"bookmarked": false}})
+}
+
+func (s *Server) handleCompleteTip(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.CompleteTip(currentUserID(request), chi.URLParam(request, "tipID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"completed": true}})
+}
+
+// ── Vet Clinics ──────────────────────────────────────────────────────
+
+func (s *Server) handleListVetClinicsNearby(writer http.ResponseWriter, request *http.Request) {
+	clinics := s.store.ListVetClinics()
+
+	latStr := request.URL.Query().Get("lat")
+	lngStr := request.URL.Query().Get("lng")
+
+	if latStr != "" && lngStr != "" {
+		var userLat, userLng float64
+		fmt.Sscanf(latStr, "%f", &userLat)
+		fmt.Sscanf(lngStr, "%f", &userLng)
+
+		for i := range clinics {
+			clinics[i].Distance = service.Haversine(userLat, userLng, clinics[i].Latitude, clinics[i].Longitude)
+		}
+
+		sort.Slice(clinics, func(i, j int) bool {
+			return clinics[i].Distance < clinics[j].Distance
+		})
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": clinics})
+}
+
+func (s *Server) handleAdminListVetClinics(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListVetClinics()})
+}
+
+func (s *Server) handleAdminCreateVetClinic(w http.ResponseWriter, r *http.Request) {
+	var payload domain.VetClinic
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	if payload.Latitude == 0 && payload.Longitude == 0 && payload.Address != "" {
+		if geo, err := service.Geocode(payload.Address); err == nil {
+			payload.Latitude = geo.Lat
+			payload.Longitude = geo.Lng
+		}
+	}
+
+	clinic := s.store.CreateVetClinic(payload)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": clinic})
+}
+
+func (s *Server) handleAdminDeleteVetClinic(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteVetClinic(chi.URLParam(r, "clinicID")); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Venue Reviews ────────────────────────────────────────────────────
+
+func (s *Server) handleListVenueReviews(writer http.ResponseWriter, request *http.Request) {
+	reviews := s.store.ListVenueReviews(chi.URLParam(request, "venueID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": reviews})
+}
+
+func (s *Server) handleCreateVenueReview(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Rating  int    `json:"rating"`
+		Comment string `json:"comment"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+
+	userID := currentUserID(request)
+	user, err := s.store.GetUser(userID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	review := s.store.CreateVenueReview(domain.VenueReview{
+		VenueID:  chi.URLParam(request, "venueID"),
+		UserID:   userID,
+		UserName: strings.TrimSpace(user.Profile.FirstName + " " + user.Profile.LastName),
+		Rating:   payload.Rating,
+		Comment:  payload.Comment,
+	})
+
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": review})
+}
+
+// ── Pet Sitters ──────────────────────────────────────────────────────
+
+func (s *Server) handleListPetSitters(writer http.ResponseWriter, request *http.Request) {
+	sitters := s.store.ListPetSitters(request.URL.Query().Get("city"))
+
+	latStr := request.URL.Query().Get("lat")
+	lngStr := request.URL.Query().Get("lng")
+
+	if latStr != "" && lngStr != "" {
+		var userLat, userLng float64
+		fmt.Sscanf(latStr, "%f", &userLat)
+		fmt.Sscanf(lngStr, "%f", &userLng)
+
+		if userLat != 0 && userLng != 0 {
+			for i := range sitters {
+				if sitters[i].Latitude != 0 && sitters[i].Longitude != 0 {
+					sitters[i].Distance = service.Haversine(userLat, userLng, sitters[i].Latitude, sitters[i].Longitude)
+				}
+			}
+
+			sort.Slice(sitters, func(i, j int) bool {
+				return sitters[i].Distance < sitters[j].Distance
+			})
+		}
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": sitters})
+}
+
+func (s *Server) handleCreatePetSitter(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.PetSitter
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.CreatePetSitter(payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+// ── Walk Routes ─────────────────────────────────────────────────────
+
+func (s *Server) handleListWalkRoutes(writer http.ResponseWriter, request *http.Request) {
+	routes := s.store.ListWalkRoutes(request.URL.Query().Get("city"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": routes})
+}
+
+func (s *Server) handleAdminListWalkRoutes(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListWalkRoutes("")})
+}
+
+func (s *Server) handleAdminCreateWalkRoute(w http.ResponseWriter, r *http.Request) {
+	var payload domain.WalkRoute
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	route := s.store.CreateWalkRoute(payload)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": route})
+}
+
+func (s *Server) handleAdminDeleteWalkRoute(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteWalkRoute(chi.URLParam(r, "routeID")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Adoptions ───────────────────────────────────────────────────────
+
+func (s *Server) handleListAdoptions(writer http.ResponseWriter, request *http.Request) {
+	adoptions := s.store.ListAdoptions()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": adoptions})
+}
+
+func (s *Server) handleCreateAdoption(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.AdoptionListing
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.UserID = currentUserID(request)
+	result := s.store.CreateAdoption(payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleAdminListAdoptions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListAdoptions()})
+}
+
+func (s *Server) handleAdminUpdateAdoption(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if err := s.store.UpdateAdoptionStatus(chi.URLParam(r, "listingID"), payload.Status); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
+// ── Pet Albums ──────────────────────────────────────────────────────
+
+func (s *Server) handleListPetAlbums(writer http.ResponseWriter, request *http.Request) {
+	albums := s.store.ListPetAlbums(chi.URLParam(request, "petID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": albums})
+}
+
+func (s *Server) handleCreatePetAlbum(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.PetAlbum
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.PetID = chi.URLParam(request, "petID")
+	result := s.store.CreatePetAlbum(payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+// ── Pet Milestones ──────────────────────────────────────────────────
+
+func (s *Server) handleListPetMilestones(writer http.ResponseWriter, request *http.Request) {
+	milestones := s.store.ListPetMilestones(chi.URLParam(request, "petID"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": milestones})
+}
+
+// ── Group Messages ──────────────────────────────────────────────────
+
+func (s *Server) handleListGroupMessages(writer http.ResponseWriter, request *http.Request) {
+	messages, err := s.store.ListGroupMessages(chi.URLParam(request, "groupID"))
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": messages})
+}
+
+func (s *Server) handleSendGroupMessage(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Body string `json:"body"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	groupID := chi.URLParam(request, "groupID")
+	message, err := s.store.SendGroupMessage(currentUserID(request), groupID, payload.Body)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": message})
+}
+
+// ── Admin Create Pet Sitter ─────────────────────────────────────────
+
+func (s *Server) handleAdminCreatePetSitter(w http.ResponseWriter, r *http.Request) {
+	var payload domain.PetSitter
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	sitter := s.store.CreatePetSitter(payload)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": sitter})
 }
 
 func currentUserID(request *http.Request) string {

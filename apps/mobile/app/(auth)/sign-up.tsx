@@ -7,10 +7,11 @@ import { Text, TextInput, View } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { AnimatedLogo } from "@/components/animated-logo";
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { signUp } from "@/lib/api";
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 const schema = z
@@ -27,6 +28,7 @@ const schema = z
 type SignUpValues = z.infer<typeof schema>;
 
 export default function SignUpPage() {
+  const theme = useTheme();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setSession = useSessionStore((state) => state.setSession);
   const setPetCount = useSessionStore((state) => state.setPetCount);
@@ -62,14 +64,17 @@ export default function SignUpPage() {
       title="Join Petto."
       subtitle="Create your account and start matching pets near you."
     >
+      <View style={{ alignItems: "center", marginBottom: mobileTheme.spacing.md }}>
+        <AnimatedLogo size="sm" />
+      </View>
       <View
         style={{
           gap: mobileTheme.spacing.lg,
           padding: mobileTheme.spacing.xl,
           borderRadius: mobileTheme.radius.lg,
-          backgroundColor: mobileTheme.colors.white,
+          backgroundColor: theme.colors.white,
           borderWidth: 1,
-          borderColor: mobileTheme.colors.border,
+          borderColor: theme.colors.border,
           ...mobileTheme.shadow.sm
         }}
       >
@@ -77,17 +82,19 @@ export default function SignUpPage() {
           control={control}
           name="email"
           render={({ field: { onChange, value } }) => (
-            <FieldShell error={errors.email}>
+            <FieldShell error={errors.email} colors={theme.colors}>
               <TextInput
                 autoCapitalize="none"
+                keyboardType="email-address"
+                returnKeyType="next"
                 placeholder="Email"
-                placeholderTextColor={mobileTheme.colors.muted}
+                placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
                   setErrorMessage(null);
                   onChange(nextValue);
                 }}
-                style={getInputStyle(Boolean(errors.email))}
+                style={getInputStyle(Boolean(errors.email), theme.colors)}
               />
             </FieldShell>
           )}
@@ -96,17 +103,18 @@ export default function SignUpPage() {
           control={control}
           name="password"
           render={({ field: { onChange, value } }) => (
-            <FieldShell error={errors.password}>
+            <FieldShell error={errors.password} colors={theme.colors}>
               <TextInput
                 secureTextEntry
+                returnKeyType="next"
                 placeholder="Password"
-                placeholderTextColor={mobileTheme.colors.muted}
+                placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
                   setErrorMessage(null);
                   onChange(nextValue);
                 }}
-                style={getInputStyle(Boolean(errors.password))}
+                style={getInputStyle(Boolean(errors.password), theme.colors)}
               />
             </FieldShell>
           )}
@@ -115,17 +123,18 @@ export default function SignUpPage() {
           control={control}
           name="confirmPassword"
           render={({ field: { onChange, value } }) => (
-            <FieldShell error={errors.confirmPassword}>
+            <FieldShell error={errors.confirmPassword} colors={theme.colors}>
               <TextInput
                 secureTextEntry
+                returnKeyType="done"
                 placeholder="Confirm password"
-                placeholderTextColor={mobileTheme.colors.muted}
+                placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
                   setErrorMessage(null);
                   onChange(nextValue);
                 }}
-                style={getInputStyle(Boolean(errors.confirmPassword))}
+                style={getInputStyle(Boolean(errors.confirmPassword), theme.colors)}
               />
             </FieldShell>
           )}
@@ -133,7 +142,7 @@ export default function SignUpPage() {
         {errorMessage ? (
           <Text
             style={{
-              color: mobileTheme.colors.danger,
+              color: theme.colors.danger,
               fontSize: mobileTheme.typography.caption.fontSize,
               fontFamily: "Inter_600SemiBold",
               fontWeight: "600"
@@ -159,7 +168,7 @@ export default function SignUpPage() {
       </View>
       <Text
         style={{
-          color: mobileTheme.colors.muted,
+          color: theme.colors.muted,
           lineHeight: mobileTheme.typography.body.lineHeight,
           fontSize: mobileTheme.typography.body.fontSize,
           fontFamily: "Inter_400Regular"
@@ -168,7 +177,7 @@ export default function SignUpPage() {
         Already have an account?{" "}
         <Link
           href="/(auth)/sign-in"
-          style={{ color: mobileTheme.colors.primary, fontWeight: "700" }}
+          style={{ color: theme.colors.primary, fontWeight: "700" }}
         >
           Sign in
         </Link>
@@ -179,10 +188,12 @@ export default function SignUpPage() {
 
 function FieldShell({
   children,
-  error
+  error,
+  colors
 }: {
   children: React.ReactNode;
   error?: FieldError;
+  colors: ReturnType<typeof useTheme>["colors"];
 }) {
   return (
     <View style={{ gap: mobileTheme.spacing.xs }}>
@@ -190,7 +201,7 @@ function FieldShell({
       {error?.message ? (
         <Text
           style={{
-            color: mobileTheme.colors.danger,
+            color: colors.danger,
             fontSize: 12,
             fontWeight: "600",
             fontFamily: "Inter_600SemiBold"
@@ -203,17 +214,17 @@ function FieldShell({
   );
 }
 
-function getInputStyle(hasError: boolean) {
+function getInputStyle(hasError: boolean, colors: ReturnType<typeof useTheme>["colors"]) {
   return {
     borderRadius: mobileTheme.radius.md,
-    backgroundColor: mobileTheme.colors.background,
+    backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: hasError
-      ? mobileTheme.colors.danger
-      : mobileTheme.colors.border,
+      ? colors.danger
+      : colors.border,
     paddingHorizontal: mobileTheme.spacing.lg,
     paddingVertical: mobileTheme.spacing.md + 3,
-    color: mobileTheme.colors.ink,
+    color: colors.ink,
     fontSize: mobileTheme.typography.body.fontSize,
     fontFamily: "Inter_400Regular"
   } as const;

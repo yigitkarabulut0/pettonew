@@ -1,6 +1,6 @@
 import { Image, Text, View } from "react-native";
 
-import { mobileTheme } from "@/lib/theme";
+import { mobileTheme, useTheme } from "@/lib/theme";
 
 type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 
@@ -33,6 +33,7 @@ export function Avatar({
   size = "md",
   online = false
 }: AvatarProps) {
+  const theme = useTheme();
   const dimension = sizeMap[size];
   const fontSize = fontSizeMap[size];
   const initial = name?.charAt(0)?.toUpperCase() ?? "?";
@@ -54,7 +55,7 @@ export function Avatar({
             width: dimension,
             height: dimension,
             borderRadius: dimension / 2,
-            backgroundColor: mobileTheme.colors.primaryBg,
+            backgroundColor: theme.colors.primaryBg,
             alignItems: "center",
             justifyContent: "center"
           }}
@@ -63,7 +64,7 @@ export function Avatar({
             style={{
               fontSize,
               fontWeight: "700",
-              color: mobileTheme.colors.primary,
+              color: theme.colors.primary,
               fontFamily: "Inter_700Bold"
             }}
           >
@@ -80,9 +81,9 @@ export function Avatar({
             width: size === "xs" ? 8 : 12,
             height: size === "xs" ? 8 : 12,
             borderRadius: size === "xs" ? 4 : 6,
-            backgroundColor: mobileTheme.colors.likeGreen,
+            backgroundColor: theme.colors.likeGreen,
             borderWidth: 2,
-            borderColor: mobileTheme.colors.white
+            borderColor: theme.colors.white
           }}
         />
       )}
