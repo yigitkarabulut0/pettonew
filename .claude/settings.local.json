@@ -30,7 +30,23 @@
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
-      "Bash(rm -f /Users/yigitkarabulut/Desktop/Projects/Petto/.git/index.lock)"
+      "Bash(rm -f /Users/yigitkarabulut/Desktop/Projects/Petto/.git/index.lock)",
+      "Bash(git commit -m 'feat: complete Petto app with all features:*)",
+      "Bash(git push:*)",
+      "Bash(sshpass -p \"Petto123123.\" scp -o StrictHostKeyChecking=no /Users/yigitkarabulut/Desktop/Projects/Petto/apps/api/petto-api-linux /Users/yigitkarabulut/Desktop/Projects/Petto/apps/api/deploy.env root@148.230.123.242:/root/)",
+      "Bash(brew install:*)",
+      "Bash(ssh-keygen -R 148.230.123.242)",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"ls -lh /root/petto-api-linux /root/deploy.env\")",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'bash -s')",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'journalctl -u petto-api --no-pager -n 20')",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"sed -i 's/channel_binding=require//' /opt/petto/.env && systemctl restart petto-api && sleep 3 && journalctl -u petto-api --no-pager -n 5\")",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"cat /opt/petto/.env\")",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"echo 'Connected OK'\")",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'systemctl is-active petto-api && curl -s http://localhost:8080/healthz && echo \"\" && journalctl -u petto-api --no-pager -n 5')",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'journalctl -u petto-api --no-pager -n 10')",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"sed -i 's|^DATABASE_URL=.*|DATABASE_URL=|' /opt/petto/.env && systemctl restart petto-api && sleep 3 && systemctl is-active petto-api && curl -s http://localhost:8080/healthz\")",
+      "Bash(curl -s http://148.230.123.242/healthz)",
+      "Bash(git commit -m 'chore: update API URLs to production VPS \\(148.230.123.242\\):*)"
     ]
   }
 }
