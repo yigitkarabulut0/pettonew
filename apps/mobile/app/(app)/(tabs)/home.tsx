@@ -247,47 +247,39 @@ export default function HomePage() {
         </View>
       ) : (
       <>
-      {/* Cat animation - clips inside the pull gap only */}
-      <View
+      {/* Cat animation - visible during pull-to-refresh */}
+      <Animated.View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 55,
+          top: insets.top + 90,
           left: 0,
           right: 0,
-          height: 80,
           alignItems: "center",
-          justifyContent: "center",
-          zIndex: -1,
-          overflow: "hidden"
+          zIndex: 1,
+          opacity: scrollY.interpolate({
+            inputRange: [-80, -15, 0],
+            outputRange: [1, 0.4, 0],
+            extrapolate: "clamp"
+          }),
+          transform: [{
+            translateY: scrollY.interpolate({
+              inputRange: [-100, 0],
+              outputRange: [0, 50],
+              extrapolate: "clamp"
+            })
+          }]
         }}
       >
-        <Animated.View
-          style={{
-            opacity: scrollY.interpolate({
-              inputRange: [-70, -10, 0],
-              outputRange: [1, 0.3, 0],
-              extrapolate: "clamp"
-            }),
-            transform: [{
-              translateY: scrollY.interpolate({
-                inputRange: [-100, 0],
-                outputRange: [0, 60],
-                extrapolate: "clamp"
-              })
-            }]
-          }}
-        >
-          <LottieView
-            ref={catRef}
-            source={require("@/assets/animations/cat.json")}
-            style={{ width: 65, height: 65 }}
-            autoPlay
-            loop
-            speed={0.7}
-          />
-        </Animated.View>
-      </View>
+        <LottieView
+          ref={catRef}
+          source={require("@/assets/animations/cat.json")}
+          style={{ width: 60, height: 60 }}
+          autoPlay
+          loop
+          speed={0.7}
+        />
+      </Animated.View>
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
