@@ -1,18 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
+  Animated,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   Text,
   TextInput,
   View
 } from "react-native";
+import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router as expoRouter } from "expo-router";
@@ -50,6 +51,8 @@ export default function HomePage() {
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const catRef = useRef<LottieView>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [petPickerOpen, setPetPickerOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -242,9 +245,54 @@ export default function HomePage() {
           <LottieLoading size={70} />
         </View>
       ) : (
-      <ScrollView
+      {/* Cat animation behind the scroll - visible during pull down */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: insets.top + 60,
+          left: 0,
+          right: 0,
+          alignItems: "center",
+          zIndex: 0,
+          opacity: scrollY.interpolate({
+            inputRange: [-100, -30, 0],
+            outputRange: [1, 0.5, 0],
+            extrapolate: "clamp"
+          }),
+          transform: [{
+            translateY: scrollY.interpolate({
+              inputRange: [-120, 0],
+              outputRange: [0, 40],
+              extrapolate: "clamp"
+            })
+          }, {
+            scale: scrollY.interpolate({
+              inputRange: [-120, -40, 0],
+              outputRange: [1, 0.6, 0.3],
+              extrapolate: "clamp"
+            })
+          }]
+        }}
+      >
+        <LottieView
+          ref={catRef}
+          source={require("@/assets/animations/cat.json")}
+          style={{ width: 80, height: 80 }}
+          autoPlay
+          loop
+          speed={0.7}
+        />
+      </Animated.View>
+
+      <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
         refreshControl={
           <RefreshControl
             refreshing={postsRefetching}
@@ -346,7 +394,7 @@ export default function HomePage() {
             </Text>
           </View>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
       )}
 
       <Modal visible={composerOpen} animationType="slide">
