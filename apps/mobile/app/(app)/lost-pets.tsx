@@ -13,6 +13,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, MapPin, Plus, Search } from "lucide-react-native";
 
@@ -287,7 +288,7 @@ export default function LostPetsPage() {
         {/* Loading */}
         {alertsQuery.isLoading && (
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
           </View>
         )}
 

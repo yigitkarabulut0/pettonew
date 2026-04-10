@@ -7,7 +7,6 @@ import { useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type { FieldError } from "react-hook-form";
 import {
-  ActivityIndicator,
   Image,
   Modal,
   Pressable,
@@ -16,6 +15,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -196,7 +196,7 @@ export default function EditPetPage() {
   if (petsLoading || !pet) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.colors.background }}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <LottieLoading size={70} />
       </View>
     );
   }

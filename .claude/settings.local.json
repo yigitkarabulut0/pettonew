@@ -76,7 +76,9 @@
       "Bash(git commit -m 'bump: version 0.2.2:*)",
       "Bash(git commit -m 'feat: Lottie paw animation splash screen:*)",
       "Bash(git commit -m 'tweak: bigger paw, name at bottom only, no slogan:*)",
-      "Bash(git commit -m 'tweak: even bigger paw 420px:*)"
+      "Bash(git commit -m 'tweak: even bigger paw 420px:*)",
+      "Bash(ls ~/Downloads/*.json)",
+      "Bash(git commit -m 'feat: replace all loading spinners with Lottie pet animation:*)"
     ]
   }
 }

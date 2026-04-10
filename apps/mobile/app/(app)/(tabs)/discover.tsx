@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Image,
@@ -15,6 +14,7 @@ import {
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import MapView, { Marker, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -751,7 +751,7 @@ export default function DiscoverPage() {
             backgroundColor: "rgba(255,255,255,0.4)"
           }}
         >
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LottieLoading size={70} />
         </View>
       )}
 

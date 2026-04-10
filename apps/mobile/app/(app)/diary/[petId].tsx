@@ -12,6 +12,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, BookOpen, Plus, Send } from "lucide-react-native";
 
@@ -306,7 +307,7 @@ export default function DiaryPage() {
               alignItems: "center"
             }}
           >
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
           </View>
         )}
 

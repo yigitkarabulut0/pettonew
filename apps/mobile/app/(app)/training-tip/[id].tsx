@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft, Bookmark, CheckCircle, Play } from "lucide-react-native";
@@ -124,7 +124,7 @@ export default function TrainingTipDetailPage() {
 
       {isLoading ? (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LottieLoading size={70} />
         </View>
       ) : tip ? (
         <ScrollView

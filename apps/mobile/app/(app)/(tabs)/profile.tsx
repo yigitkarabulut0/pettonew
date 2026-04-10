@@ -21,7 +21,6 @@ import {
   UtensilsCrossed
 } from "lucide-react-native";
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -30,6 +29,7 @@ import {
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/avatar";
@@ -463,7 +463,7 @@ export default function ProfilePage() {
                 justifyContent: "center"
               }}
             >
-              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <LottieLoading size={70} />
             </View>
           ) : pets.length > 0 ? (
             <View style={{ gap: mobileTheme.spacing.lg }}>

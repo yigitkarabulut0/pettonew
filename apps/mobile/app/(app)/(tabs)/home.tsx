@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -14,6 +13,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router as expoRouter } from "expo-router";
 import {
@@ -235,7 +235,7 @@ export default function HomePage() {
 
       {postsLoading && posts.length === 0 ? (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 60 }}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LottieLoading size={70} />
         </View>
       ) : (
       <ScrollView

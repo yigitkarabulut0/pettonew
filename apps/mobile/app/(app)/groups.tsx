@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Users2 } from "lucide-react-native";
 
@@ -104,7 +104,7 @@ export default function GroupsPage() {
         {/* Loading */}
         {groupsQuery.isLoading && (
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
           </View>
         )}
 

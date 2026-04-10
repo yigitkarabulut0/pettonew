@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ActivityIndicator,
   Linking,
   Pressable,
   RefreshControl,
@@ -9,6 +8,7 @@ import {
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -92,7 +92,7 @@ export default function PetSittersPage() {
 
       {isLoading ? (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LottieLoading size={70} />
         </View>
       ) : (
         <ScrollView

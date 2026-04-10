@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { FlashList } from "@shopify/flash-list";
 import { router } from "expo-router";
-import { ActivityIndicator, Image, Pressable, RefreshControl, Text, View } from "react-native";
+import { Image, Pressable, RefreshControl, Text, View } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, MessageCircle, Search } from "lucide-react-native";
 
@@ -75,7 +76,7 @@ export default function ConversationsPage() {
 
       {isLoading ? (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 60 }}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LottieLoading size={70} />
         </View>
       ) : (
       <View

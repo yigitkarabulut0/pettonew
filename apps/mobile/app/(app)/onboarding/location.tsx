@@ -2,7 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { MapPin } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
@@ -150,7 +151,7 @@ export default function LocationOnboardingPage() {
         </View>
 
         {mutation.isPending ? (
-          <ActivityIndicator color={theme.colors.primary} />
+          <LottieLoading size={70} />
         ) : null}
 
         {errorMessage ? (

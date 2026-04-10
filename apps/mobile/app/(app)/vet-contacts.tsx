@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Linking,
   Platform,
   Pressable,
@@ -10,6 +9,7 @@ import {
   Text,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as Location from "expo-location";
@@ -129,7 +129,7 @@ export default function VetContactsPage() {
         {/* Loading */}
         {(clinicsQuery.isLoading || (!location && !locationError)) && (
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
             <Text style={{ marginTop: mobileTheme.spacing.md, color: theme.colors.muted, fontFamily: "Inter_500Medium" }}>
               {!location ? "Getting your location..." : "Loading clinics..."}
             </Text>

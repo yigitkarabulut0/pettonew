@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -453,7 +454,7 @@ export default function MatchesPage() {
       {tab === "discover" ? (
         feedLoading && filteredFeed.length === 0 ? (
           <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 60 }}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
           </View>
         ) : (
         <DiscoveryDeck

@@ -12,6 +12,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Plus, TrendingUp } from "lucide-react-native";
 
@@ -222,7 +223,7 @@ export default function PetWeightPage() {
         {/* Loading */}
         {weightQuery.isLoading && (
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LottieLoading size={70} />
           </View>
         )}
 
