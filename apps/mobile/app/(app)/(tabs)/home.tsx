@@ -247,31 +247,27 @@ export default function HomePage() {
         </View>
       ) : (
       <>
-      {/* Cat animation covers the native spinner */}
+      {/* Cat animation covers the native spinner - follows the pull gap */}
       <Animated.View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 50,
+          top: insets.top + 60,
           left: 0,
           right: 0,
           alignItems: "center",
           zIndex: 999,
           opacity: scrollY.interpolate({
-            inputRange: [-80, -20, 0],
-            outputRange: [1, 0.6, 0],
+            inputRange: [-60, -15, 0],
+            outputRange: [1, 0.5, 0],
             extrapolate: "clamp"
           }),
           transform: [{
-            translateY: scrollY.interpolate({
-              inputRange: [-100, 0],
-              outputRange: [0, 30],
-              extrapolate: "clamp"
-            })
+            translateY: Animated.multiply(scrollY, -0.5)
           }, {
             scale: scrollY.interpolate({
-              inputRange: [-100, -30, 0],
-              outputRange: [1, 0.7, 0.3],
+              inputRange: [-80, -20, 0],
+              outputRange: [1, 0.6, 0.2],
               extrapolate: "clamp"
             })
           }]
@@ -281,7 +277,7 @@ export default function HomePage() {
           <LottieView
             ref={catRef}
             source={require("@/assets/animations/cat.json")}
-            style={{ width: 70, height: 70 }}
+            style={{ width: 60, height: 60 }}
             autoPlay
             loop
             speed={0.7}
