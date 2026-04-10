@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
@@ -15,6 +15,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import "@/lib/i18n";
+import { AnimatedSplash } from "@/components/animated-splash";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkBanner } from "@/components/network-banner";
 import {
@@ -34,6 +35,7 @@ export default function RootLayout() {
   const hasHydrated = useSessionStore((state) => state._hasHydrated);
   const session = useSessionStore((state) => state.session);
   const notifListenerRef = useRef<Notifications.EventSubscription>();
+  const [splashDone, setSplashDone] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -67,7 +69,7 @@ export default function RootLayout() {
     })();
   }, [session]);
 
-  // Handle notification taps - navigate to relevant screen
+  // Handle notification taps
   useEffect(() => {
     notifListenerRef.current = addNotificationResponseListener((response) => {
       const data = response.notification.request.content.data;
@@ -85,16 +87,29 @@ export default function RootLayout() {
     };
   }, []);
 
+  // Hide native splash when ready, show our custom animated splash
   useEffect(() => {
     if (ready) {
       SplashScreen.hideAsync();
     }
   }, [ready]);
 
+  // Not ready yet - native splash still showing
   if (!ready) {
     return null;
   }
 
+  // Show animated splash
+  if (!splashDone) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <AnimatedSplash onFinish={() => setSplashDone(true)} />
+      </>
+    );
+  }
+
+  // Main app
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
