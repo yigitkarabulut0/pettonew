@@ -344,23 +344,30 @@ function DetailModal({
 
   const handleCall = () => {
     if (listing.contactPhone) {
-      Linking.openURL(`tel:${listing.contactPhone}`);
+      Linking.openURL(`tel:${listing.contactPhone}`).catch(() => {
+        Linking.openURL(`sms:${listing.contactPhone}&body=Hi, I'm interested in adopting ${listing.petName} from Pett.`).catch(() => {});
+      });
     }
   };
 
   const handleEmail = () => {
     if (listing.contactEmail) {
       Linking.openURL(
-        `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`
-      );
+        `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}&body=Hi, I saw ${listing.petName} on Pett. and I'm interested in adopting.`
+      ).catch(() => {});
     }
   };
 
   const handleContact = () => {
-    if (listing.contactEmail) {
+    // Open SMS with pre-filled message
+    const phone = listing.contactPhone;
+    const name = listing.petName;
+    if (phone) {
+      Linking.openURL(`sms:${phone}&body=Hi! I found ${name} on Pett. and I'd love to learn more about adopting. Is ${name} still available?`).catch(() => {
+        if (listing.contactEmail) handleEmail();
+      });
+    } else if (listing.contactEmail) {
       handleEmail();
-    } else if (listing.contactPhone) {
-      handleCall();
     }
   };
 
