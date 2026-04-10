@@ -21,8 +21,22 @@ export default {
       }
     ]
   ],
+  extra: {
+    eas: {
+      projectId: "a9e0171b-e3bc-4986-9b43-766757cd6b08"
+    }
+  },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "app.petto.mobile"
+    bundleIdentifier: "app.petto.mobile",
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false
+    }
+  },
+  android: {
+    package: "app.petto.mobile",
+    adaptiveIcon: {
+      backgroundColor: "#E6694A"
+    }
   }
 };

@@ -562,6 +562,17 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 			ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "New Match!", Body: "You matched! Start chatting.",
 			Target: match.MatchedPet.OwnerID, SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
 		})
+		// Send push notification to matched pet's owner
+		matchTokens := s.store.GetUserPushTokens(match.MatchedPet.OwnerID)
+		var pushTokens []string
+		for _, t := range matchTokens {
+			pushTokens = append(pushTokens, t.Token)
+		}
+		if len(pushTokens) > 0 {
+			go service.SendExpoPush(pushTokens, "New Match! 🎉", "Your pet matched! Start chatting.", map[string]string{
+				"type": "match", "conversationId": match.ConversationID,
+			})
+		}
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{"match": match}})
@@ -611,6 +622,29 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 		"type": "message.created",
 		"data": message,
 	})
+
+	// Send push notification to other users in the conversation
+	senderID := currentUserID(request)
+	convs := s.store.ListConversations(senderID)
+	for _, conv := range convs {
+		if conv.ID == payload.ConversationID {
+			for _, uid := range conv.UserIDs {
+				if uid != senderID {
+					userTokens := s.store.GetUserPushTokens(uid)
+					var tokens []string
+					for _, t := range userTokens {
+						tokens = append(tokens, t.Token)
+					}
+					if len(tokens) > 0 {
+						go service.SendExpoPush(tokens, "New Message 💬", message.SenderName+": "+message.Body, map[string]string{
+							"type": "message", "conversationId": payload.ConversationID,
+						})
+					}
+				}
+			}
+			break
+		}
+	}
 
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": message})
 }
@@ -1058,8 +1092,22 @@ func (s *Server) handleAdminSendNotification(w http.ResponseWriter, r *http.Requ
 	}
 	s.store.SaveNotification(notification)
 
-	// In production, send via Expo Push API here
-	// For now, just log and store
+	// Send via Expo Push API
+	var tokens []string
+	if payload.Target == "all" {
+		allTokens := s.store.ListAllPushTokens()
+		for _, t := range allTokens {
+			tokens = append(tokens, t.Token)
+		}
+	} else {
+		userTokens := s.store.GetUserPushTokens(payload.Target)
+		for _, t := range userTokens {
+			tokens = append(tokens, t.Token)
+		}
+	}
+	if len(tokens) > 0 {
+		go service.SendExpoPush(tokens, payload.Title, payload.Body, map[string]string{"type": "admin"})
+	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{"data": notification})
 }

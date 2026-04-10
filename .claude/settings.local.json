@@ -62,7 +62,8 @@
       "Bash(curl -s -X POST http://148.230.123.242/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"persist-test@petto.app\",\"password\":\"Test1234!\"}')",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('User ID:', d['data']['user']['id']\\)\")",
       "Bash(curl -s -X POST http://148.230.123.242/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"persist-test@petto.app\",\"password\":\"Test1234!\"}')",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Login OK - User:', d['data']['user']['email']\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Login OK - User:', d['data']['user']['email']\\)\")",
+      "Bash(git commit -m 'feat: implement real Expo Push API notification delivery:*)"
     ]
   }
 }
