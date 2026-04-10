@@ -48,16 +48,30 @@ func main() {
 	var dataStore store.Store
 	var closable store.ClosableStore
 
-	if cfg.DatabaseURL != "" {
+	storeBackend := os.Getenv("STORE_BACKEND")
+	if storeBackend == "" {
+		storeBackend = "postgres" // default to relational DB
+	}
+
+	if cfg.DatabaseURL != "" && storeBackend == "postgres" {
+		pgStore, err := store.NewPostgresStore(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("postgres store init failed: %v", err)
+		}
+		dataStore = pgStore
+		closable = pgStore
+		log.Printf("petto api using PostgresStore (relational tables)")
+	} else if cfg.DatabaseURL != "" && storeBackend == "persistent" {
 		persistentStore, err := store.NewPersistentStore(context.Background(), cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("database init failed: %v", err)
 		}
 		dataStore = persistentStore
 		closable = persistentStore
-		log.Printf("petto api using Neon/Postgres persistence")
+		log.Printf("petto api using PersistentStore (JSON blob)")
 	} else {
 		dataStore = store.NewMemoryStore()
+		log.Printf("petto api using MemoryStore (in-memory only)")
 	}
 
 	if closable != nil {
