@@ -162,7 +162,7 @@ export default function ProfilePage() {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
         contentContainerStyle={{

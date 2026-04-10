@@ -100,7 +100,7 @@ export default function CarePage() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={theme.colors.primary} />
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#F48C28" />
         }
         contentContainerStyle={{
           paddingHorizontal: mobileTheme.spacing.xl,

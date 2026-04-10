@@ -105,7 +105,7 @@ export default function PetSittersPage() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor={theme.colors.primary}
+              tintColor="#F48C28"
             />
           }
         >

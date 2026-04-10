@@ -69,7 +69,7 @@ export function MatchesList({
           <RefreshControl
             refreshing={isRefreshing ?? false}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         ) : undefined
       }

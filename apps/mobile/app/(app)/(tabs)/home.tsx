@@ -249,7 +249,7 @@ export default function HomePage() {
           <RefreshControl
             refreshing={postsRefetching}
             onRefresh={refetchPosts}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
         contentContainerStyle={{

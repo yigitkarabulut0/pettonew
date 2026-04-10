@@ -154,7 +154,7 @@ export default function PlaydatesPage() {
           <RefreshControl
             refreshing={playdatesQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
       >

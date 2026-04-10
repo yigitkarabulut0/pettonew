@@ -155,7 +155,7 @@ export default function DiaryPage() {
           <RefreshControl
             refreshing={diaryQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
       >

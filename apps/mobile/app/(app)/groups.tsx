@@ -97,7 +97,7 @@ export default function GroupsPage() {
           <RefreshControl
             refreshing={groupsQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
       >

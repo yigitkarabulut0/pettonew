@@ -93,7 +93,7 @@ export default function ConversationsPage() {
             <RefreshControl
               refreshing={conversationsRefetching}
               onRefresh={refetchConversations}
-              tintColor={theme.colors.primary}
+              tintColor="#F48C28"
             />
           }
           contentContainerStyle={{ gap: mobileTheme.spacing.sm }}

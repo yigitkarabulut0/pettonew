@@ -1167,7 +1167,7 @@ export default function DiscoverPage() {
                 onRefresh={
                   activeTab === "venues" ? refetchVenues : activeTab === "events" ? refetchEvents : refetchVenues
                 }
-                tintColor={theme.colors.primary}
+                tintColor="#F48C28"
               />
             }
             contentContainerStyle={{

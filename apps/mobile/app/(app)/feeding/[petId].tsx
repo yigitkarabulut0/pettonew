@@ -142,7 +142,7 @@ export default function FeedingPage() {
           <RefreshControl
             refreshing={feedingQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor="#F48C28"
           />
         }
       >
