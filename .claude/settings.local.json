@@ -46,7 +46,17 @@
       "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'journalctl -u petto-api --no-pager -n 10')",
       "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"sed -i 's|^DATABASE_URL=.*|DATABASE_URL=|' /opt/petto/.env && systemctl restart petto-api && sleep 3 && systemctl is-active petto-api && curl -s http://localhost:8080/healthz\")",
       "Bash(curl -s http://148.230.123.242/healthz)",
-      "Bash(git commit -m 'chore: update API URLs to production VPS \\(148.230.123.242\\):*)"
+      "Bash(git commit -m 'chore: update API URLs to production VPS \\(148.230.123.242\\):*)",
+      "Bash(xcrun simctl:*)",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"test@petto.app\",\"password\":\"Test1234!\"}')",
+      "Bash(sshpass -p \"Petto123123.\" ssh -o StrictHostKeyChecking=no root@148.230.123.242 'apt-get install -y -qq postgresql-client 2>/dev/null && psql \"postgresql://neondb_owner:npg_dS2F3oNLBmWp@ep-wild-recipe-ah7ahz1a-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require\" -c \"SELECT 1\" 2>&1')",
+      "Bash(psql \"postgresql://neondb_owner:npg_dS2F3oNLBmWp@ep-wild-recipe-ah7ahz1a-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require\" -c \"SELECT 1\")",
+      "Bash(psql \"postgresql://neondb_owner:npg_dTO1QrFgyXA8@ep-long-firefly-an4728wm-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require\" -c \"SELECT 1 as test\")",
+      "Bash(sshpass -p:*)",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"demo@petto.app\",\"password\":\"Demo1234!\"}')",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"demo@petto.app\",\"password\":\"Demo1234!\"}')",
+      "Bash(curl -s -X POST http://148.230.123.242/v1/admin/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"owner@petto.app\",\"password\":\"Admin123!\"}')",
+      "Bash(git commit -m 'fix: update Neon DB credentials for production:*)"
     ]
   }
 }
