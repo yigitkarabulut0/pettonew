@@ -1,4 +1,5 @@
 import type {
+  AdoptionListing,
   Badge,
   CommunityGroup,
   Conversation,
@@ -887,4 +888,20 @@ export async function listVenueReviews(accessToken: string, venueId: string): Pr
 }
 export async function createVenueReview(accessToken: string, venueId: string, rating: number, comment: string): Promise<VenueReview> {
   return request<VenueReview>(`/v1/venues/${venueId}/reviews`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ rating, comment }) });
+}
+
+export async function listAdoptions(accessToken: string): Promise<AdoptionListing[]> {
+  const data = await request<AdoptionListing[] | null>("/v1/adoptions", { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+
+export async function createAdoption(
+  accessToken: string,
+  listing: Omit<AdoptionListing, "id" | "status" | "userId" | "userName" | "createdAt">
+): Promise<AdoptionListing> {
+  return request<AdoptionListing>("/v1/adoptions", {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(listing)
+  });
 }

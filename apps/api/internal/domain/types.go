@@ -434,19 +434,25 @@ type WalkRoute struct {
 }
 
 type AdoptionListing struct {
-	ID           string  `json:"id"`
-	PetName      string  `json:"petName"`
-	PetAge       int     `json:"petAge"`
-	PetSpecies   string  `json:"petSpecies"`
-	PetBreed     string  `json:"petBreed"`
-	Description  string  `json:"description"`
-	ContactPhone string  `json:"contactPhone"`
-	ContactEmail string  `json:"contactEmail"`
-	Location     string  `json:"location"`
-	ImageURL     *string `json:"imageUrl,omitempty"`
-	Status       string  `json:"status"`
-	UserID       string  `json:"userId"`
-	CreatedAt    string  `json:"createdAt"`
+	ID              string     `json:"id"`
+	PetName         string     `json:"petName"`
+	PetAge          int        `json:"petAge"`
+	PetSpecies      string     `json:"petSpecies"`
+	PetBreed        string     `json:"petBreed"`
+	Gender          string     `json:"gender"`
+	Description     string     `json:"description"`
+	ContactPhone    string     `json:"contactPhone"`
+	ContactEmail    string     `json:"contactEmail"`
+	Location        string     `json:"location"`
+	Photos          []PetPhoto `json:"photos"`
+	CharacterTraits []string   `json:"characterTraits"`
+	IsNeutered      bool       `json:"isNeutered"`
+	ActivityLevel   int        `json:"activityLevel"`
+	ImageURL        *string    `json:"imageUrl,omitempty"`
+	Status          string     `json:"status"`
+	UserID          string     `json:"userId"`
+	UserName        string     `json:"userName,omitempty"`
+	CreatedAt       string     `json:"createdAt"`
 }
 
 type PetAlbum struct {

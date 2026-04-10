@@ -24,8 +24,8 @@ export default function LostPetsPage() {
   return (
     <div className="space-y-5">
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Lost Pets</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Lost pet alerts and status tracking</h1>
+        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Adoptions</p>
+        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Pet adoption listings and management</h1>
       </Card>
 
       {isLoading && (

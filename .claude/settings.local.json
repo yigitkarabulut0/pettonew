@@ -82,7 +82,8 @@
       "Bash(git commit -m 'fix: like soft update + tutorial safe area + discover gap + loading rename:*)",
       "Bash(python3 -c ':*)",
       "Bash(git commit -m 'revert: restore native RefreshControl spinner:*)",
-      "Bash(git commit -m 'style: RefreshControl spinner color matches logo orange \\(#F48C28\\):*)"
+      "Bash(git commit -m 'style: RefreshControl spinner color matches logo orange \\(#F48C28\\):*)",
+      "Bash(git commit -m 'feat: replace Lost & Found with Adopt a Pet system:*)"
     ]
   }
 }

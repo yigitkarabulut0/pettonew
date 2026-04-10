@@ -1,87 +1,1016 @@
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { useState, useCallback } from "react";
+import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import {
-  ActivityIndicator,
+  Animated,
+  Dimensions,
+  FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
-  View
+  View,
+  type ViewToken
 } from "react-native";
-import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, MapPin, Plus, Search } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Heart,
+  Home,
+  Mail,
+  MapPin,
+  PawPrint,
+  Phone,
+  Plus,
+  X
+} from "lucide-react-native";
 
-import { listLostPets, createLostPetAlert, listMyPets } from "@/lib/api";
+import { LottieLoading } from "@/components/lottie-loading";
+import { PrimaryButton } from "@/components/primary-button";
+import {
+  listAdoptions,
+  createAdoption,
+  listTaxonomies,
+  uploadMedia
+} from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
-export default function LostPetsPage() {
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const TUTORIAL_KEY = "adoption_tutorial_seen";
+
+/* ------------------------------------------------------------------ */
+/*  Tutorial                                                          */
+/* ------------------------------------------------------------------ */
+
+interface TutorialPage {
+  id: string;
+  icon: "heart" | "paw" | "home";
+  title: string;
+  description: string;
+}
+
+const TUTORIAL_PAGES: TutorialPage[] = [
+  {
+    id: "find",
+    icon: "heart",
+    title: "Find Your New Best Friend",
+    description:
+      "Thousands of pets are waiting for their forever home. Browse profiles, fall in love, and give a pet the life they deserve."
+  },
+  {
+    id: "every",
+    icon: "paw",
+    title: "Every Pet Deserves a Home",
+    description:
+      "Shelters and pet parents list animals looking for loving families. Each profile includes photos, personality traits, and contact info."
+  },
+  {
+    id: "ready",
+    icon: "home",
+    title: "Ready to Adopt?",
+    description:
+      "Browse available pets, connect with their current caregivers, and start your adoption journey today."
+  }
+];
+
+function AdoptionTutorial({ onComplete }: { onComplete: () => void }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
+
+  const icons: Record<string, React.ReactNode> = {
+    heart: <Heart size={40} color="#FFFFFF" fill="#FFFFFF" />,
+    paw: <PawPrint size={40} color="#FFFFFF" />,
+    home: <Home size={40} color="#FFFFFF" />
+  };
+
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length > 0 && viewableItems[0].index != null) {
+        setActiveIndex(viewableItems[0].index);
+      }
+    },
+    []
+  );
+
+  const viewabilityConfig = useRef({
+    viewAreaCoveragePercentThreshold: 50
+  }).current;
+
+  const isLastPage = activeIndex === TUTORIAL_PAGES.length - 1;
+
+  const handleNext = () => {
+    if (isLastPage) {
+      onComplete();
+    } else {
+      flatListRef.current?.scrollToIndex({
+        index: activeIndex + 1,
+        animated: true
+      });
+    }
+  };
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: theme.colors.white,
+        zIndex: 100
+      }}
+    >
+      {/* Skip */}
+      <Pressable
+        onPress={onComplete}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={{
+          position: "absolute",
+          top: insets.top + 16,
+          right: 20,
+          zIndex: 10,
+          paddingHorizontal: mobileTheme.spacing.md,
+          paddingVertical: mobileTheme.spacing.sm,
+          minWidth: 44,
+          minHeight: 44,
+          alignItems: "center",
+          justifyContent: "center"
+        }}
+      >
+        <Text
+          style={{
+            fontSize: mobileTheme.typography.body.fontSize,
+            color: theme.colors.muted,
+            fontWeight: "600"
+          }}
+        >
+          Skip
+        </Text>
+      </Pressable>
+
+      {/* Pages */}
+      <FlatList
+        ref={flatListRef}
+        data={TUTORIAL_PAGES}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <View
+            style={{
+              width: SCREEN_WIDTH,
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: mobileTheme.spacing["3xl"],
+              gap: mobileTheme.spacing["2xl"]
+            }}
+          >
+            {/* Icon circle */}
+            <View
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: theme.colors.primary,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              {icons[item.icon]}
+            </View>
+
+            <Text
+              style={{
+                fontSize: 28,
+                fontWeight: "700",
+                color: theme.colors.ink,
+                textAlign: "center"
+              }}
+            >
+              {item.title}
+            </Text>
+
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.body.fontSize,
+                color: theme.colors.muted,
+                textAlign: "center",
+                lineHeight: 24,
+                maxWidth: 300
+              }}
+            >
+              {item.description}
+            </Text>
+          </View>
+        )}
+      />
+
+      {/* Bottom area */}
+      <View
+        style={{
+          paddingBottom: insets.bottom + 80,
+          paddingHorizontal: mobileTheme.spacing["3xl"],
+          gap: mobileTheme.spacing.xl,
+          alignItems: "center"
+        }}
+      >
+        {/* Dots */}
+        <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
+          {TUTORIAL_PAGES.map((page, index) => (
+            <View
+              key={page.id}
+              style={{
+                width: index === activeIndex ? 24 : 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor:
+                  index === activeIndex
+                    ? theme.colors.primary
+                    : theme.colors.border
+              }}
+            />
+          ))}
+        </View>
+
+        <PrimaryButton
+          label={isLastPage ? "Browse Pets" : "Next"}
+          onPress={handleNext}
+        />
+      </View>
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Detail Modal                                                      */
+/* ------------------------------------------------------------------ */
+
+interface DetailModalProps {
+  visible: boolean;
+  listing: AdoptionItem | null;
+  onClose: () => void;
+  theme: ReturnType<typeof useTheme>;
+  insets: ReturnType<typeof useSafeAreaInsets>;
+}
+
+type AdoptionItem = {
+  id: string;
+  petName: string;
+  petAge: number;
+  petSpecies: string;
+  petBreed: string;
+  gender: string;
+  description: string;
+  contactPhone: string;
+  contactEmail: string;
+  location: string;
+  photos: { id: string; url: string; isPrimary: boolean }[];
+  characterTraits: string[];
+  isNeutered: boolean;
+  activityLevel: number;
+  imageUrl?: string;
+  status: "active" | "adopted";
+  userId: string;
+  userName?: string;
+  createdAt: string;
+};
+
+const TRAIT_COLORS = [
+  "#E6694A",
+  "#3F7D4E",
+  "#5BA89A",
+  "#F7B267",
+  "#A14632",
+  "#6C5CE7",
+  "#00B894",
+  "#FD79A8"
+];
+
+function DetailModal({
+  visible,
+  listing,
+  onClose,
+  theme,
+  insets
+}: DetailModalProps) {
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const photoListRef = useRef<FlatList>(null);
+
+  const onPhotoViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length > 0 && viewableItems[0].index != null) {
+        setPhotoIndex(viewableItems[0].index);
+      }
+    },
+    []
+  );
+
+  const photoViewConfig = useRef({
+    viewAreaCoveragePercentThreshold: 50
+  }).current;
+
+  useEffect(() => {
+    if (visible) setPhotoIndex(0);
+  }, [visible]);
+
+  if (!listing) return null;
+
+  const allPhotos =
+    listing.photos.length > 0
+      ? listing.photos
+      : listing.imageUrl
+        ? [{ id: "main", url: listing.imageUrl, isPrimary: true }]
+        : [];
+
+  const ageLabel =
+    listing.petAge === 1 ? "1 yr" : `${listing.petAge} yrs`;
+
+  const handleCall = () => {
+    if (listing.contactPhone) {
+      Linking.openURL(`tel:${listing.contactPhone}`);
+    }
+  };
+
+  const handleEmail = () => {
+    if (listing.contactEmail) {
+      Linking.openURL(
+        `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`
+      );
+    }
+  };
+
+  const handleContact = () => {
+    if (listing.contactEmail) {
+      handleEmail();
+    } else if (listing.contactPhone) {
+      handleCall();
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Photo gallery */}
+          {allPhotos.length > 0 ? (
+            <View>
+              <FlatList
+                ref={photoListRef}
+                data={allPhotos}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onViewableItemsChanged={onPhotoViewableItemsChanged}
+                viewabilityConfig={photoViewConfig}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Image
+                    source={{ uri: item.url }}
+                    style={{ width: SCREEN_WIDTH, height: 280 }}
+                    resizeMode="cover"
+                  />
+                )}
+              />
+              {/* Photo dots */}
+              {allPhotos.length > 1 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: 12,
+                    left: 0,
+                    right: 0,
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 6
+                  }}
+                >
+                  {allPhotos.map((_, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        width: idx === photoIndex ? 20 : 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor:
+                          idx === photoIndex
+                            ? "#FFFFFF"
+                            : "rgba(255,255,255,0.5)"
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : (
+            <View
+              style={{
+                width: SCREEN_WIDTH,
+                height: 280,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <PawPrint size={64} color={theme.colors.primary} />
+            </View>
+          )}
+
+          {/* Close button */}
+          <Pressable
+            onPress={onClose}
+            hitSlop={12}
+            style={{
+              position: "absolute",
+              top: insets.top + 12,
+              left: 16,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(0,0,0,0.45)",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10
+            }}
+          >
+            <X size={18} color="#FFFFFF" />
+          </Pressable>
+
+          {/* Info */}
+          <View
+            style={{
+              backgroundColor: theme.colors.white,
+              borderTopLeftRadius: mobileTheme.radius.xl,
+              borderTopRightRadius: mobileTheme.radius.xl,
+              marginTop: -24,
+              padding: mobileTheme.spacing.xl,
+              gap: mobileTheme.spacing.lg
+            }}
+          >
+            {/* Name + Age */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.heading.fontSize,
+                  fontWeight: mobileTheme.typography.heading.fontWeight,
+                  color: theme.colors.ink
+                }}
+              >
+                {listing.petName}
+              </Text>
+              <View
+                style={{
+                  backgroundColor: theme.colors.primaryBg,
+                  paddingHorizontal: 12,
+                  paddingVertical: 4,
+                  borderRadius: mobileTheme.radius.pill
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontWeight: "600",
+                    color: theme.colors.primary
+                  }}
+                >
+                  {ageLabel}
+                </Text>
+              </View>
+            </View>
+
+            {/* Species / Breed */}
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.body.fontSize,
+                color: theme.colors.muted
+              }}
+            >
+              {listing.petSpecies}
+              {listing.petBreed ? ` \u00B7 ${listing.petBreed}` : ""}
+            </Text>
+
+            {/* Gender + Neutered */}
+            <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
+              <View
+                style={{
+                  backgroundColor:
+                    listing.gender === "Female"
+                      ? "rgba(253,121,168,0.12)"
+                      : "rgba(56,103,214,0.12)",
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: mobileTheme.radius.pill
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.micro.fontSize,
+                    fontWeight: "600",
+                    color:
+                      listing.gender === "Female" ? "#FD79A8" : "#3867D6"
+                  }}
+                >
+                  {listing.gender}
+                </Text>
+              </View>
+              {listing.isNeutered && (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.successBg,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: mobileTheme.radius.pill
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: mobileTheme.typography.micro.fontSize,
+                      fontWeight: "600",
+                      color: theme.colors.success
+                    }}
+                  >
+                    Neutered
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Character traits */}
+            {listing.characterTraits.length > 0 && (
+              <View>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontWeight: "600",
+                    color: theme.colors.ink,
+                    marginBottom: mobileTheme.spacing.sm
+                  }}
+                >
+                  Personality
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: mobileTheme.spacing.sm
+                  }}
+                >
+                  {listing.characterTraits.map((trait, idx) => {
+                    const chipColor =
+                      TRAIT_COLORS[idx % TRAIT_COLORS.length];
+                    return (
+                      <View
+                        key={trait}
+                        style={{
+                          backgroundColor: `${chipColor}15`,
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          borderRadius: mobileTheme.radius.pill
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: mobileTheme.typography.micro.fontSize,
+                            fontWeight: "600",
+                            color: chipColor
+                          }}
+                        >
+                          {trait}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Activity level */}
+            {listing.activityLevel > 0 && (
+              <View>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontWeight: "600",
+                    color: theme.colors.ink,
+                    marginBottom: mobileTheme.spacing.sm
+                  }}
+                >
+                  Activity Level
+                </Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <View
+                      key={level}
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor:
+                          level <= listing.activityLevel
+                            ? theme.colors.primary
+                            : theme.colors.border
+                      }}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Description */}
+            <View>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  fontWeight: "600",
+                  color: theme.colors.ink,
+                  marginBottom: mobileTheme.spacing.sm
+                }}
+              >
+                About
+              </Text>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  lineHeight: mobileTheme.typography.body.lineHeight,
+                  color: theme.colors.muted
+                }}
+              >
+                {listing.description ||
+                  "Looking for a loving home \uD83C\uDFE1"}
+              </Text>
+            </View>
+
+            {/* Location */}
+            {listing.location ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6
+                }}
+              >
+                <MapPin size={14} color={theme.colors.muted} />
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    color: theme.colors.muted
+                  }}
+                >
+                  {listing.location}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Contact buttons */}
+            <View
+              style={{
+                gap: mobileTheme.spacing.md,
+                marginTop: mobileTheme.spacing.md
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: mobileTheme.spacing.md
+                }}
+              >
+                {listing.contactPhone ? (
+                  <Pressable
+                    onPress={handleCall}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 12,
+                      borderRadius: mobileTheme.radius.md,
+                      backgroundColor: theme.colors.successBg,
+                      borderWidth: 1,
+                      borderColor: theme.colors.success
+                    }}
+                  >
+                    <Phone size={16} color={theme.colors.success} />
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        fontWeight: "600",
+                        color: theme.colors.success
+                      }}
+                    >
+                      Call
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {listing.contactEmail ? (
+                  <Pressable
+                    onPress={handleEmail}
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 12,
+                      borderRadius: mobileTheme.radius.md,
+                      backgroundColor: theme.colors.secondarySoft,
+                      borderWidth: 1,
+                      borderColor: theme.colors.secondary
+                    }}
+                  >
+                    <Mail size={16} color={theme.colors.secondary} />
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        fontWeight: "600",
+                        color: theme.colors.secondary
+                      }}
+                    >
+                      Email
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <PrimaryButton
+                label="Contact to Adopt"
+                onPress={handleContact}
+              />
+            </View>
+
+            {/* Listed by */}
+            {listing.userName ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: mobileTheme.spacing.sm,
+                  paddingTop: mobileTheme.spacing.md,
+                  borderTopWidth: 1,
+                  borderTopColor: theme.colors.border
+                }}
+              >
+                <View
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: theme.colors.primaryBg,
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: mobileTheme.typography.micro.fontSize,
+                      fontWeight: "700",
+                      color: theme.colors.primary
+                    }}
+                  >
+                    {listing.userName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    color: theme.colors.muted
+                  }}
+                >
+                  Listed by {listing.userName}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                         */
+/* ------------------------------------------------------------------ */
+
+export default function AdoptionPage() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
-
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [selectedPetId, setSelectedPetId] = useState("");
-  const [description, setDescription] = useState("");
-  const [lastSeenLocation, setLastSeenLocation] = useState("");
-  const [lastSeenDate, setLastSeenDate] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-
   const token = session?.tokens.accessToken ?? "";
 
-  const alertsQuery = useQuery({
-    queryKey: ["lost-pets"],
-    queryFn: () => listLostPets(token),
+  /* --- tutorial state --- */
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialChecked, setTutorialChecked] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(TUTORIAL_KEY).then((val) => {
+      if (val !== "true") {
+        setShowTutorial(true);
+      }
+      setTutorialChecked(true);
+    });
+  }, []);
+
+  const dismissTutorial = useCallback(() => {
+    setShowTutorial(false);
+    AsyncStorage.setItem(TUTORIAL_KEY, "true");
+  }, []);
+
+  /* --- composer state --- */
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [petName, setPetName] = useState("");
+  const [petAge, setPetAge] = useState("");
+  const [selectedSpeciesId, setSelectedSpeciesId] = useState("");
+  const [selectedSpeciesLabel, setSelectedSpeciesLabel] = useState("");
+  const [selectedBreedId, setSelectedBreedId] = useState("");
+  const [selectedBreedLabel, setSelectedBreedLabel] = useState("");
+  const [gender, setGender] = useState<"Male" | "Female">("Male");
+  const [description, setDescription] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [location, setLocation] = useState("");
+  const [photos, setPhotos] = useState<
+    { uri: string; fileName: string }[]
+  >([]);
+
+  /* --- detail modal --- */
+  const [selectedListing, setSelectedListing] = useState<AdoptionItem | null>(
+    null
+  );
+
+  /* --- queries --- */
+  const adoptionsQuery = useQuery({
+    queryKey: ["adoptions"],
+    queryFn: () => listAdoptions(token),
     enabled: Boolean(token)
   });
 
-  const petsQuery = useQuery({
-    queryKey: ["my-pets"],
-    queryFn: () => listMyPets(token),
+  const speciesQuery = useQuery({
+    queryKey: ["taxonomies", "species"],
+    queryFn: () => listTaxonomies(token, "species"),
     enabled: Boolean(token)
   });
 
+  const breedsQuery = useQuery({
+    queryKey: ["taxonomies", "breeds"],
+    queryFn: () => listTaxonomies(token, "breeds"),
+    enabled: Boolean(token)
+  });
+
+  const allBreeds = breedsQuery.data ?? [];
+  const filteredBreeds = useMemo(() => {
+    if (!selectedSpeciesId) return allBreeds;
+    return allBreeds.filter(
+      (b: any) =>
+        b.parentId === selectedSpeciesId ||
+        b.speciesId === selectedSpeciesId
+    );
+  }, [allBreeds, selectedSpeciesId]);
+
+  /* --- create mutation --- */
   const createMutation = useMutation({
-    mutationFn: () =>
-      createLostPetAlert(token, {
-        petId: selectedPetId,
+    mutationFn: async () => {
+      let uploadedPhotos: { id: string; url: string; isPrimary: boolean }[] =
+        [];
+
+      for (let i = 0; i < photos.length; i++) {
+        const p = photos[i];
+        const asset = await uploadMedia(
+          token,
+          p.uri,
+          p.fileName || `adoption-${i}.jpg`
+        );
+        uploadedPhotos.push({
+          id: asset.id,
+          url: asset.url,
+          isPrimary: i === 0
+        });
+      }
+
+      return createAdoption(token, {
+        petName: petName.trim(),
+        petAge: parseInt(petAge, 10) || 0,
+        petSpecies: selectedSpeciesLabel || "Unknown",
+        petBreed: selectedBreedLabel || "",
+        gender,
         description: description.trim(),
-        lastSeenLocation: lastSeenLocation.trim(),
-        lastSeenDate: lastSeenDate.trim() || new Date().toISOString(),
         contactPhone: contactPhone.trim(),
-        imageUrl: undefined
-      }),
+        contactEmail: contactEmail.trim(),
+        location: location.trim(),
+        photos: uploadedPhotos,
+        characterTraits: [],
+        isNeutered: false,
+        activityLevel: 3,
+        imageUrl: uploadedPhotos[0]?.url
+      });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["lost-pets"] });
-      setSelectedPetId("");
-      setDescription("");
-      setLastSeenLocation("");
-      setLastSeenDate("");
-      setContactPhone("");
-      setComposerOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["adoptions"] });
+      resetComposer();
     }
   });
 
-  const onRefresh = useCallback(() => {
-    alertsQuery.refetch();
-  }, [alertsQuery]);
+  const resetComposer = () => {
+    setPetName("");
+    setPetAge("");
+    setSelectedSpeciesId("");
+    setSelectedSpeciesLabel("");
+    setSelectedBreedId("");
+    setSelectedBreedLabel("");
+    setGender("Male");
+    setDescription("");
+    setContactPhone("");
+    setContactEmail("");
+    setLocation("");
+    setPhotos([]);
+    setComposerOpen(false);
+  };
 
-  const alerts = alertsQuery.data ?? [];
-  const myPets = petsQuery.data ?? [];
+  const pickPhotos = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 6 - photos.length,
+      quality: 0.8
+    });
+
+    if (!result.canceled) {
+      const newPhotos = result.assets.map((a) => ({
+        uri: a.uri,
+        fileName: a.fileName || `photo-${Date.now()}.jpg`
+      }));
+      setPhotos((prev) => [...prev, ...newPhotos].slice(0, 6));
+    }
+  };
+
+  const removePhoto = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const onRefresh = useCallback(() => {
+    adoptionsQuery.refetch();
+  }, [adoptionsQuery]);
+
+  const listings = (adoptionsQuery.data ?? []) as AdoptionItem[];
+
+  const canSubmit =
+    petName.trim().length > 0 &&
+    petAge.trim().length > 0 &&
+    (contactPhone.trim().length > 0 || contactEmail.trim().length > 0);
+
+  /* --- render --- */
+  if (!tutorialChecked) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: theme.colors.background,
+          alignItems: "center",
+          justifyContent: "center"
+        }}
+      >
+        <LottieLoading size={70} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      {/* Tutorial overlay */}
+      {showTutorial && <AdoptionTutorial onComplete={dismissTutorial} />}
+
       {/* Header */}
       <View
         style={{
@@ -118,7 +1047,7 @@ export default function LostPetsPage() {
               color: theme.colors.ink
             }}
           >
-            Lost Pet Alerts
+            Adopt a Pet
           </Text>
         </View>
         <Pressable
@@ -128,12 +1057,12 @@ export default function LostPetsPage() {
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: theme.colors.dangerBg,
+            backgroundColor: theme.colors.primaryBg,
             alignItems: "center",
             justifyContent: "center"
           }}
         >
-          <Plus size={18} color={theme.colors.danger} />
+          <Plus size={18} color={theme.colors.primary} />
         </Pressable>
       </View>
 
@@ -141,17 +1070,18 @@ export default function LostPetsPage() {
         contentContainerStyle={{
           paddingHorizontal: mobileTheme.spacing.xl,
           paddingTop: mobileTheme.spacing.xl,
-          paddingBottom: insets.bottom + 24
+          paddingBottom: 100 + insets.bottom
         }}
         refreshControl={
           <RefreshControl
-            refreshing={alertsQuery.isRefetching}
+            refreshing={adoptionsQuery.isRefetching}
             onRefresh={onRefresh}
             tintColor="#F48C28"
           />
         }
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Composer */}
+        {/* Composer form */}
         {composerOpen && (
           <View
             style={{
@@ -170,201 +1100,688 @@ export default function LostPetsPage() {
                 color: theme.colors.ink
               }}
             >
-              Report Lost Pet
+              List a Pet for Adoption
             </Text>
 
-            {/* Pet Selector */}
-            <View style={{ gap: mobileTheme.spacing.sm }}>
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>Select Pet</Text>
-              <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm, flexWrap: "wrap" }}>
-                {myPets.map((pet) => (
+            {/* Pet Name */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Pet Name *
+              </Text>
+              <TextInput
+                value={petName}
+                onChangeText={setPetName}
+                placeholder="e.g. Buddy"
+                placeholderTextColor={theme.colors.muted}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink
+                }}
+              />
+            </View>
+
+            {/* Age */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Age (years) *
+              </Text>
+              <TextInput
+                value={petAge}
+                onChangeText={setPetAge}
+                placeholder="e.g. 2"
+                placeholderTextColor={theme.colors.muted}
+                keyboardType="number-pad"
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink
+                }}
+              />
+            </View>
+
+            {/* Species picker */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Species
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: mobileTheme.spacing.sm,
+                  flexWrap: "wrap"
+                }}
+              >
+                {(speciesQuery.data ?? []).map((s: any) => (
                   <Pressable
-                    key={pet.id}
-                    onPress={() => setSelectedPetId(pet.id)}
+                    key={s.id}
+                    onPress={() => {
+                      setSelectedSpeciesId(s.id);
+                      setSelectedSpeciesLabel(s.label);
+                      setSelectedBreedId("");
+                      setSelectedBreedLabel("");
+                    }}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 8,
                       borderRadius: mobileTheme.radius.pill,
-                      backgroundColor: selectedPetId === pet.id ? theme.colors.primaryBg : theme.colors.background,
+                      backgroundColor:
+                        selectedSpeciesId === s.id
+                          ? theme.colors.primaryBg
+                          : theme.colors.background,
                       borderWidth: 1,
-                      borderColor: selectedPetId === pet.id ? theme.colors.primary : theme.colors.border
+                      borderColor:
+                        selectedSpeciesId === s.id
+                          ? theme.colors.primary
+                          : theme.colors.border
                     }}
                   >
                     <Text
                       style={{
                         fontSize: mobileTheme.typography.caption.fontSize,
-                        fontWeight: selectedPetId === pet.id ? "600" : "400",
-                        color: selectedPetId === pet.id ? theme.colors.primary : theme.colors.ink
+                        fontWeight:
+                          selectedSpeciesId === s.id ? "600" : "400",
+                        color:
+                          selectedSpeciesId === s.id
+                            ? theme.colors.primary
+                            : theme.colors.ink
                       }}
                     >
-                      {pet.name}
+                      {s.label}
                     </Text>
                   </Pressable>
                 ))}
               </View>
             </View>
 
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Description (breed, color, size...)"
-              placeholderTextColor={theme.colors.muted}
-              multiline
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                minHeight: 80,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink,
-                textAlignVertical: "top"
-              }}
-            />
-
-            <TextInput
-              value={lastSeenLocation}
-              onChangeText={setLastSeenLocation}
-              placeholder="Last Seen Location"
-              placeholderTextColor={theme.colors.muted}
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink
-              }}
-            />
-
-            <TextInput
-              value={lastSeenDate}
-              onChangeText={setLastSeenDate}
-              placeholder="Last Seen Date (YYYY-MM-DD)"
-              placeholderTextColor={theme.colors.muted}
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink
-              }}
-            />
-
-            <TextInput
-              value={contactPhone}
-              onChangeText={setContactPhone}
-              placeholder="Contact Phone"
-              placeholderTextColor={theme.colors.muted}
-              keyboardType="phone-pad"
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink
-              }}
-            />
-
-            <Pressable
-              onPress={() => createMutation.mutate()}
-              disabled={!selectedPetId || !description.trim() || !contactPhone.trim() || createMutation.isPending}
-              style={{
-                backgroundColor: selectedPetId && description.trim() && contactPhone.trim() ? theme.colors.danger : theme.colors.border,
-                borderRadius: mobileTheme.radius.md,
-                paddingVertical: mobileTheme.spacing.md,
-                alignItems: "center"
-              }}
-            >
-              {createMutation.isPending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  Create Alert
+            {/* Breed picker */}
+            {selectedSpeciesId && filteredBreeds.length > 0 && (
+              <View style={{ gap: mobileTheme.spacing.xs }}>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    color: theme.colors.muted
+                  }}
+                >
+                  Breed
                 </Text>
-              )}
-            </Pressable>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{
+                    gap: mobileTheme.spacing.sm,
+                    paddingRight: mobileTheme.spacing.lg
+                  }}
+                >
+                  {filteredBreeds.map((b: any) => (
+                    <Pressable
+                      key={b.id}
+                      onPress={() => {
+                        setSelectedBreedId(b.id);
+                        setSelectedBreedLabel(b.label);
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor:
+                          selectedBreedId === b.id
+                            ? theme.colors.primaryBg
+                            : theme.colors.background,
+                        borderWidth: 1,
+                        borderColor:
+                          selectedBreedId === b.id
+                            ? theme.colors.primary
+                            : theme.colors.border
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: mobileTheme.typography.caption.fontSize,
+                          fontWeight:
+                            selectedBreedId === b.id ? "600" : "400",
+                          color:
+                            selectedBreedId === b.id
+                              ? theme.colors.primary
+                              : theme.colors.ink
+                        }}
+                      >
+                        {b.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Gender toggle */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Gender
+              </Text>
+              <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
+                {(["Male", "Female"] as const).map((g) => (
+                  <Pressable
+                    key={g}
+                    onPress={() => setGender(g)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: mobileTheme.radius.md,
+                      backgroundColor:
+                        gender === g
+                          ? g === "Male"
+                            ? "rgba(56,103,214,0.12)"
+                            : "rgba(253,121,168,0.12)"
+                          : theme.colors.background,
+                      borderWidth: 1,
+                      borderColor:
+                        gender === g
+                          ? g === "Male"
+                            ? "#3867D6"
+                            : "#FD79A8"
+                          : theme.colors.border,
+                      alignItems: "center"
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        fontWeight: gender === g ? "600" : "400",
+                        color:
+                          gender === g
+                            ? g === "Male"
+                              ? "#3867D6"
+                              : "#FD79A8"
+                            : theme.colors.ink
+                      }}
+                    >
+                      {g}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {/* Photo picker */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Photos (up to 6)
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: mobileTheme.spacing.sm
+                }}
+              >
+                {photos.map((photo, idx) => (
+                  <View key={idx} style={{ position: "relative" }}>
+                    <Image
+                      source={{ uri: photo.uri }}
+                      style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: mobileTheme.radius.sm
+                      }}
+                      resizeMode="cover"
+                    />
+                    <Pressable
+                      onPress={() => removePhoto(idx)}
+                      style={{
+                        position: "absolute",
+                        top: -6,
+                        right: -6,
+                        width: 22,
+                        height: 22,
+                        borderRadius: 11,
+                        backgroundColor: theme.colors.danger,
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      <X size={12} color="#FFFFFF" />
+                    </Pressable>
+                  </View>
+                ))}
+                {photos.length < 6 && (
+                  <Pressable
+                    onPress={pickPhotos}
+                    style={{
+                      width: 72,
+                      height: 72,
+                      borderRadius: mobileTheme.radius.sm,
+                      borderWidth: 2,
+                      borderStyle: "dashed",
+                      borderColor: theme.colors.border,
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}
+                  >
+                    <Plus size={24} color={theme.colors.muted} />
+                  </Pressable>
+                )}
+              </View>
+            </View>
+
+            {/* Description */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Description
+              </Text>
+              <TextInput
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Tell us about this pet..."
+                placeholderTextColor={theme.colors.muted}
+                multiline
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  minHeight: 80,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink,
+                  textAlignVertical: "top"
+                }}
+              />
+            </View>
+
+            {/* Contact phone */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Contact Phone
+              </Text>
+              <TextInput
+                value={contactPhone}
+                onChangeText={setContactPhone}
+                placeholder="+1 555 123 4567"
+                placeholderTextColor={theme.colors.muted}
+                keyboardType="phone-pad"
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink
+                }}
+              />
+            </View>
+
+            {/* Contact email */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Contact Email
+              </Text>
+              <TextInput
+                value={contactEmail}
+                onChangeText={setContactEmail}
+                placeholder="hello@example.com"
+                placeholderTextColor={theme.colors.muted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink
+                }}
+              />
+            </View>
+
+            {/* Location */}
+            <View style={{ gap: mobileTheme.spacing.xs }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted
+                }}
+              >
+                Location / City
+              </Text>
+              <TextInput
+                value={location}
+                onChangeText={setLocation}
+                placeholder="e.g. San Francisco, CA"
+                placeholderTextColor={theme.colors.muted}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink
+                }}
+              />
+            </View>
+
+            {/* Submit */}
+            <PrimaryButton
+              label="List for Adoption"
+              onPress={() => createMutation.mutate()}
+              disabled={!canSubmit}
+              loading={createMutation.isPending}
+            />
           </View>
         )}
 
         {/* Loading */}
-        {alertsQuery.isLoading && (
-          <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
+        {adoptionsQuery.isLoading && (
+          <View
+            style={{
+              paddingVertical: mobileTheme.spacing["4xl"],
+              alignItems: "center"
+            }}
+          >
             <LottieLoading size={70} />
           </View>
         )}
 
-        {/* Empty */}
-        {!alertsQuery.isLoading && alerts.length === 0 && (
-          <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
-            <Search size={48} color={theme.colors.muted} />
-            <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No lost pet alerts
+        {/* Empty state */}
+        {!adoptionsQuery.isLoading && listings.length === 0 && (
+          <View
+            style={{
+              paddingVertical: mobileTheme.spacing["4xl"],
+              alignItems: "center",
+              gap: mobileTheme.spacing.lg
+            }}
+          >
+            <View
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <PawPrint size={36} color={theme.colors.primary} />
+            </View>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.subheading.fontSize,
+                fontWeight: mobileTheme.typography.subheading.fontWeight,
+                color: theme.colors.ink
+              }}
+            >
+              No pets listed yet
             </Text>
-            <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Thankfully no pets are reported lost in your area.
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.body.fontSize,
+                color: theme.colors.muted,
+                textAlign: "center",
+                paddingHorizontal: mobileTheme.spacing["3xl"]
+              }}
+            >
+              Be the first to list a pet for adoption. Tap the + button to get
+              started.
             </Text>
           </View>
         )}
 
-        {/* Alerts */}
-        {alerts.map((alert) => (
-          <View
-            key={alert.id}
-            style={{
-              backgroundColor: theme.colors.white,
-              borderRadius: mobileTheme.radius.lg,
-              overflow: "hidden",
-              marginBottom: mobileTheme.spacing.md,
-              ...mobileTheme.shadow.sm
-            }}
-          >
-            {alert.imageUrl && (
-              <Image
-                source={{ uri: alert.imageUrl }}
-                style={{ width: "100%", height: 160 }}
-                resizeMode="cover"
-              />
-            )}
-            <View style={{ padding: mobileTheme.spacing.xl, gap: mobileTheme.spacing.sm }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                  {new Date(alert.lastSeenDate).toLocaleDateString()}
-                </Text>
+        {/* Pet cards */}
+        {listings.map((listing) => {
+          const primaryPhoto = listing.photos.find((p) => p.isPrimary);
+          const photoUrl =
+            primaryPhoto?.url || listing.imageUrl || null;
+          const ageLabel =
+            listing.petAge === 1 ? "1 yr" : `${listing.petAge} yrs`;
+
+          return (
+            <Pressable
+              key={listing.id}
+              onPress={() => setSelectedListing(listing)}
+              style={{
+                backgroundColor: theme.colors.white,
+                borderRadius: mobileTheme.radius.md,
+                overflow: "hidden",
+                marginBottom: mobileTheme.spacing.lg,
+                ...mobileTheme.shadow.sm
+              }}
+            >
+              {/* Photo */}
+              {photoUrl ? (
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={{
+                    width: "100%",
+                    height: 200,
+                    borderTopLeftRadius: mobileTheme.radius.md,
+                    borderTopRightRadius: mobileTheme.radius.md
+                  }}
+                  resizeMode="cover"
+                />
+              ) : (
                 <View
                   style={{
-                    backgroundColor: alert.status === "active" ? theme.colors.dangerBg : theme.colors.successBg,
-                    paddingHorizontal: 10,
-                    paddingVertical: 3,
-                    borderRadius: mobileTheme.radius.pill
+                    width: "100%",
+                    height: 200,
+                    borderTopLeftRadius: mobileTheme.radius.md,
+                    borderTopRightRadius: mobileTheme.radius.md,
+                    backgroundColor: theme.colors.primaryBg,
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  <PawPrint size={48} color={theme.colors.primary} />
+                </View>
+              )}
+
+              {/* Info */}
+              <View
+                style={{
+                  padding: mobileTheme.spacing.lg,
+                  gap: mobileTheme.spacing.sm
+                }}
+              >
+                {/* Name + Age */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between"
                   }}
                 >
                   <Text
                     style={{
-                      fontSize: mobileTheme.typography.micro.fontSize,
-                      fontWeight: "600",
-                      color: alert.status === "active" ? theme.colors.danger : theme.colors.success,
-                      textTransform: "capitalize"
+                      fontSize: 18,
+                      fontWeight: "700",
+                      color: theme.colors.ink
                     }}
                   >
-                    {alert.status}
+                    {listing.petName}
                   </Text>
+                  <View
+                    style={{
+                      backgroundColor: theme.colors.primaryBg,
+                      paddingHorizontal: 10,
+                      paddingVertical: 3,
+                      borderRadius: mobileTheme.radius.pill
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.micro.fontSize,
+                        fontWeight: "600",
+                        color: theme.colors.primary
+                      }}
+                    >
+                      {ageLabel}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Species / Breed */}
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    color: theme.colors.muted
+                  }}
+                >
+                  {listing.petSpecies}
+                  {listing.petBreed
+                    ? ` \u00B7 ${listing.petBreed}`
+                    : ""}
+                </Text>
+
+                {/* Gender + Neutered badges */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: mobileTheme.spacing.sm
+                  }}
+                >
+                  <View
+                    style={{
+                      backgroundColor:
+                        listing.gender === "Female"
+                          ? "rgba(253,121,168,0.12)"
+                          : "rgba(56,103,214,0.12)",
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: mobileTheme.radius.pill
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.micro.fontSize,
+                        fontWeight: "600",
+                        color:
+                          listing.gender === "Female"
+                            ? "#FD79A8"
+                            : "#3867D6"
+                      }}
+                    >
+                      {listing.gender}
+                    </Text>
+                  </View>
+                  {listing.isNeutered && (
+                    <View
+                      style={{
+                        backgroundColor: theme.colors.successBg,
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: mobileTheme.radius.pill
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: mobileTheme.typography.micro.fontSize,
+                          fontWeight: "600",
+                          color: theme.colors.success
+                        }}
+                      >
+                        Neutered
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Description */}
+                <Text
+                  numberOfLines={2}
+                  style={{
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    lineHeight: mobileTheme.typography.body.lineHeight,
+                    color: theme.colors.muted
+                  }}
+                >
+                  {listing.description || (
+                    <Text style={{ fontStyle: "italic" }}>
+                      Looking for a loving home {"\uD83C\uDFE1"}
+                    </Text>
+                  )}
+                </Text>
+
+                {/* Location */}
+                {listing.location ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6
+                    }}
+                  >
+                    <MapPin size={14} color={theme.colors.muted} />
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        color: theme.colors.muted
+                      }}
+                    >
+                      {listing.location}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Contact button */}
+                <View style={{ marginTop: mobileTheme.spacing.sm }}>
+                  <PrimaryButton
+                    label="Contact"
+                    onPress={() => setSelectedListing(listing)}
+                    size="sm"
+                  />
                 </View>
               </View>
-              <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.ink, lineHeight: mobileTheme.typography.body.lineHeight }}>
-                {alert.description}
-              </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <MapPin size={14} color={theme.colors.muted} />
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                  {alert.lastSeenLocation}
-                </Text>
-              </View>
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.primary, marginTop: 4 }}>
-                Contact: {alert.contactPhone}
-              </Text>
-            </View>
-          </View>
-        ))}
+            </Pressable>
+          );
+        })}
       </ScrollView>
+
+      {/* Detail modal */}
+      <DetailModal
+        visible={selectedListing !== null}
+        listing={selectedListing}
+        onClose={() => setSelectedListing(null)}
+        theme={theme}
+        insets={insets}
+      />
     </KeyboardAvoidingView>
   );
 }

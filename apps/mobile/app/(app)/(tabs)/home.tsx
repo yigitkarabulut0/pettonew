@@ -316,7 +316,7 @@ export default function HomePage() {
           {[
             { label: "Groups", icon: Users, route: "/(app)/groups", color: theme.colors.secondary },
             { label: "Playdates", icon: Calendar, route: "/(app)/playdates", color: theme.colors.primary },
-            { label: "Lost & Found", icon: AlertTriangle, route: "/(app)/lost-pets", color: theme.colors.danger }
+            { label: "Adopt", icon: Heart, route: "/(app)/lost-pets", color: theme.colors.primary }
           ].map((item) => (
             <Pressable
               key={item.label}

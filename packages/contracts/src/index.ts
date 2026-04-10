@@ -481,13 +481,19 @@ export interface AdoptionListing {
   petAge: number;
   petSpecies: string;
   petBreed: string;
+  gender: string;
   description: string;
   contactPhone: string;
   contactEmail: string;
   location: string;
+  photos: PetPhoto[];
+  characterTraits: string[];
+  isNeutered: boolean;
+  activityLevel: number;
   imageUrl?: string;
   status: "active" | "adopted";
   userId: string;
+  userName?: string;
   createdAt: string;
 }
 
