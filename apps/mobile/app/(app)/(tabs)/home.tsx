@@ -247,44 +247,46 @@ export default function HomePage() {
         </View>
       ) : (
       <>
-      {/* Cat animation behind the scroll - visible during pull down */}
+      {/* Cat animation covers the native spinner */}
       <Animated.View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 60,
+          top: insets.top + 50,
           left: 0,
           right: 0,
           alignItems: "center",
-          zIndex: 0,
+          zIndex: 999,
           opacity: scrollY.interpolate({
-            inputRange: [-100, -30, 0],
-            outputRange: [1, 0.5, 0],
+            inputRange: [-80, -20, 0],
+            outputRange: [1, 0.6, 0],
             extrapolate: "clamp"
           }),
           transform: [{
             translateY: scrollY.interpolate({
-              inputRange: [-120, 0],
-              outputRange: [0, 40],
+              inputRange: [-100, 0],
+              outputRange: [0, 30],
               extrapolate: "clamp"
             })
           }, {
             scale: scrollY.interpolate({
-              inputRange: [-120, -40, 0],
-              outputRange: [1, 0.6, 0.3],
+              inputRange: [-100, -30, 0],
+              outputRange: [1, 0.7, 0.3],
               extrapolate: "clamp"
             })
           }]
         }}
       >
-        <LottieView
-          ref={catRef}
-          source={require("@/assets/animations/cat.json")}
-          style={{ width: 80, height: 80 }}
-          autoPlay
-          loop
-          speed={0.7}
-        />
+        <View style={{ backgroundColor: theme.colors.background, borderRadius: 40, padding: 4 }}>
+          <LottieView
+            ref={catRef}
+            source={require("@/assets/animations/cat.json")}
+            style={{ width: 70, height: 70 }}
+            autoPlay
+            loop
+            speed={0.7}
+          />
+        </View>
       </Animated.View>
 
       <Animated.ScrollView
@@ -299,7 +301,7 @@ export default function HomePage() {
           <RefreshControl
             refreshing={postsRefetching}
             onRefresh={refetchPosts}
-            tintColor="#F48C28"
+            tintColor="transparent"
           />
         }
         contentContainerStyle={{
