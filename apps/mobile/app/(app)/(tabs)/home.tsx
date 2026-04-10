@@ -252,11 +252,11 @@ export default function HomePage() {
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 90,
+          top: insets.top + 105,
           left: 0,
           right: 0,
           alignItems: "center",
-          zIndex: 1,
+          zIndex: 0,
           opacity: scrollY.interpolate({
             inputRange: [-80, -15, 0],
             outputRange: [1, 0.4, 0],
