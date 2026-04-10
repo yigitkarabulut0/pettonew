@@ -2,7 +2,7 @@ export default {
   name: "Pett.",
   slug: "petto-mobile",
   scheme: "petto",
-  version: "0.1.0",
+  version: "0.2.0",
   orientation: "portrait",
   userInterfaceStyle: "light",
   newArchEnabled: true,

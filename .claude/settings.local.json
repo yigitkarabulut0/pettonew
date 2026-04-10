@@ -68,7 +68,8 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('peerDependencies',{}\\), indent=2\\)\\)\")",
       "Bash(git commit -m 'fix: add react-native-worklets for reanimated compatibility:*)",
       "Bash(git commit -m 'feat: animated splash screen with typewriter Petto text:*)",
-      "Read(//Users/yigitkarabulut/Desktop/Projects/Transyol/**)"
+      "Read(//Users/yigitkarabulut/Desktop/Projects/Transyol/**)",
+      "Bash(git commit -m 'bump: version 0.2.0:*)"
     ]
   }
 }
