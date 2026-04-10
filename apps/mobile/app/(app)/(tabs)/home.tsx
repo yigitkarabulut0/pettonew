@@ -252,7 +252,7 @@ export default function HomePage() {
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: insets.top + 60,
+          top: insets.top + 90,
           left: 0,
           right: 0,
           alignItems: "center",
