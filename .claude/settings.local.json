@@ -63,7 +63,10 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('User ID:', d['data']['user']['id']\\)\")",
       "Bash(curl -s -X POST http://148.230.123.242/v1/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"persist-test@petto.app\",\"password\":\"Test1234!\"}')",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Login OK - User:', d['data']['user']['email']\\)\")",
-      "Bash(git commit -m 'feat: implement real Expo Push API notification delivery:*)"
+      "Bash(git commit -m 'feat: implement real Expo Push API notification delivery:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('reanimated:', d['version']\\); deps=d.get\\('dependencies',{}\\); print\\('worklets dep:', deps.get\\('react-native-worklets','N/A'\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('peerDependencies',{}\\), indent=2\\)\\)\")",
+      "Bash(git commit -m 'fix: add react-native-worklets for reanimated compatibility:*)"
     ]
   }
 }
