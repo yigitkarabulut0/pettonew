@@ -30,11 +30,11 @@ export function AnimatedSplash({ onFinish }: Props) {
 
   return (
     <Animated.View style={{ flex: 1, backgroundColor: BG, alignItems: "center", justifyContent: "center", opacity: exitOpacity }}>
-      <View style={{ width: 320, height: 320, marginTop: -40 }}>
+      <View style={{ width: 420, height: 420, marginTop: -50 }}>
         <LottieView
           ref={lottieRef}
           source={require("@/assets/animations/paw.json")}
-          style={{ width: 320, height: 320 }}
+          style={{ width: 420, height: 420 }}
           autoPlay={false}
           loop={false}
           speed={1}

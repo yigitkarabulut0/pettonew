@@ -75,7 +75,8 @@
       "Bash(git commit -m 'fix: use correct R2 credentials from root .env:*)",
       "Bash(git commit -m 'bump: version 0.2.2:*)",
       "Bash(git commit -m 'feat: Lottie paw animation splash screen:*)",
-      "Bash(git commit -m 'tweak: bigger paw, name at bottom only, no slogan:*)"
+      "Bash(git commit -m 'tweak: bigger paw, name at bottom only, no slogan:*)",
+      "Bash(git commit -m 'tweak: even bigger paw 420px:*)"
     ]
   }
 }
