@@ -69,23 +69,38 @@ export default function RootLayout() {
     })();
   }, [session]);
 
-  // Handle notification taps
+  // Handle notification taps — shared handler for both cold start and foreground
+  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data;
+    if (data?.type === "match") {
+      router.push("/(app)/(tabs)/match");
+    } else if (data?.type === "message" && data?.conversationId) {
+      router.push(`/(app)/conversation/${data.conversationId}`);
+    } else if (data?.type === "like") {
+      router.push("/(app)/(tabs)/match");
+    } else if (data?.type === "health" && data?.petId) {
+      router.push(`/(app)/pet-health/${data.petId}` as any);
+    }
+  };
+
+  // Listen for notification taps while app is running
   useEffect(() => {
-    notifListenerRef.current = addNotificationResponseListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data?.type === "match") {
-        router.push("/(app)/(tabs)/match");
-      } else if (data?.type === "message" && data?.conversationId) {
-        router.push(`/(app)/conversation/${data.conversationId}`);
-      } else if (data?.type === "health" && data?.petId) {
-        router.push(`/(app)/pet-health/${data.petId}` as any);
-      }
-    });
+    notifListenerRef.current = addNotificationResponseListener(handleNotificationResponse);
 
     return () => {
       notifListenerRef.current?.remove();
     };
   }, []);
+
+  // Handle cold start — notification tap that launched the app
+  useEffect(() => {
+    if (!splashDone) return;
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        handleNotificationResponse(response);
+      }
+    });
+  }, [splashDone]);
 
   // Hide native splash when ready, show our custom animated splash
   useEffect(() => {
