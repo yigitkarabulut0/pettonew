@@ -77,7 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <PawPrint className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--petto-primary)]">Petto</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--petto-primary)]">Fetcht</p>
               <p className="text-lg font-semibold text-[var(--petto-ink)]">Operations</p>
             </div>
           </div>
@@ -118,7 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {/* Footer */}
           <div className="mt-auto border-t border-[var(--petto-border)] pt-4">
-            <p className="mb-2 px-3 text-xs font-semibold text-[var(--petto-ink)]">Petto Admin</p>
+            <p className="mb-2 px-3 text-xs font-semibold text-[var(--petto-ink)]">Fetcht Admin</p>
             <Button
               className="w-full justify-start text-[var(--petto-muted)]"
               variant="ghost"

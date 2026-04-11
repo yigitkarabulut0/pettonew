@@ -61,7 +61,7 @@ export default function SignUpPage() {
   return (
     <ScreenShell
       eyebrow="Create account"
-      title="Join Pett."
+      title="Join Fetcht."
       subtitle="Create your account and start matching pets near you."
     >
       <View style={{ alignItems: "center", marginBottom: mobileTheme.spacing.md }}>

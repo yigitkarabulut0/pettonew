@@ -25,7 +25,7 @@ func Geocode(address string) (*GeoResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "PettoApp/1.0")
+	req.Header.Set("User-Agent", "FetchtApp/1.0")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

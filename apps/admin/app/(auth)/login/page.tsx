@@ -38,7 +38,7 @@ export default function LoginPage() {
       <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="flex flex-col justify-center gap-6">
           <span className="text-sm font-semibold uppercase tracking-[0.35em] text-[var(--petto-primary)]">
-            Petto Admin
+            Fetcht Admin
           </span>
           <h1 className="max-w-2xl text-6xl leading-none text-[var(--petto-ink)]">
             Moderation and growth in one warm, sharply organized cockpit.
@@ -73,7 +73,7 @@ export default function LoginPage() {
               {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
             <p className="text-sm leading-6 text-[var(--petto-muted)]">
-              Sign in with your Petto admin credentials to manage live users, pets, taxonomies, and reports.
+              Sign in with your Fetcht admin credentials to manage live users, pets, taxonomies, and reports.
             </p>
           </form>
         </Card>

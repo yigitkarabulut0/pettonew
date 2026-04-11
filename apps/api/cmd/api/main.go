@@ -60,7 +60,7 @@ func main() {
 		}
 		dataStore = pgStore
 		closable = pgStore
-		log.Printf("petto api using PostgresStore (relational tables)")
+		log.Printf("fetcht api using PostgresStore (relational tables)")
 	} else if cfg.DatabaseURL != "" && storeBackend == "persistent" {
 		persistentStore, err := store.NewPersistentStore(context.Background(), cfg.DatabaseURL)
 		if err != nil {
@@ -68,10 +68,10 @@ func main() {
 		}
 		dataStore = persistentStore
 		closable = persistentStore
-		log.Printf("petto api using PersistentStore (JSON blob)")
+		log.Printf("fetcht api using PersistentStore (JSON blob)")
 	} else {
 		dataStore = store.NewMemoryStore()
-		log.Printf("petto api using MemoryStore (in-memory only)")
+		log.Printf("fetcht api using MemoryStore (in-memory only)")
 	}
 
 	if closable != nil {
@@ -92,7 +92,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Printf("petto api listening on http://localhost:%s", cfg.Port)
+		log.Printf("fetcht api listening on http://localhost:%s", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server failed: %v", err)
 		}

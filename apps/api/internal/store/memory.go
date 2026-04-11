@@ -143,7 +143,7 @@ func (s *MemoryStore) seed() {
 	admin := &domain.AdminUser{
 		ID:           "admin-1",
 		Email:        "owner@petto.app",
-		Name:         "Petto Admin",
+		Name:         "Fetcht Admin",
 		PasswordHash: adminHash,
 	}
 	s.adminsByEmail[strings.ToLower(admin.Email)] = admin

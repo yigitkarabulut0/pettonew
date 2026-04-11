@@ -67,7 +67,7 @@ export default function SignInPage() {
 
   return (
     <ScreenShell
-      eyebrow="Pett."
+      eyebrow="Fetcht"
       title="Welcome back."
       subtitle="Sign in to continue discovering and matching."
     >

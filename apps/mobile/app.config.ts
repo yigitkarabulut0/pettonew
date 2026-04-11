@@ -1,5 +1,5 @@
 export default {
-  name: "Pett.",
+  name: "Fetcht",
   slug: "petto-mobile",
   scheme: "petto",
   version: "0.3.1",
@@ -23,7 +23,7 @@ export default {
       "expo-location",
       {
         locationWhenInUsePermission:
-          "Pett. uses your current location to show nearby pet matches."
+          "Fetcht uses your current location to show nearby pet matches."
       }
     ]
   ],
