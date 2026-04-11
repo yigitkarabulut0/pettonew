@@ -69,7 +69,7 @@ export default function ConversationPage() {
     queryKey: ["messages", id, session?.tokens.accessToken],
     queryFn: () => listMessages(session!.tokens.accessToken, id),
     enabled: Boolean(session && id),
-    refetchInterval: 2000
+    refetchInterval: 500
   });
 
   const mutation = useMutation({
