@@ -28,6 +28,7 @@ import {
   Home,
   Mail,
   MapPin,
+  MessageCircle,
   PawPrint,
   Phone,
   Plus,
@@ -39,6 +40,7 @@ import { PrimaryButton } from "@/components/primary-button";
 import {
   listAdoptions,
   createAdoption,
+  createOrFindDMConversation,
   listTaxonomies,
   uploadMedia
 } from "@/lib/api";
@@ -365,20 +367,32 @@ function DetailModal({
     }
   };
 
+  const session = useSessionStore((state) => state.session);
+
+  const dmMutation = useMutation({
+    mutationFn: async () => {
+      if (!session) throw new Error("Please log in first");
+      return createOrFindDMConversation(session.tokens.accessToken, listing.userId);
+    },
+    onSuccess: (conversation) => {
+      onClose();
+      router.push(`/(app)/conversation/${conversation.id}`);
+    },
+    onError: (error: Error) => {
+      Alert.alert("Error", error.message || "Could not start conversation");
+    }
+  });
+
   const handleContact = () => {
-    const options: { text: string; onPress?: () => void }[] = [];
-    if (listing.contactPhone) {
-      options.push({ text: `Call ${listing.contactPhone}`, onPress: handleCall });
+    if (!session) {
+      Alert.alert("Error", "Please log in first");
+      return;
     }
-    if (listing.contactEmail) {
-      options.push({ text: `Email ${listing.contactEmail}`, onPress: handleEmail });
+    if (listing.userId === session.user.id) {
+      Alert.alert("Info", "This is your own listing");
+      return;
     }
-    options.push({ text: "Cancel" });
-    Alert.alert(
-      `Contact about ${listing.petName}`,
-      "Choose how you'd like to reach out:",
-      options
-    );
+    dmMutation.mutate();
   };
 
   return (
@@ -780,8 +794,10 @@ function DetailModal({
               </View>
 
               <PrimaryButton
-                label="Message to Adopt"
+                label={dmMutation.isPending ? "Starting chat..." : "Message to Adopt"}
                 onPress={handleContact}
+                loading={dmMutation.isPending}
+                disabled={dmMutation.isPending}
               />
             </View>
 

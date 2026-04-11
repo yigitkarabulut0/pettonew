@@ -596,6 +596,20 @@ export async function listConversations(
   return conversations ?? [];
 }
 
+export async function createOrFindDMConversation(
+  accessToken: string,
+  targetUserId: string
+): Promise<Conversation> {
+  return request<Conversation>("/v1/conversations/dm", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ targetUserId })
+  });
+}
+
 export async function listMessages(
   accessToken: string,
   conversationId: string

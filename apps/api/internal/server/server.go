@@ -82,6 +82,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/messages", s.handleMessages)
 			router.Post("/messages", s.handleSendMessage)
 			router.Post("/messages/read", s.handleMarkMessagesRead)
+			router.Post("/conversations/dm", s.handleCreateDirectConversation)
 			router.Get("/home/feed", s.handleHomeFeed)
 			router.Post("/home/posts", s.handleHomePostCreate)
 			router.Post("/home/posts/{postID}/likes", s.handleHomePostLikeToggle)
@@ -666,6 +667,29 @@ func (s *Server) handleMarkMessagesRead(writer http.ResponseWriter, request *htt
 	})
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"ok": true}})
+}
+
+func (s *Server) handleCreateDirectConversation(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		TargetUserID string `json:"targetUserId"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+
+	userID := currentUserID(request)
+	if payload.TargetUserID == "" {
+		writeError(writer, http.StatusBadRequest, "targetUserId is required")
+		return
+	}
+
+	conversation, err := s.store.CreateOrFindDirectConversation(userID, payload.TargetUserID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": conversation})
 }
 
 func (s *Server) handleWebSocket(writer http.ResponseWriter, request *http.Request) {

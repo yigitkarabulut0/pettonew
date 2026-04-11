@@ -1068,6 +1068,44 @@ func (s *PostgresStore) FindConversationByUsers(user1ID string, user2ID string) 
 	return conv
 }
 
+func (s *PostgresStore) CreateOrFindDirectConversation(userID string, targetUserID string) (*domain.Conversation, error) {
+	if userID == targetUserID {
+		return nil, fmt.Errorf("cannot message yourself")
+	}
+
+	// Check if conversation already exists
+	if convID := s.findConvIDByUsers(userID, targetUserID); convID != "" {
+		conv := s.getConversation(convID, "")
+		if conv != nil {
+			return conv, nil
+		}
+	}
+
+	// Get target user's name for conversation title
+	var targetName string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT first_name FROM user_profiles WHERE user_id = $1`, targetUserID).Scan(&targetName)
+	if err != nil {
+		return nil, fmt.Errorf("target user not found")
+	}
+
+	conversationID := newID("conversation")
+	now := time.Now().UTC()
+	_, err = s.pool.Exec(s.ctx(),
+		`INSERT INTO conversations (id, match_id, title, subtitle, last_message_at, user_ids)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		conversationID, "", targetName, "Adoption inquiry", now, []string{userID, targetUserID})
+	if err != nil {
+		return nil, fmt.Errorf("insert conversation: %w", err)
+	}
+
+	conv := s.getConversation(conversationID, "")
+	if conv == nil {
+		return nil, fmt.Errorf("failed to read created conversation")
+	}
+	return conv, nil
+}
+
 // ============================================================
 // MESSAGING
 // ============================================================

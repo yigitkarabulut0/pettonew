@@ -652,6 +652,38 @@ func (s *MemoryStore) FindConversationByUsers(user1ID string, user2ID string) *d
 	return s.findConversationByUsersLocked(user1ID, user2ID)
 }
 
+func (s *MemoryStore) CreateOrFindDirectConversation(userID string, targetUserID string) (*domain.Conversation, error) {
+	if userID == targetUserID {
+		return nil, fmt.Errorf("cannot message yourself")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing := s.findConversationByUsersLocked(userID, targetUserID); existing != nil {
+		return existing, nil
+	}
+
+	targetUser, ok := s.users[targetUserID]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	conversationID := newID("conversation")
+	conv := &domain.Conversation{
+		ID:            conversationID,
+		MatchID:       "",
+		Title:         targetUser.Profile.FirstName,
+		Subtitle:      "Adoption inquiry",
+		UnreadCount:   0,
+		LastMessageAt: time.Now().UTC().Format(time.RFC3339),
+		Messages:      []domain.Message{},
+		UserIDs:       []string{userID, targetUserID},
+		MatchPetPairs: []domain.MatchPetPair{},
+	}
+	s.conversations[conversationID] = conv
+	return conv, nil
+}
+
 func (s *MemoryStore) ListConversations(userID string) []domain.Conversation {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

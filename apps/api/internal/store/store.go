@@ -18,6 +18,7 @@ type Store interface {
 	ListMatchesByPet(userID string, petID string) []domain.MatchPreview
 	ListConversations(userID string) []domain.Conversation
 	FindConversationByUsers(user1ID string, user2ID string) *domain.Conversation
+	CreateOrFindDirectConversation(userID string, targetUserID string) (*domain.Conversation, error)
 	ListMessages(userID string, conversationID string) ([]domain.Message, error)
 	SendMessage(userID string, conversationID string, body string) (domain.Message, error)
 	MarkMessagesRead(userID string, conversationID string)
