@@ -738,7 +738,17 @@ func (s *MemoryStore) ListConversations(userID string) []domain.Conversation {
 			}
 		}
 		if userInConv {
-			conversations = append(conversations, *conversation)
+			c := *conversation
+			// Set title to the OTHER user's name
+			for _, uid := range c.UserIDs {
+				if uid != userID {
+					if otherUser, ok := s.users[uid]; ok {
+						c.Title = otherUser.Profile.FirstName
+					}
+					break
+				}
+			}
+			conversations = append(conversations, c)
 		}
 	}
 

@@ -1172,6 +1172,18 @@ func (s *PostgresStore) ListConversations(userID string) []domain.Conversation {
 		c.LastMessageAt = lastMsgAt.Format(time.RFC3339)
 		c.Messages = []domain.Message{}
 		c.MatchPetPairs = s.getMatchPetPairs(c.ID)
+
+		// Set title to the OTHER user's name (viewer-relative)
+		for _, uid := range c.UserIDs {
+			if uid != userID {
+				otherName, _ := s.getOwnerInfo(uid)
+				if otherName != "" {
+					c.Title = otherName
+				}
+				break
+			}
+		}
+
 		conversations = append(conversations, c)
 	}
 	return conversations

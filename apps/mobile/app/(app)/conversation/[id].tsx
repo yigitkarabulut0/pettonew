@@ -16,7 +16,7 @@ import { ChevronLeft, Flag, Send } from "lucide-react-native";
 import { Avatar } from "@/components/avatar";
 import { ReportModal } from "@/components/report-modal";
 import { useTranslation } from "react-i18next";
-import { listMessages, sendMessage } from "@/lib/api";
+import { listConversations, listMessages, sendMessage } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import type { Conversation } from "@petto/contracts";
@@ -33,15 +33,18 @@ export default function ConversationPage() {
   const flatListRef = useRef<FlatList>(null);
   const [reportOpen, setReportOpen] = useState(false);
 
-  const conversations = queryClient.getQueryData<Conversation[]>([
-    "conversations",
-    session?.tokens.accessToken
-  ]);
-  const conversation = conversations?.find((c) => c.id === id) ?? null;
+  const { data: conversations = [] } = useQuery({
+    queryKey: ["conversations", session?.tokens.accessToken],
+    queryFn: () => listConversations(session!.tokens.accessToken),
+    enabled: Boolean(session)
+  });
+  const conversation = conversations.find((c) => c.id === id) ?? null;
 
-  const otherUserName = conversation?.title ?? t("chat.conversation");
-  const otherUserAvatar = conversation?.matchPetPairs[0]?.matchedPetPhotoUrl;
-  const subtitle = conversation?.subtitle ?? "";
+  const otherUserName = conversation?.title || t("chat.conversation");
+  const otherUserAvatar = conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl;
+  const petPairLabel = conversation?.matchPetPairs?.length
+    ? conversation.matchPetPairs.map((p) => `${p.myPetName} & ${p.matchedPetName}`).join(", ")
+    : "";
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id, session?.tokens.accessToken],
@@ -204,7 +207,7 @@ export default function ConversationPage() {
           >
             {otherUserName}
           </Text>
-          {subtitle ? (
+          {petPairLabel ? (
             <Text
               style={{
                 fontSize: mobileTheme.typography.micro.fontSize,
@@ -212,7 +215,7 @@ export default function ConversationPage() {
                 fontFamily: "Inter_500Medium"
               }}
             >
-              {subtitle}
+              {petPairLabel}
             </Text>
           ) : null}
         </View>
