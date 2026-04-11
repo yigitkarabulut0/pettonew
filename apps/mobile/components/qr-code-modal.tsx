@@ -62,7 +62,7 @@ export function QRCodeModal({ visible, petId, petName, onClose }: QRCodeModalPro
             fontFamily: "Inter_500Medium",
             textAlign: "center"
           }}>
-            Scan this QR code to view {petName}'s profile on Pett.
+            Scan this QR code to view {petName}'s profile on Fetcht
           </Text>
         </View>
       </View>

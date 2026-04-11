@@ -53,7 +53,7 @@ export function AnimatedSplash({ onFinish }: Props) {
           opacity: nameOpacity,
         }}
       >
-        Pett.
+        Fetcht
       </Animated.Text>
     </Animated.View>
   );

@@ -371,8 +371,8 @@ export function PetDetailModal({
             <Pressable
               onPress={() => {
                 Share.share({
-                  message: `Check out ${pet.name} on Pett.! ${pet.speciesLabel} - ${pet.breedLabel}. Download Pett. to find playmates for your pet.`,
-                  title: `Meet ${pet.name} on Petto`
+                  message: `Check out ${pet.name} on Fetcht! ${pet.speciesLabel} - ${pet.breedLabel}. Download Fetcht to find playmates for your pet.`,
+                  title: `Meet ${pet.name} on Fetcht`
                 });
               }}
               hitSlop={12}

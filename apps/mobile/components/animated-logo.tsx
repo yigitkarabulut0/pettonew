@@ -85,7 +85,7 @@ export function AnimatedLogo({ size = "lg" }: AnimatedLogoProps) {
             letterSpacing: -1
           }}
         >
-          Petto
+          Fetcht
         </Animated.Text>
       )}
     </Animated.View>

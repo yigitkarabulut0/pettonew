@@ -694,7 +694,7 @@ export default function ProfilePage() {
                 }}
               >
                 Register your pet to unlock discovery, matching, and all the
-                fun features Pett. has to offer.
+                fun features Fetcht has to offer.
               </Text>
             </View>
           )}

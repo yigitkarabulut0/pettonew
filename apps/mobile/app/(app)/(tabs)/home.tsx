@@ -207,7 +207,7 @@ export default function HomePage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Petto
+          Fetcht
         </Text>
         <View style={{ width: 40 }} />
       </View>

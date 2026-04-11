@@ -87,7 +87,7 @@ export default function LocationOnboardingPage() {
     <ScreenShell
       eyebrow="Location access"
       title="Matches work best when we know where you are."
-      subtitle="Allow current location so Pett. can surface pets around you instead of showing a generic city list."
+      subtitle="Allow current location so Fetcht can surface pets around you instead of showing a generic city list."
     >
       <View
         style={{
