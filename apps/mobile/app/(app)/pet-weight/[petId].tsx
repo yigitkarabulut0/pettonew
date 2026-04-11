@@ -129,7 +129,7 @@ export default function PetWeightPage() {
           <RefreshControl
             refreshing={weightQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor="#F48C28"
+            tintColor={theme.colors.primary}
           />
         }
       >

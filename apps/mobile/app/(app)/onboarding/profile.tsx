@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   Image,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -28,10 +29,10 @@ import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 const schema = z.object({
-  firstName: z.string().min(2),
-  lastName: z.string().min(2),
+  firstName: z.string().min(2).max(30),
+  lastName: z.string().min(2).max(30),
   birthDate: z.string().min(10),
-  bio: z.string().max(240).optional(),
+  bio: z.string().max(1000).optional(),
   gender: z.enum(["woman", "man", "non-binary", "prefer-not-to-say"])
 });
 
@@ -156,6 +157,11 @@ export default function ProfileOnboardingPage() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+      >
       <View
         style={{
           flexDirection: "row",
@@ -315,6 +321,8 @@ export default function ProfileOnboardingPage() {
                   }
                   placeholderTextColor={theme.colors.muted}
                   multiline={field === "bio"}
+                  autoCapitalize={field === "bio" ? "sentences" : "words"}
+                  maxLength={field === "bio" ? 1000 : 30}
                   value={value}
                   onChangeText={onChange}
                   style={{
@@ -326,7 +334,7 @@ export default function ProfileOnboardingPage() {
                     paddingVertical:
                       field === "bio"
                         ? mobileTheme.spacing.lg
-                        : mobileTheme.spacing.md,
+                        : mobileTheme.spacing.md + 2,
                     minHeight: field === "bio" ? 100 : undefined,
                     fontSize: mobileTheme.typography.body.fontSize,
                     color: theme.colors.ink,
@@ -388,10 +396,32 @@ export default function ProfileOnboardingPage() {
               <DateTimePicker
                 value={selectedDate}
                 mode="date"
-                display={Platform.OS === "ios" ? "inline" : "default"}
+                display={Platform.OS === "ios" ? "spinner" : "default"}
                 maximumDate={new Date()}
                 onChange={handleDateChange}
               />
+              {Platform.OS === "ios" && (
+                <Pressable
+                  onPress={() => setShowDatePicker(false)}
+                  style={{
+                    alignItems: "center",
+                    paddingVertical: mobileTheme.spacing.md,
+                    borderTopWidth: 1,
+                    borderTopColor: theme.colors.border
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: mobileTheme.typography.body.fontSize,
+                      fontWeight: "600",
+                      color: theme.colors.primary,
+                      fontFamily: "Inter_600SemiBold"
+                    }}
+                  >
+                    Done
+                  </Text>
+                </Pressable>
+              )}
             </View>
           ) : null}
         </View>
@@ -455,6 +485,7 @@ export default function ProfileOnboardingPage() {
           onPress={handleSubmit((values) => mutation.mutate(values))}
         />
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

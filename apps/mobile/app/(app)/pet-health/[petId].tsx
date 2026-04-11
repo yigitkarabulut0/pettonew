@@ -157,7 +157,7 @@ export default function PetHealthPage() {
           <RefreshControl
             refreshing={healthQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor="#F48C28"
+            tintColor={theme.colors.primary}
           />
         }
       >

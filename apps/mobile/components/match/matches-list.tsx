@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, Heart, ImageIcon } from "lucide-react-native";
 
@@ -69,7 +70,7 @@ export function MatchesList({
           <RefreshControl
             refreshing={isRefreshing ?? false}
             onRefresh={onRefresh}
-            tintColor="#F48C28"
+            tintColor={theme.colors.primary}
           />
         ) : undefined
       }
@@ -134,7 +135,8 @@ export function MatchesList({
                         <Image
                           source={{ uri: photo }}
                           style={{ width: "100%", height: "100%" }}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          transition={200}
                         />
                       ) : (
                         <View
@@ -169,7 +171,8 @@ export function MatchesList({
                         <Image
                           source={{ uri: ownerAvatar }}
                           style={{ width: "100%", height: "100%" }}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          transition={200}
                         />
                       </View>
                     )}
@@ -397,7 +400,8 @@ function MatchRow({ match, onPress }: MatchRowProps) {
               borderRadius: 28,
               ...mobileTheme.shadow.sm
             }}
-            resizeMode="cover"
+            contentFit="cover"
+            transition={200}
           />
         ) : (
           <View
@@ -432,7 +436,8 @@ function MatchRow({ match, onPress }: MatchRowProps) {
             <Image
               source={{ uri: ownerAvatar }}
               style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={200}
             />
           </View>
         )}

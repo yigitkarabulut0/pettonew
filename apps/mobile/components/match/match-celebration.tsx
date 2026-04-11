@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Dimensions, Image, Modal, Pressable, Text, View } from "react-native";
+import { Dimensions, Modal, Pressable, Text, View } from "react-native";
+import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { Heart } from "lucide-react-native";
 
@@ -84,7 +85,8 @@ export function MatchCelebrationModal({
                       borderColor: theme.colors.primary,
                       ...mobileTheme.shadow.md
                     }}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={200}
                   />
                   <Text
                     style={{
@@ -125,7 +127,8 @@ export function MatchCelebrationModal({
                       borderColor: theme.colors.primary,
                       ...mobileTheme.shadow.md
                     }}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={200}
                   />
                   <Text
                     style={{

@@ -86,6 +86,8 @@ export default function SignUpPage() {
               <TextInput
                 autoCapitalize="none"
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
                 returnKeyType="next"
                 placeholder="Email"
                 placeholderTextColor={theme.colors.muted}
@@ -106,6 +108,10 @@ export default function SignUpPage() {
             <FieldShell error={errors.password} colors={theme.colors}>
               <TextInput
                 secureTextEntry
+                textContentType="oneTimeCode"
+                autoComplete="off"
+                autoCorrect={false}
+                spellCheck={false}
                 returnKeyType="next"
                 placeholder="Password"
                 placeholderTextColor={theme.colors.muted}
@@ -126,6 +132,10 @@ export default function SignUpPage() {
             <FieldShell error={errors.confirmPassword} colors={theme.colors}>
               <TextInput
                 secureTextEntry
+                textContentType="oneTimeCode"
+                autoComplete="off"
+                autoCorrect={false}
+                spellCheck={false}
                 returnKeyType="done"
                 placeholder="Confirm password"
                 placeholderTextColor={theme.colors.muted}

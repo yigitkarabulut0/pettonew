@@ -143,7 +143,7 @@ export default function TrainingTipsPage() {
             <RefreshControl
               refreshing={isRefetching}
               onRefresh={refetch}
-              tintColor="#F48C28"
+              tintColor={theme.colors.primary}
             />
           }
         >

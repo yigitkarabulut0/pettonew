@@ -4,7 +4,6 @@ import { useRouter } from "expo-router";
 import {
   Alert,
   Dimensions,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -12,6 +11,7 @@ import {
   Text,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -79,7 +79,8 @@ export function DiscoveryPetCard({
         <Image
           source={{ uri: photoUrl }}
           style={{ width: "100%", height: 380 }}
-          resizeMode="cover"
+          contentFit="cover"
+          transition={200}
         />
       ) : (
         <View
@@ -175,7 +176,8 @@ export function CompactPetCard({
         <Image
           source={{ uri: pet.photos[0].url }}
           style={{ height: 180, width: "100%" }}
-          resizeMode="cover"
+          contentFit="cover"
+          transition={200}
         />
       ) : (
         <View
@@ -437,7 +439,8 @@ export function PetDetailModal({
                     key={photo.id}
                     source={{ uri: photo.url }}
                     style={{ width: screenWidth, height: 420 }}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={200}
                   />
                 ))}
               </ScrollView>
@@ -635,74 +638,78 @@ export function PetDetailModal({
               speciesLabel={pet.speciesLabel}
             />
 
-            <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
-              {[
-                { label: "Health", icon: Activity, route: `/(app)/pet-health/${pet.id}` },
-                { label: "Weight", icon: Scale, route: `/(app)/pet-weight/${pet.id}` },
-                { label: "Feeding", icon: UtensilsCrossed, route: `/(app)/feeding/${pet.id}` }
-              ].map((action) => (
+            {isOwnPet && (
+              <>
+                <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
+                  {[
+                    { label: "Health", icon: Activity, route: `/(app)/pet-health/${pet.id}` },
+                    { label: "Weight", icon: Scale, route: `/(app)/pet-weight/${pet.id}` },
+                    { label: "Feeding", icon: UtensilsCrossed, route: `/(app)/feeding/${pet.id}` }
+                  ].map((action) => (
+                    <Pressable
+                      key={action.label}
+                      onPress={() => {
+                        onClose();
+                        router.push(action.route as any);
+                      }}
+                      style={{
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: mobileTheme.spacing.xs,
+                        paddingVertical: mobileTheme.spacing.md,
+                        borderRadius: mobileTheme.radius.md,
+                        backgroundColor: theme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border
+                      }}
+                    >
+                      <action.icon size={14} color={theme.colors.primary} />
+                      <Text
+                        style={{
+                          fontSize: mobileTheme.typography.micro.fontSize,
+                          fontFamily: "Inter_600SemiBold",
+                          color: theme.colors.primary
+                        }}
+                      >
+                        {action.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Diary Button */}
                 <Pressable
-                  key={action.label}
                   onPress={() => {
                     onClose();
-                    router.push(action.route as any);
+                    router.push(`/(app)/diary/${pet.id}`);
                   }}
                   style={{
-                    flex: 1,
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: mobileTheme.spacing.xs,
-                    paddingVertical: mobileTheme.spacing.md,
-                    borderRadius: mobileTheme.radius.md,
-                    backgroundColor: theme.colors.surface,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border
+                    gap: mobileTheme.spacing.sm,
+                    backgroundColor: theme.colors.primaryBg,
+                    borderRadius: mobileTheme.radius.lg,
+                    paddingVertical: mobileTheme.spacing.lg,
+                    ...mobileTheme.shadow.sm
                   }}
                 >
-                  <action.icon size={14} color={theme.colors.primary} />
+                  <BookOpen size={18} color={theme.colors.primary} />
                   <Text
                     style={{
-                      fontSize: mobileTheme.typography.micro.fontSize,
-                      fontFamily: "Inter_600SemiBold",
-                      color: theme.colors.primary
+                      fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                      fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+                      color: theme.colors.primary,
+                      fontFamily: "Inter_600SemiBold"
                     }}
                   >
-                    {action.label}
+                    View Diary
                   </Text>
                 </Pressable>
-              ))}
-            </View>
-
-            {/* Diary Button */}
-            <Pressable
-              onPress={() => {
-                onClose();
-                router.push(`/(app)/diary/${pet.id}`);
-              }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: mobileTheme.spacing.sm,
-                backgroundColor: theme.colors.primaryBg,
-                borderRadius: mobileTheme.radius.lg,
-                paddingVertical: mobileTheme.spacing.lg,
-                ...mobileTheme.shadow.sm
-              }}
-            >
-              <BookOpen size={18} color={theme.colors.primary} />
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                  fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
-                  color: theme.colors.primary,
-                  fontFamily: "Inter_600SemiBold"
-                }}
-              >
-                View Diary
-              </Text>
-            </Pressable>
+              </>
+            )}
           </View>
         </ScrollView>
 

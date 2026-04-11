@@ -92,6 +92,8 @@ export default function SignInPage() {
             <TextInput
               autoCapitalize="none"
               keyboardType="email-address"
+              textContentType="emailAddress"
+              autoComplete="email"
               returnKeyType="next"
               placeholder="Email"
               placeholderTextColor={theme.colors.muted}
@@ -107,6 +109,10 @@ export default function SignInPage() {
           render={({ field: { onChange, value } }) => (
             <TextInput
               secureTextEntry
+              textContentType="password"
+              autoComplete="password"
+              autoCorrect={false}
+              spellCheck={false}
               returnKeyType="done"
               placeholder="Password"
               placeholderTextColor={theme.colors.muted}

@@ -749,13 +749,34 @@ func (s *Server) handleWebSocket(writer http.ResponseWriter, request *http.Reque
 	}
 }
 
+func (s *Server) verifyPetOwnership(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID := currentUserID(r)
+	petID := chi.URLParam(r, "petID")
+	pets := s.store.ListPets(userID)
+	for _, p := range pets {
+		if p.ID == petID {
+			return petID, true
+		}
+	}
+	writeError(w, http.StatusForbidden, "not your pet")
+	return "", false
+}
+
 func (s *Server) handleListDiary(writer http.ResponseWriter, request *http.Request) {
-	petID := chi.URLParam(request, "petID")
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
 	entries := s.store.ListDiary(petID)
 	writeJSON(writer, http.StatusOK, map[string]any{"data": entries})
 }
 
 func (s *Server) handleCreateDiaryEntry(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+
 	var payload struct {
 		Body     string  `json:"body"`
 		ImageURL *string `json:"imageUrl"`
@@ -765,7 +786,6 @@ func (s *Server) handleCreateDiaryEntry(writer http.ResponseWriter, request *htt
 		return
 	}
 
-	petID := chi.URLParam(request, "petID")
 	userID := currentUserID(request)
 
 	entry := s.store.CreateDiaryEntry(userID, petID, payload.Body, payload.ImageURL, payload.Mood)
@@ -1266,21 +1286,33 @@ func (s *Server) handleAdminBadges(w http.ResponseWriter, r *http.Request) {
 // ── Health ───────────────────────────────────────────────────────────
 
 func (s *Server) handleListHealth(writer http.ResponseWriter, request *http.Request) {
-	records := s.store.ListHealthRecords(chi.URLParam(request, "petID"))
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	records := s.store.ListHealthRecords(petID)
 	writeJSON(writer, http.StatusOK, map[string]any{"data": records})
 }
 
 func (s *Server) handleCreateHealth(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
 	var payload domain.HealthRecord
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
-	result := s.store.CreateHealthRecord(chi.URLParam(request, "petID"), payload)
+	result := s.store.CreateHealthRecord(petID, payload)
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
 }
 
 func (s *Server) handleDeleteHealth(writer http.ResponseWriter, request *http.Request) {
-	if err := s.store.DeleteHealthRecord(chi.URLParam(request, "petID"), chi.URLParam(request, "recordID")); err != nil {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteHealthRecord(petID, chi.URLParam(request, "recordID")); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1290,16 +1322,24 @@ func (s *Server) handleDeleteHealth(writer http.ResponseWriter, request *http.Re
 // ── Weight ───────────────────────────────────────────────────────────
 
 func (s *Server) handleListWeight(writer http.ResponseWriter, request *http.Request) {
-	entries := s.store.ListWeightEntries(chi.URLParam(request, "petID"))
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	entries := s.store.ListWeightEntries(petID)
 	writeJSON(writer, http.StatusOK, map[string]any{"data": entries})
 }
 
 func (s *Server) handleCreateWeight(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
 	var payload domain.WeightEntry
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
-	result := s.store.CreateWeightEntry(chi.URLParam(request, "petID"), payload)
+	result := s.store.CreateWeightEntry(petID, payload)
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
 }
 
@@ -1330,21 +1370,33 @@ func (s *Server) handleDeleteVetContact(writer http.ResponseWriter, request *htt
 // ── Feeding ──────────────────────────────────────────────────────────
 
 func (s *Server) handleListFeeding(writer http.ResponseWriter, request *http.Request) {
-	schedules := s.store.ListFeedingSchedules(chi.URLParam(request, "petID"))
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	schedules := s.store.ListFeedingSchedules(petID)
 	writeJSON(writer, http.StatusOK, map[string]any{"data": schedules})
 }
 
 func (s *Server) handleCreateFeeding(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
 	var payload domain.FeedingSchedule
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
-	result := s.store.CreateFeedingSchedule(chi.URLParam(request, "petID"), payload)
+	result := s.store.CreateFeedingSchedule(petID, payload)
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
 }
 
 func (s *Server) handleDeleteFeeding(writer http.ResponseWriter, request *http.Request) {
-	if err := s.store.DeleteFeedingSchedule(chi.URLParam(request, "petID"), chi.URLParam(request, "scheduleID")); err != nil {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteFeedingSchedule(petID, chi.URLParam(request, "scheduleID")); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}

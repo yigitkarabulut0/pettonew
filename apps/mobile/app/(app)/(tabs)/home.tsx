@@ -3,7 +3,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useRef, useState } from "react";
 import {
   Animated,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +13,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -518,7 +518,8 @@ export default function HomePage() {
                           height: 200,
                           borderRadius: mobileTheme.radius.md
                         }}
-                        resizeMode="cover"
+                        contentFit="cover"
+                        transition={200}
                       />
                       <Pressable
                         onPress={() => setImageAsset(null)}
@@ -925,6 +926,8 @@ function PetAvatar({ uri, name }: { uri?: string | null; name?: string }) {
       <Image
         source={{ uri }}
         style={{ width: size, height: size, borderRadius: size / 2 }}
+        contentFit="cover"
+        transition={200}
       />
     );
   }
@@ -1121,7 +1124,8 @@ function PostCard({
               height: 260,
               borderRadius: mobileTheme.radius.md
             }}
-            resizeMode="cover"
+            contentFit="cover"
+            transition={200}
           />
         ) : null}
 

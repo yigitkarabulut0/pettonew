@@ -29,12 +29,12 @@ import { useSessionStore } from "@/store/session";
 type ThemeColors = ReturnType<typeof useTheme>["colors"];
 
 const petSchema = z.object({
-  name: z.string().min(2, "Pet name is required."),
+  name: z.string().min(2, "Pet name is required.").max(30, "Pet name is too long."),
   ageYearsInput: z.string().min(1, "Pet age is required."),
   gender: z.enum(["male", "female"], { required_error: "Please choose a gender." }),
   speciesId: z.string().min(2, "Please choose a species."),
   breedId: z.string().min(2, "Please choose a breed."),
-  bio: z.string().min(12, "Pet bio should be at least 12 characters."),
+  bio: z.string().min(12, "Pet bio should be at least 12 characters.").max(1000, "Bio is too long."),
   activityLevel: z.number().min(1).max(5),
   isNeutered: z.boolean()
 });
@@ -341,6 +341,7 @@ export default function PetsOnboardingPage() {
             <LabeledInput
               label="Pet name"
               placeholder="For example Milo"
+              maxLength={30}
               value={value}
               onChangeText={(nextValue) => {
                 setErrorMessage(null);
@@ -634,6 +635,7 @@ export default function PetsOnboardingPage() {
             <LabeledInput
               label="Pet bio"
               placeholder="Tell other pet parents about your pet's personality"
+              maxLength={1000}
               value={value}
               onChangeText={(nextValue) => {
                 setErrorMessage(null);
@@ -798,6 +800,7 @@ function LabeledInput({
   placeholder,
   keyboardType,
   multiline = false,
+  maxLength,
   error
 }: {
   label: string;
@@ -806,6 +809,7 @@ function LabeledInput({
   placeholder: string;
   keyboardType?: "default" | "number-pad";
   multiline?: boolean;
+  maxLength?: number;
   error?: FieldError;
 }) {
   const theme = useTheme();
@@ -819,6 +823,7 @@ function LabeledInput({
         placeholder={placeholder}
         placeholderTextColor={theme.colors.muted}
         multiline={multiline}
+        maxLength={maxLength}
         value={value}
         onChangeText={onChangeText}
         style={{

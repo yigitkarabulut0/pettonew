@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { FlashList } from "@shopify/flash-list";
 import { router } from "expo-router";
-import { Image, Pressable, RefreshControl, Text, View } from "react-native";
+import { Pressable, RefreshControl, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, MessageCircle, Search } from "lucide-react-native";
@@ -93,7 +94,7 @@ export default function ConversationsPage() {
             <RefreshControl
               refreshing={conversationsRefetching}
               onRefresh={refetchConversations}
-              tintColor="#F48C28"
+              tintColor={theme.colors.primary}
             />
           }
           contentContainerStyle={{ gap: mobileTheme.spacing.sm }}
@@ -173,7 +174,8 @@ function ConversationItem({
             <Image
               source={{ uri: petPhoto }}
               style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={200}
             />
           ) : (
             <MessageCircle size={24} color={theme.colors.secondary} />

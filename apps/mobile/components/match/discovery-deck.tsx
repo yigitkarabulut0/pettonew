@@ -1,12 +1,12 @@
 import {
   Animated,
   Dimensions,
-  Image,
   PanResponder,
   Pressable,
   Text,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -207,7 +207,8 @@ function SwipeableCard({ card, onSwipe, onPetPress }: SwipeableCardProps) {
             <Image
               source={{ uri: photos[0]?.url ?? "" }}
               style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={200}
             />
           ) : (
             <View

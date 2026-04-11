@@ -8,7 +8,6 @@ import {
   Animated,
   Dimensions,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,6 +19,7 @@ import {
   View,
   type ViewToken
 } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ArrowLeft,
@@ -432,7 +432,8 @@ function DetailModal({
                   <Image
                     source={{ uri: item.url }}
                     style={{ width: SCREEN_WIDTH, height: 280 }}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={200}
                   />
                 )}
               />
@@ -1089,7 +1090,7 @@ export default function AdoptionPage() {
           <RefreshControl
             refreshing={adoptionsQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor="#F48C28"
+            tintColor={theme.colors.primary}
           />
         }
         keyboardShouldPersistTaps="handled"
@@ -1366,7 +1367,8 @@ export default function AdoptionPage() {
                         height: 72,
                         borderRadius: mobileTheme.radius.sm
                       }}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      transition={200}
                     />
                     <Pressable
                       onPress={() => removePhoto(idx)}
@@ -1555,7 +1557,8 @@ export default function AdoptionPage() {
                     borderTopLeftRadius: mobileTheme.radius.md,
                     borderTopRightRadius: mobileTheme.radius.md
                   }}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  transition={200}
                 />
               ) : (
                 <View

@@ -122,7 +122,7 @@ export default function VetContactsPage() {
           <RefreshControl
             refreshing={clinicsQuery.isRefetching}
             onRefresh={onRefresh}
-            tintColor="#F48C28"
+            tintColor={theme.colors.primary}
           />
         }
       >

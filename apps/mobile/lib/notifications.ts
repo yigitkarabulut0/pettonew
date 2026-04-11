@@ -38,7 +38,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
   try {
     const token = await Notifications.getExpoPushTokenAsync({
-      projectId: "petto-mobile"
+      projectId: "a9e0171b-e3bc-4986-9b43-766757cd6b08"
     });
     return token.data;
   } catch {

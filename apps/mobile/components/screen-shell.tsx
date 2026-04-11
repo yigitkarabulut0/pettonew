@@ -1,4 +1,4 @@
-import { ScrollView, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -27,16 +27,22 @@ export function ScreenShell({
         backgroundColor: theme.colors.background
       }}
     >
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardDismissMode="on-drag"
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{
-          padding: mobileTheme.spacing.xl,
-          gap: mobileTheme.spacing.xl,
-          paddingBottom: noBottomPadding ? mobileTheme.spacing.xl : 100 + insets.bottom
-        }}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
       >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{
+            padding: mobileTheme.spacing.xl,
+            gap: mobileTheme.spacing.xl,
+            paddingBottom: noBottomPadding ? mobileTheme.spacing.xl : 100 + insets.bottom
+          }}
+        >
         <View
           style={{
             gap: mobileTheme.spacing.sm,
@@ -83,7 +89,8 @@ export function ScreenShell({
           ) : null}
         </View>
         {children}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

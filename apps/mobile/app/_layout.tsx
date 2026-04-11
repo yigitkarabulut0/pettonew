@@ -10,7 +10,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold
 } from "@expo-google-fonts/inter";
-import { useColorScheme } from "react-native";
+import { Platform, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -60,7 +60,7 @@ export default function RootLayout() {
               Authorization: `Bearer ${session.tokens.accessToken}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({ token, platform: "ios" })
+            body: JSON.stringify({ token, platform: Platform.OS })
           });
         } catch {
           // silently fail

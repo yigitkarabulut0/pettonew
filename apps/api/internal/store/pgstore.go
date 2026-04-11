@@ -751,6 +751,7 @@ func (s *PostgresStore) discoveryFeed(userID string, actorPetID string) []domain
 			 FROM pets p
 			 JOIN user_profiles up ON p.owner_id = up.user_id
 			 WHERE p.owner_id != $1 AND p.is_hidden = false
+			   AND p.species_id = (SELECT species_id FROM pets WHERE id = $2)
 			   AND p.id NOT IN (SELECT target_pet_id FROM swipes WHERE actor_pet_id = $2)
 			 ORDER BY random() LIMIT 20`, userID, actorPetID)
 	} else {
@@ -763,6 +764,7 @@ func (s *PostgresStore) discoveryFeed(userID string, actorPetID string) []domain
 			 FROM pets p
 			 JOIN user_profiles up ON p.owner_id = up.user_id
 			 WHERE p.owner_id != $1 AND p.is_hidden = false
+			   AND p.species_id IN (SELECT species_id FROM pets WHERE owner_id = $1 AND is_hidden = false)
 			   AND p.id NOT IN (SELECT target_pet_id FROM swipes WHERE actor_pet_id = ANY($2))
 			 ORDER BY random() LIMIT 20`, userID, userPetIDs)
 	}

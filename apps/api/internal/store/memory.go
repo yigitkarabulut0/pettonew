@@ -463,12 +463,29 @@ func (s *MemoryStore) discoveryFeed(userID string, actorPetID string) []domain.D
 		}
 	}
 
+	// Collect allowed species for same-species matching
+	allowedSpecies := make(map[string]bool)
+	if actorPetID != "" {
+		if actorPet, ok := s.pets[actorPetID]; ok {
+			allowedSpecies[actorPet.SpeciesID] = true
+		}
+	} else {
+		for _, pet := range s.pets {
+			if pet.OwnerID == userID && !pet.IsHidden {
+				allowedSpecies[pet.SpeciesID] = true
+			}
+		}
+	}
+
 	cards := make([]domain.DiscoveryCard, 0)
 	for _, pet := range s.pets {
 		if pet.OwnerID == userID || pet.IsHidden {
 			continue
 		}
 		if swipedByPet[pet.ID] {
+			continue
+		}
+		if !allowedSpecies[pet.SpeciesID] {
 			continue
 		}
 
