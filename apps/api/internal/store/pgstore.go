@@ -23,9 +23,19 @@ type PostgresStore struct {
 
 // NewPostgresStore creates a new PostgresStore connected to the given databaseURL.
 func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("pgxpool.New: %w", err)
+		return nil, fmt.Errorf("pgxpool.ParseConfig: %w", err)
+	}
+	config.MaxConns = 10
+	config.MinConns = 0
+	config.MaxConnLifetime = 5 * time.Minute
+	config.MaxConnIdleTime = 2 * time.Minute
+	config.HealthCheckPeriod = 1 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("pgxpool.NewWithConfig: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
@@ -40,9 +50,10 @@ func (s *PostgresStore) Close() error {
 	return nil
 }
 
-// ctx returns a background context for queries that don't receive one.
+// ctx returns a background context with a 30-second timeout for queries.
 func (s *PostgresStore) ctx() context.Context {
-	return context.Background()
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	return ctx
 }
 
 // ============================================================
