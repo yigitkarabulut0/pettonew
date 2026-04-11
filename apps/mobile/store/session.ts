@@ -7,12 +7,14 @@ interface SessionState {
   session: SessionPayload | null;
   petCount: number;
   activePetId: string | null;
+  activeConversationId: string | null;
   matchTutorialSeen: boolean;
   _hasHydrated: boolean;
   setSession: (session: SessionPayload) => void;
   clearSession: () => void;
   setPetCount: (petCount: number) => void;
   setActivePetId: (petId: string | null) => void;
+  setActiveConversationId: (id: string | null) => void;
   setMatchTutorialSeen: (seen: boolean) => void;
   setHasHydrated: (state: boolean) => void;
 }
@@ -23,6 +25,7 @@ export const useSessionStore = create<SessionState>()(
       session: null,
       petCount: 0,
       activePetId: null,
+      activeConversationId: null,
       matchTutorialSeen: false,
       _hasHydrated: false,
       setSession: (session) => set({ session }),
@@ -31,10 +34,12 @@ export const useSessionStore = create<SessionState>()(
           session: null,
           petCount: 0,
           activePetId: null,
+          activeConversationId: null,
           matchTutorialSeen: false
         }),
       setPetCount: (petCount) => set({ petCount }),
       setActivePetId: (activePetId) => set({ activePetId }),
+      setActiveConversationId: (activeConversationId) => set({ activeConversationId }),
       setMatchTutorialSeen: (matchTutorialSeen) => set({ matchTutorialSeen }),
       setHasHydrated: (_hasHydrated) => set({ _hasHydrated })
     }),

@@ -2,12 +2,20 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+import { useSessionStore } from "@/store/session";
+
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true
-  })
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as Record<string, string> | undefined;
+    const activeId = useSessionStore.getState().activeConversationId;
+
+    // Suppress notification if user is currently viewing this conversation
+    if (data?.type === "message" && data?.conversationId && data.conversationId === activeId) {
+      return { shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false };
+    }
+
+    return { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: true };
+  }
 });
 
 export async function registerForPushNotifications(): Promise<string | null> {

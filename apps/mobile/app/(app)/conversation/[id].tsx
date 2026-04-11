@@ -36,6 +36,13 @@ export default function ConversationPage() {
   const flatListRef = useRef<FlatList>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const setActiveConversationId = useSessionStore((s) => s.setActiveConversationId);
+
+  // Track which conversation is currently open (for notification suppression)
+  useEffect(() => {
+    setActiveConversationId(id);
+    return () => setActiveConversationId(null);
+  }, [id]);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
@@ -61,7 +68,8 @@ export default function ConversationPage() {
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id, session?.tokens.accessToken],
     queryFn: () => listMessages(session!.tokens.accessToken, id),
-    enabled: Boolean(session && id)
+    enabled: Boolean(session && id),
+    refetchInterval: 2000
   });
 
   const mutation = useMutation({

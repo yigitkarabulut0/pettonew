@@ -34,7 +34,8 @@ export default function ConversationsPage() {
   const { data: conversations = [], isLoading, refetch: refetchConversations, isRefetching: conversationsRefetching } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
     queryFn: () => listConversations(session!.tokens.accessToken),
-    enabled: Boolean(session)
+    enabled: Boolean(session),
+    refetchInterval: 5000
   });
 
   return (
