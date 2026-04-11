@@ -290,8 +290,7 @@ export default function PetsOnboardingPage() {
       title={t("onboarding.pets.title")}
       subtitle={t("onboarding.pets.subtitle")}
     >
-      {petCount > 0 && (
-        <Pressable
+      <Pressable
           onPress={() => router.back()}
           style={{
             flexDirection: "row",
@@ -317,7 +316,6 @@ export default function PetsOnboardingPage() {
             {t("common.back")}
           </Text>
         </Pressable>
-      )}
       <View
         style={{
           gap: mobileTheme.spacing.lg,

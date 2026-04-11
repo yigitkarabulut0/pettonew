@@ -19,7 +19,7 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, X } from "lucide-react-native";
+import { Camera, ChevronLeft, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "react-i18next";
@@ -177,7 +177,7 @@ export default function ProfileOnboardingPage() {
         }}
       >
         <Pressable
-          onPress={() => (isEditing ? router.back() : undefined)}
+          onPress={() => router.back()}
           hitSlop={12}
           style={{
             width: 36,
@@ -188,7 +188,7 @@ export default function ProfileOnboardingPage() {
             justifyContent: "center"
           }}
         >
-          {isEditing ? <X size={20} color={theme.colors.ink} /> : null}
+          {isEditing ? <X size={20} color={theme.colors.ink} /> : <ChevronLeft size={20} color={theme.colors.ink} />}
         </Pressable>
         <Text
           style={{

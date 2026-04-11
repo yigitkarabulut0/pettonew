@@ -72,7 +72,7 @@ export default function LocationOnboardingPage() {
         ...session,
         user
       });
-      router.replace("/(app)/onboarding/profile");
+      router.push("/(app)/onboarding/profile");
     },
     onError: (error) => {
       setErrorMessage(

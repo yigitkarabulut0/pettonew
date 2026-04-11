@@ -116,7 +116,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
           <NetworkBanner />
-          <Stack screenOptions={{ headerShown: false }} />
+          <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />
         </QueryClientProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>

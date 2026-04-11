@@ -12,9 +12,9 @@ export default function AppLayout() {
   return (
     <Stack screenOptions={{ animation: "slide_from_right" }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding/location" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding/profile" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding/pets" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding/location" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="onboarding/profile" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="onboarding/pets" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="conversation/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="conversations" options={{ headerShown: false }} />
       <Stack.Screen name="edit-pet/[id]" options={{ headerShown: false }} />
