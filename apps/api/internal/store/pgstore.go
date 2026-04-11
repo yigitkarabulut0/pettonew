@@ -2861,6 +2861,28 @@ func (s *PostgresStore) UpdateAdoptionStatus(listingID string, status string) er
 	return err
 }
 
+func (s *PostgresStore) DeleteAdoption(listingID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM adoption_listings WHERE id=$1`, listingID)
+	return err
+}
+
+func (s *PostgresStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
+	var a domain.AdoptionListing
+	var createdAt time.Time
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, user_id, pet_name, pet_age, pet_species, pet_breed, description,
+		        contact_phone, contact_email, location, image_url, status, created_at
+		 FROM adoption_listings WHERE id=$1`, listingID).
+		Scan(&a.ID, &a.UserID, &a.PetName, &a.PetAge, &a.PetSpecies, &a.PetBreed,
+			&a.Description, &a.ContactPhone, &a.ContactEmail, &a.Location, &a.ImageURL,
+			&a.Status, &createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("adoption listing not found")
+	}
+	a.CreatedAt = createdAt.Format(time.RFC3339)
+	return &a, nil
+}
+
 // ================================================================
 // Pet Albums & Milestones
 // ================================================================

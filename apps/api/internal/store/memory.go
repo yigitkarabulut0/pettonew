@@ -2025,6 +2025,26 @@ func (s *MemoryStore) UpdateAdoptionStatus(listingID string, status string) erro
 	return nil
 }
 
+func (s *MemoryStore) DeleteAdoption(listingID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.adoptions[listingID]; !ok {
+		return fmt.Errorf("adoption listing not found")
+	}
+	delete(s.adoptions, listingID)
+	return nil
+}
+
+func (s *MemoryStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.adoptions[listingID]
+	if !ok {
+		return nil, fmt.Errorf("adoption listing not found")
+	}
+	return a, nil
+}
+
 // ── Pet Albums ──────────────────────────────────────────────────────
 
 func (s *MemoryStore) ListPetAlbums(petID string) []domain.PetAlbum {

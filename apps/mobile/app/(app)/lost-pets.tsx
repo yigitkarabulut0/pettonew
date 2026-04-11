@@ -10,7 +10,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -24,14 +23,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ArrowLeft,
+  CheckCircle,
   Heart,
   Home,
-  Mail,
   MapPin,
-  MessageCircle,
   PawPrint,
-  Phone,
   Plus,
+  Trash2,
   X
 } from "lucide-react-native";
 
@@ -41,6 +39,8 @@ import {
   listAdoptions,
   createAdoption,
   createOrFindDMConversation,
+  updateAdoptionStatus,
+  deleteAdoption,
   listTaxonomies,
   uploadMedia
 } from "@/lib/api";
@@ -328,6 +328,53 @@ function DetailModal({
     viewAreaCoveragePercentThreshold: 50
   }).current;
 
+  const session = useSessionStore((state) => state.session);
+  const queryClient = useQueryClient();
+
+  const isOwner = !!(session && listing && listing.userId === session.user.id);
+
+  const dmMutation = useMutation({
+    mutationFn: async () => {
+      if (!session || !listing) throw new Error("Please log in first");
+      return createOrFindDMConversation(session.tokens.accessToken, listing.userId);
+    },
+    onSuccess: (conversation) => {
+      onClose();
+      router.push(`/(app)/conversation/${conversation.id}`);
+    },
+    onError: (error: Error) => {
+      Alert.alert("Error", error.message || "Could not start conversation");
+    }
+  });
+
+  const markAdoptedMutation = useMutation({
+    mutationFn: async () => {
+      if (!session || !listing) throw new Error("Not logged in");
+      return updateAdoptionStatus(session.tokens.accessToken, listing.id, "adopted");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adoptions"] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      Alert.alert("Error", error.message || "Could not update listing");
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!session || !listing) throw new Error("Not logged in");
+      return deleteAdoption(session.tokens.accessToken, listing.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adoptions"] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      Alert.alert("Error", error.message || "Could not delete listing");
+    }
+  });
+
   useEffect(() => {
     if (visible) setPhotoIndex(0);
   }, [visible]);
@@ -344,44 +391,6 @@ function DetailModal({
 
   const ageLabel =
     listing.petAge === 1 ? "1 yr" : `${listing.petAge} yrs`;
-
-  const handleCall = async () => {
-    if (!listing.contactPhone) return;
-    const url = `tel:${listing.contactPhone}`;
-    const can = await Linking.canOpenURL(url);
-    if (can) {
-      Linking.openURL(url);
-    } else {
-      Alert.alert("Phone", listing.contactPhone, [{ text: "OK" }]);
-    }
-  };
-
-  const handleEmail = async () => {
-    if (!listing.contactEmail) return;
-    const url = `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`;
-    const can = await Linking.canOpenURL(url);
-    if (can) {
-      Linking.openURL(url);
-    } else {
-      Alert.alert("Email", listing.contactEmail, [{ text: "OK" }]);
-    }
-  };
-
-  const session = useSessionStore((state) => state.session);
-
-  const dmMutation = useMutation({
-    mutationFn: async () => {
-      if (!session) throw new Error("Please log in first");
-      return createOrFindDMConversation(session.tokens.accessToken, listing.userId);
-    },
-    onSuccess: (conversation) => {
-      onClose();
-      router.push(`/(app)/conversation/${conversation.id}`);
-    },
-    onError: (error: Error) => {
-      Alert.alert("Error", error.message || "Could not start conversation");
-    }
-  });
 
   const handleContact = () => {
     if (!session) {
@@ -722,83 +731,57 @@ function DetailModal({
               </View>
             ) : null}
 
-            {/* Contact buttons */}
+            {/* Action buttons */}
             <View
               style={{
-                gap: mobileTheme.spacing.md,
-                marginTop: mobileTheme.spacing.md
+                marginTop: mobileTheme.spacing.md,
+                gap: mobileTheme.spacing.sm
               }}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: mobileTheme.spacing.md
-                }}
-              >
-                {listing.contactPhone ? (
-                  <Pressable
-                    onPress={handleCall}
-                    style={{
-                      flex: 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      paddingVertical: 12,
-                      borderRadius: mobileTheme.radius.md,
-                      backgroundColor: theme.colors.successBg,
-                      borderWidth: 1,
-                      borderColor: theme.colors.success
-                    }}
-                  >
-                    <Phone size={16} color={theme.colors.success} />
-                    <Text
-                      style={{
-                        fontSize: mobileTheme.typography.caption.fontSize,
-                        fontWeight: "600",
-                        color: theme.colors.success
-                      }}
-                    >
-                      Call
-                    </Text>
-                  </Pressable>
-                ) : null}
-                {listing.contactEmail ? (
-                  <Pressable
-                    onPress={handleEmail}
-                    style={{
-                      flex: 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      paddingVertical: 12,
-                      borderRadius: mobileTheme.radius.md,
-                      backgroundColor: theme.colors.secondarySoft,
-                      borderWidth: 1,
-                      borderColor: theme.colors.secondary
-                    }}
-                  >
-                    <Mail size={16} color={theme.colors.secondary} />
-                    <Text
-                      style={{
-                        fontSize: mobileTheme.typography.caption.fontSize,
-                        fontWeight: "600",
-                        color: theme.colors.secondary
-                      }}
-                    >
-                      Email
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              <PrimaryButton
-                label={dmMutation.isPending ? "Starting chat..." : "Message to Adopt"}
-                onPress={handleContact}
-                loading={dmMutation.isPending}
-                disabled={dmMutation.isPending}
-              />
+              {isOwner ? (
+                <>
+                  {listing.status === "active" && (
+                    <PrimaryButton
+                      label={markAdoptedMutation.isPending ? "Updating..." : "Mark as Adopted"}
+                      onPress={() =>
+                        Alert.alert(
+                          "Mark as Adopted",
+                          "Are you sure this pet has been adopted?",
+                          [
+                            { text: "Cancel" },
+                            { text: "Yes", onPress: () => markAdoptedMutation.mutate() }
+                          ]
+                        )
+                      }
+                      loading={markAdoptedMutation.isPending}
+                      disabled={markAdoptedMutation.isPending}
+                    />
+                  )}
+                  <PrimaryButton
+                    label={deleteMutation.isPending ? "Deleting..." : "Delete Listing"}
+                    variant="ghost"
+                    onPress={() =>
+                      Alert.alert(
+                        "Delete Listing",
+                        "Are you sure you want to delete this listing? This cannot be undone.",
+                        [
+                          { text: "Cancel" },
+                          { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate() }
+                        ]
+                      )
+                    }
+                    loading={deleteMutation.isPending}
+                    disabled={deleteMutation.isPending}
+                  />
+                </>
+              ) : (
+                <PrimaryButton
+                  label={dmMutation.isPending ? "Starting chat..." : "Message to Adopt"}
+                  onPress={handleContact}
+                  loading={dmMutation.isPending}
+                  disabled={dmMutation.isPending}
+                />
+              )}
             </View>
 
             {/* Listed by */}
@@ -889,8 +872,6 @@ export default function AdoptionPage() {
   const [selectedBreedLabel, setSelectedBreedLabel] = useState("");
   const [gender, setGender] = useState<"Male" | "Female">("Male");
   const [description, setDescription] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
   const [location, setLocation] = useState("");
   const [photos, setPhotos] = useState<
     { uri: string; fileName: string }[]
@@ -957,8 +938,8 @@ export default function AdoptionPage() {
         petBreed: selectedBreedLabel || "",
         gender,
         description: description.trim(),
-        contactPhone: contactPhone.trim(),
-        contactEmail: contactEmail.trim(),
+        contactPhone: "",
+        contactEmail: "",
         location: location.trim(),
         photos: uploadedPhotos,
         characterTraits: [],
@@ -982,8 +963,6 @@ export default function AdoptionPage() {
     setSelectedBreedLabel("");
     setGender("Male");
     setDescription("");
-    setContactPhone("");
-    setContactEmail("");
     setLocation("");
     setPhotos([]);
     setComposerOpen(false);
@@ -1014,7 +993,8 @@ export default function AdoptionPage() {
     adoptionsQuery.refetch();
   }, [adoptionsQuery]);
 
-  const listings = (adoptionsQuery.data ?? []) as AdoptionItem[];
+  const allListings = (adoptionsQuery.data ?? []) as AdoptionItem[];
+  const listings = allListings.filter((l) => l.status === "active");
 
   const canSubmit =
     petName.trim().length > 0 &&
@@ -1450,59 +1430,6 @@ export default function AdoptionPage() {
                   fontSize: mobileTheme.typography.body.fontSize,
                   color: theme.colors.ink,
                   textAlignVertical: "top"
-                }}
-              />
-            </View>
-
-            {/* Contact phone */}
-            <View style={{ gap: mobileTheme.spacing.xs }}>
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  color: theme.colors.muted
-                }}
-              >
-                Contact Phone
-              </Text>
-              <TextInput
-                value={contactPhone}
-                onChangeText={setContactPhone}
-                placeholder="+1 555 123 4567"
-                placeholderTextColor={theme.colors.muted}
-                keyboardType="phone-pad"
-                style={{
-                  backgroundColor: theme.colors.background,
-                  borderRadius: mobileTheme.radius.md,
-                  padding: mobileTheme.spacing.lg,
-                  fontSize: mobileTheme.typography.body.fontSize,
-                  color: theme.colors.ink
-                }}
-              />
-            </View>
-
-            {/* Contact email */}
-            <View style={{ gap: mobileTheme.spacing.xs }}>
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  color: theme.colors.muted
-                }}
-              >
-                Contact Email
-              </Text>
-              <TextInput
-                value={contactEmail}
-                onChangeText={setContactEmail}
-                placeholder="hello@example.com"
-                placeholderTextColor={theme.colors.muted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                style={{
-                  backgroundColor: theme.colors.background,
-                  borderRadius: mobileTheme.radius.md,
-                  padding: mobileTheme.spacing.lg,
-                  fontSize: mobileTheme.typography.body.fontSize,
-                  color: theme.colors.ink
                 }}
               />
             </View>

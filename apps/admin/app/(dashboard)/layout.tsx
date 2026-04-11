@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Award, Bell, Calendar, CalendarDays, Dog, Flag, GraduationCap, LayoutGrid, LogOut, MapPinned, PawPrint, ScrollText, Stethoscope, UserCheck, Users } from "lucide-react";
+import { AlertTriangle, Award, Bell, Calendar, CalendarDays, Dog, Flag, GraduationCap, Heart, LayoutGrid, LogOut, MapPinned, PawPrint, ScrollText, Stethoscope, UserCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -53,7 +53,8 @@ const navGroups = [
     items: [
       { href: "/playdates", label: "Playdates", icon: Calendar },
       { href: "/groups", label: "Groups", icon: Users },
-      { href: "/lost-pets", label: "Lost Pets", icon: AlertTriangle }
+      { href: "/lost-pets", label: "Lost Pets", icon: AlertTriangle },
+      { href: "/adoptions", label: "Adoptions", icon: Heart }
     ]
   },
   {

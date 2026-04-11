@@ -120,6 +120,8 @@ type Store interface {
 	ListAdoptions() []domain.AdoptionListing
 	CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing
 	UpdateAdoptionStatus(listingID string, status string) error
+	DeleteAdoption(listingID string) error
+	GetAdoption(listingID string) (*domain.AdoptionListing, error)
 	// Pet albums
 	ListPetAlbums(petID string) []domain.PetAlbum
 	CreatePetAlbum(album domain.PetAlbum) domain.PetAlbum

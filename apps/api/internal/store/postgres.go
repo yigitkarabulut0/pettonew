@@ -569,6 +569,14 @@ func (s *PersistentStore) UpdateAdoptionStatus(listingID string, status string) 
 	return s.persistAfter(s.MemoryStore.UpdateAdoptionStatus(listingID, status))
 }
 
+func (s *PersistentStore) DeleteAdoption(listingID string) error {
+	return s.persistAfter(s.MemoryStore.DeleteAdoption(listingID))
+}
+
+func (s *PersistentStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
+	return s.MemoryStore.GetAdoption(listingID)
+}
+
 func (s *PersistentStore) CreatePetAlbum(album domain.PetAlbum) domain.PetAlbum {
 	result := s.MemoryStore.CreatePetAlbum(album)
 	_ = s.persist(context.Background())

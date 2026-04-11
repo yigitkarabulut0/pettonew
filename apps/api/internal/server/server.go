@@ -152,6 +152,8 @@ func (s *Server) Routes() http.Handler {
 			// Adoptions
 			router.Get("/adoptions", s.handleListAdoptions)
 			router.Post("/adoptions", s.handleCreateAdoption)
+			router.Patch("/adoptions/{listingID}", s.handleUpdateMyAdoption)
+			router.Delete("/adoptions/{listingID}", s.handleDeleteMyAdoption)
 			// Pet albums
 			router.Get("/pets/{petID}/albums", s.handleListPetAlbums)
 			router.Post("/pets/{petID}/albums", s.handleCreatePetAlbum)
@@ -224,6 +226,7 @@ func (s *Server) Routes() http.Handler {
 				// Adoptions
 				router.Get("/adoptions", s.handleAdminListAdoptions)
 				router.Patch("/adoptions/{listingID}", s.handleAdminUpdateAdoption)
+				router.Delete("/adoptions/{listingID}", s.handleAdminDeleteAdoption)
 
 				// Playdates
 				router.Get("/playdates", s.handleAdminPlaydates)
@@ -1669,6 +1672,62 @@ func (s *Server) handleAdminUpdateAdoption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
+func (s *Server) handleAdminDeleteAdoption(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteAdoption(chi.URLParam(r, "listingID")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handleUpdateMyAdoption(w http.ResponseWriter, r *http.Request) {
+	listingID := chi.URLParam(r, "listingID")
+	userID := currentUserID(r)
+
+	listing, err := s.store.GetAdoption(listingID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "listing not found")
+		return
+	}
+	if listing.UserID != userID {
+		writeError(w, http.StatusForbidden, "not your listing")
+		return
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if err := s.store.UpdateAdoptionStatus(listingID, payload.Status); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
+}
+
+func (s *Server) handleDeleteMyAdoption(w http.ResponseWriter, r *http.Request) {
+	listingID := chi.URLParam(r, "listingID")
+	userID := currentUserID(r)
+
+	listing, err := s.store.GetAdoption(listingID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "listing not found")
+		return
+	}
+	if listing.UserID != userID {
+		writeError(w, http.StatusForbidden, "not your listing")
+		return
+	}
+
+	if err := s.store.DeleteAdoption(listingID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
 }
 
 // ── Pet Albums ──────────────────────────────────────────────────────

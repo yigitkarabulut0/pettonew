@@ -348,6 +348,17 @@ export async function updateAdminLostPetStatus(alertId: string, status: string) 
   return request("/v1/admin/lost-pets/" + alertId, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
 }
 
+// Adoptions
+export async function getAdminAdoptions() {
+  return request<Array<{ id: string; petName: string; petAge: number; petSpecies: string; petBreed: string; gender: string; description: string; location: string; imageUrl?: string; status: string; userId: string; userName?: string; createdAt: string }>>("/v1/admin/adoptions");
+}
+export async function updateAdminAdoptionStatus(listingId: string, status: string) {
+  return request("/v1/admin/adoptions/" + listingId, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+}
+export async function deleteAdminAdoption(listingId: string) {
+  return request("/v1/admin/adoptions/" + listingId, { method: "DELETE" });
+}
+
 // Vet Clinics
 export async function getAdminVetClinics() {
   const data = await request<Array<{ id: string; name: string; phone: string; address: string; latitude: number; longitude: number; city: string; isEmergency: boolean; website?: string; hours?: string }> | null>("/v1/admin/vet-clinics");

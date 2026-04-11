@@ -919,3 +919,25 @@ export async function createAdoption(
     body: JSON.stringify(listing)
   });
 }
+
+export async function updateAdoptionStatus(
+  accessToken: string,
+  listingId: string,
+  status: string
+): Promise<void> {
+  await request(`/v1/adoptions/${listingId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+}
+
+export async function deleteAdoption(
+  accessToken: string,
+  listingId: string
+): Promise<void> {
+  await request(`/v1/adoptions/${listingId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
