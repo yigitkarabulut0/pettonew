@@ -81,9 +81,9 @@ export default function MatchesPage() {
   });
 
   const { data: feed = [], isLoading: feedLoading } = useQuery({
-    queryKey: ["discovery-feed", session?.tokens.accessToken, activePetId],
+    queryKey: ["discovery-feed", session?.tokens.accessToken, activePet?.id],
     queryFn: () =>
-      getDiscoveryFeed(session!.tokens.accessToken, activePetId ?? undefined),
+      getDiscoveryFeed(session!.tokens.accessToken, activePet?.id ?? undefined),
     enabled: Boolean(session)
   });
 

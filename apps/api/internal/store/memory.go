@@ -505,6 +505,17 @@ func (s *MemoryStore) discoveryFeed(userID string, actorPetID string) []domain.D
 	return cards
 }
 
+func (s *MemoryStore) GetPetOwnerID(petID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, pet := range s.pets {
+		if pet.ID == petID {
+			return pet.OwnerID
+		}
+	}
+	return ""
+}
+
 func (s *MemoryStore) CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -633,7 +644,14 @@ func (s *MemoryStore) ListMatches(userID string) []domain.MatchPreview {
 	matches := make([]domain.MatchPreview, 0)
 	for _, match := range s.matches {
 		if match.Pet.OwnerID == userID || match.MatchedPet.OwnerID == userID {
-			matches = append(matches, *match)
+			m := *match
+			// Swap so Pet = current user's pet, MatchedPet = other user's pet
+			if m.MatchedPet.OwnerID == userID {
+				m.Pet, m.MatchedPet = m.MatchedPet, m.Pet
+				// Fix matched owner info
+				m.MatchedOwnerName = match.Pet.Name // use original pet's owner info
+			}
+			matches = append(matches, m)
 		}
 	}
 
@@ -652,7 +670,12 @@ func (s *MemoryStore) ListMatchesByPet(userID string, petID string) []domain.Mat
 	for _, match := range s.matches {
 		if (match.Pet.OwnerID == userID || match.MatchedPet.OwnerID == userID) &&
 			(match.Pet.ID == petID || match.MatchedPet.ID == petID) {
-			matches = append(matches, *match)
+			m := *match
+			// Swap so Pet = requested pet, MatchedPet = other pet
+			if m.MatchedPet.ID == petID {
+				m.Pet, m.MatchedPet = m.MatchedPet, m.Pet
+			}
+			matches = append(matches, m)
 		}
 	}
 

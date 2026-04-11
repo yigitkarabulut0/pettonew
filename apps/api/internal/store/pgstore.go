@@ -836,6 +836,12 @@ func (s *PostgresStore) discoveryFeed(userID string, actorPetID string) []domain
 	return cards
 }
 
+func (s *PostgresStore) GetPetOwnerID(petID string) string {
+	var ownerID string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT owner_id FROM pets WHERE id = $1`, petID).Scan(&ownerID)
+	return ownerID
+}
+
 func (s *PostgresStore) CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error) {
 	// Validate actor pet belongs to user
 	var actorOwnerID string
@@ -1027,8 +1033,19 @@ func (s *PostgresStore) ListMatches(userID string) []domain.MatchPreview {
 		if petA == nil || petB == nil {
 			continue
 		}
-		m.Pet = *petA
-		m.MatchedPet = *petB
+
+		// Swap so that Pet = current user's pet, MatchedPet = other user's pet
+		if containsStr(userPetIDs, petAID) {
+			m.Pet = *petA
+			m.MatchedPet = *petB
+		} else {
+			m.Pet = *petB
+			m.MatchedPet = *petA
+			// Fix matched owner info — look up petA's owner (the other user)
+			ownerName, ownerAvatar := s.getOwnerInfo(petA.OwnerID)
+			m.MatchedOwnerName = ownerName
+			m.MatchedOwnerAvatarURL = ownerAvatar
+		}
 		matches = append(matches, m)
 	}
 
@@ -1065,8 +1082,18 @@ func (s *PostgresStore) ListMatchesByPet(userID string, petID string) []domain.M
 		if petA == nil || petB == nil {
 			continue
 		}
-		m.Pet = *petA
-		m.MatchedPet = *petB
+
+		// Swap so that Pet = requested pet, MatchedPet = other pet
+		if petAID == petID {
+			m.Pet = *petA
+			m.MatchedPet = *petB
+		} else {
+			m.Pet = *petB
+			m.MatchedPet = *petA
+			ownerName, ownerAvatar := s.getOwnerInfo(petA.OwnerID)
+			m.MatchedOwnerName = ownerName
+			m.MatchedOwnerAvatarURL = ownerAvatar
+		}
 		matches = append(matches, m)
 	}
 	return matches
@@ -1988,6 +2015,29 @@ func (s *PostgresStore) getUserPetIDs(userID string) []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// containsStr checks if a string slice contains a given string.
+func containsStr(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// getOwnerInfo returns the first_name and avatar_url for a given user.
+func (s *PostgresStore) getOwnerInfo(userID string) (string, string) {
+	var name string
+	var avatar *string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT first_name, avatar_url FROM user_profiles WHERE user_id = $1`, userID).Scan(&name, &avatar)
+	avatarStr := ""
+	if avatar != nil {
+		avatarStr = *avatar
+	}
+	return name, avatarStr
 }
 
 // findConvIDByUsers finds an existing conversation between two users.

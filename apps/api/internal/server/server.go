@@ -558,7 +558,31 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 
-	match, err := s.store.CreateSwipe(currentUserID(request), payload.ActorPetID, payload.TargetPetID, payload.Direction)
+	userID := currentUserID(request)
+
+	// Send like notification to target pet's owner (before match check)
+	if payload.Direction == "like" || payload.Direction == "super-like" {
+		targetOwnerID := s.store.GetPetOwnerID(payload.TargetPetID)
+		if targetOwnerID != "" && targetOwnerID != userID {
+			s.store.SaveNotification(domain.Notification{
+				ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "Someone liked your pet! ❤️",
+				Body: "Your pet got a new like!", Target: targetOwnerID,
+				SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
+			})
+			likeTokens := s.store.GetUserPushTokens(targetOwnerID)
+			var likePushTokens []string
+			for _, t := range likeTokens {
+				likePushTokens = append(likePushTokens, t.Token)
+			}
+			if len(likePushTokens) > 0 {
+				go service.SendExpoPush(likePushTokens, "New Like! ❤️", "Someone liked your pet!", map[string]string{
+					"type": "like",
+				})
+			}
+		}
+	}
+
+	match, err := s.store.CreateSwipe(userID, payload.ActorPetID, payload.TargetPetID, payload.Direction)
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
