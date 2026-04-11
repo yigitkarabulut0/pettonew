@@ -88,7 +88,8 @@
       "Bash(git commit -m 'tweak: cat zIndex 0, moved 15px lower:*)",
       "Bash(git commit -m 'fix: null safety for photos + characterTraits in adoption page:*)",
       "Bash(git commit -m 'fix: call button with SMS fallback + Contact to Adopt opens messaging:*)",
-      "Bash(git commit -m 'fix: call opens phone directly, Contact to Adopt opens in-app chat:*)"
+      "Bash(git commit -m 'fix: call opens phone directly, Contact to Adopt opens in-app chat:*)",
+      "Bash(git commit -m 'fix: call/email with canOpenURL check + contact shows action sheet:*)"
     ]
   }
 }

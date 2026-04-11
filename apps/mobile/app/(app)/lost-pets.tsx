@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import {
+  Alert,
   Animated,
   Dimensions,
   FlatList,
@@ -342,20 +343,42 @@ function DetailModal({
   const ageLabel =
     listing.petAge === 1 ? "1 yr" : `${listing.petAge} yrs`;
 
-  const handleCall = () => {
+  const handleCall = async () => {
     if (!listing.contactPhone) return;
-    Linking.openURL(`tel:${listing.contactPhone}`);
+    const url = `tel:${listing.contactPhone}`;
+    const can = await Linking.canOpenURL(url);
+    if (can) {
+      Linking.openURL(url);
+    } else {
+      Alert.alert("Phone", listing.contactPhone, [{ text: "OK" }]);
+    }
   };
 
-  const handleEmail = () => {
+  const handleEmail = async () => {
     if (!listing.contactEmail) return;
-    Linking.openURL(`mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`);
+    const url = `mailto:${listing.contactEmail}?subject=Adoption Inquiry: ${listing.petName}`;
+    const can = await Linking.canOpenURL(url);
+    if (can) {
+      Linking.openURL(url);
+    } else {
+      Alert.alert("Email", listing.contactEmail, [{ text: "OK" }]);
+    }
   };
 
   const handleContact = () => {
-    // Open in-app conversation with the listing owner
-    onClose();
-    router.push(`/(app)/conversations`);
+    const options: { text: string; onPress?: () => void }[] = [];
+    if (listing.contactPhone) {
+      options.push({ text: `Call ${listing.contactPhone}`, onPress: handleCall });
+    }
+    if (listing.contactEmail) {
+      options.push({ text: `Email ${listing.contactEmail}`, onPress: handleEmail });
+    }
+    options.push({ text: "Cancel" });
+    Alert.alert(
+      `Contact about ${listing.petName}`,
+      "Choose how you'd like to reach out:",
+      options
+    );
   };
 
   return (
