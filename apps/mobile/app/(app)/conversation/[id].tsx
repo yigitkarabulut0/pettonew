@@ -4,19 +4,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, Flag, Send } from "lucide-react-native";
+import { ChevronLeft, Flag, Send, X } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { ReportModal } from "@/components/report-modal";
 import { useTranslation } from "react-i18next";
-import { listConversations, listMessages, sendMessage } from "@/lib/api";
+import { getGroupByConversation, listConversations, listMessages, sendMessage } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import type { Conversation } from "@petto/contracts";
@@ -32,6 +35,7 @@ export default function ConversationPage() {
   const [draft, setDraft] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
@@ -45,6 +49,14 @@ export default function ConversationPage() {
   const petPairLabel = conversation?.matchPetPairs?.length
     ? conversation.matchPetPairs.map((p) => `${p.myPetName} & ${p.matchedPetName}`).join(", ")
     : "";
+
+  const { data: groupInfo } = useQuery({
+    queryKey: ["group-by-conv", id],
+    queryFn: () => getGroupByConversation(session!.tokens.accessToken, id),
+    enabled: Boolean(session && id)
+  });
+
+  const isGroupChat = Boolean(groupInfo);
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id, session?.tokens.accessToken],
@@ -195,8 +207,11 @@ export default function ConversationPage() {
         >
           <ChevronLeft size={20} color={theme.colors.ink} />
         </Pressable>
-        <Avatar uri={otherUserAvatar} name={otherUserName} size="sm" />
-        <View style={{ flex: 1 }}>
+        <Avatar uri={otherUserAvatar} name={isGroupChat ? groupInfo?.name ?? otherUserName : otherUserName} size="sm" />
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={isGroupChat ? () => setGroupInfoOpen(true) : undefined}
+        >
           <Text
             style={{
               fontSize: mobileTheme.typography.bodySemiBold.fontSize,
@@ -205,9 +220,19 @@ export default function ConversationPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            {otherUserName}
+            {isGroupChat ? groupInfo?.name ?? otherUserName : otherUserName}
           </Text>
-          {petPairLabel ? (
+          {isGroupChat ? (
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.micro.fontSize,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {t("groups.members", { count: groupInfo?.memberCount ?? 0 })}
+            </Text>
+          ) : petPairLabel ? (
             <Text
               style={{
                 fontSize: mobileTheme.typography.micro.fontSize,
@@ -218,7 +243,7 @@ export default function ConversationPage() {
               {petPairLabel}
             </Text>
           ) : null}
-        </View>
+        </Pressable>
         <Pressable
           onPress={() => setReportOpen(true)}
           hitSlop={12}
@@ -347,6 +372,178 @@ export default function ConversationPage() {
         targetID={id}
         targetLabel={otherUserName}
       />
+
+      {/* Group Info Modal */}
+      <Modal visible={groupInfoOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+          <View
+            style={{
+              backgroundColor: theme.colors.white,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              maxHeight: "75%",
+              paddingBottom: insets.bottom + mobileTheme.spacing.xl
+            }}
+          >
+            {/* Modal header */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: mobileTheme.spacing.xl,
+                paddingVertical: mobileTheme.spacing.lg,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.colors.border
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.subheading.fontSize,
+                    fontWeight: "700",
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {groupInfo?.name}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    color: theme.colors.muted,
+                    fontFamily: "Inter_500Medium",
+                    marginTop: 2
+                  }}
+                >
+                  {t("groups.members", { count: groupInfo?.memberCount ?? 0 })}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setGroupInfoOpen(false)}
+                hitSlop={12}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: theme.colors.background,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <X size={18} color={theme.colors.ink} />
+              </Pressable>
+            </View>
+
+            {/* Members list */}
+            <ScrollView
+              contentContainerStyle={{
+                paddingHorizontal: mobileTheme.spacing.xl,
+                paddingTop: mobileTheme.spacing.lg,
+                gap: mobileTheme.spacing.lg
+              }}
+            >
+              {groupInfo?.members?.map((member) => (
+                <View
+                  key={member.userId}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: mobileTheme.spacing.md
+                  }}
+                >
+                  {/* Member avatar */}
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      overflow: "hidden",
+                      backgroundColor: theme.colors.primaryBg
+                    }}
+                  >
+                    {member.avatarUrl ? (
+                      <Image
+                        source={{ uri: member.avatarUrl }}
+                        style={{ width: "100%", height: "100%" }}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                        <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.primary }}>
+                          {member.firstName?.[0] ?? "?"}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Member name + pets */}
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                        fontWeight: "600",
+                        color: theme.colors.ink,
+                        fontFamily: "Inter_600SemiBold"
+                      }}
+                    >
+                      {member.firstName}
+                    </Text>
+                    {member.pets?.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 8, marginTop: 6 }}
+                      >
+                        {member.pets.map((pet) => (
+                          <View key={pet.id} style={{ alignItems: "center", width: 52 }}>
+                            <View
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                overflow: "hidden",
+                                backgroundColor: theme.colors.background,
+                                borderWidth: 2,
+                                borderColor: theme.colors.primaryBg
+                              }}
+                            >
+                              {pet.photoUrl ? (
+                                <Image
+                                  source={{ uri: pet.photoUrl }}
+                                  style={{ width: "100%", height: "100%" }}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                                  <Text style={{ fontSize: 12, color: theme.colors.muted }}>🐾</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                fontSize: 10,
+                                color: theme.colors.muted,
+                                fontFamily: "Inter_500Medium",
+                                marginTop: 2,
+                                maxWidth: 52,
+                                textAlign: "center"
+                              }}
+                            >
+                              {pet.name}
+                            </Text>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

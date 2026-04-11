@@ -347,10 +347,17 @@ type Playdate struct {
 	CreatedAt   string   `json:"createdAt"`
 }
 
+type MemberPet struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	PhotoURL string `json:"photoUrl,omitempty"`
+}
+
 type GroupMember struct {
-	UserID    string `json:"userId"`
-	FirstName string `json:"firstName"`
-	AvatarURL string `json:"avatarUrl,omitempty"`
+	UserID    string      `json:"userId"`
+	FirstName string      `json:"firstName"`
+	AvatarURL string      `json:"avatarUrl,omitempty"`
+	Pets      []MemberPet `json:"pets"`
 }
 
 type CommunityGroup struct {

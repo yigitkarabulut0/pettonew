@@ -1166,6 +1166,47 @@ func (s *MemoryStore) ListGroups(userID string) []domain.CommunityGroup {
 	return result
 }
 
+func (s *MemoryStore) GetGroupByConversation(conversationID string) *domain.CommunityGroup {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.groups {
+		if g.ConversationID == conversationID {
+			group := *g
+			group.Members = []domain.GroupMember{}
+			if conv, ok := s.conversations[conversationID]; ok {
+				for _, uid := range conv.UserIDs {
+					if user, ok := s.users[uid]; ok {
+						avatarURL := ""
+						if user.Profile.AvatarURL != nil {
+							avatarURL = *user.Profile.AvatarURL
+						}
+						m := domain.GroupMember{
+							UserID:    uid,
+							FirstName: user.Profile.FirstName,
+							AvatarURL: avatarURL,
+							Pets:      []domain.MemberPet{},
+						}
+						for _, pet := range s.pets {
+							if pet.OwnerID == uid && !pet.IsHidden {
+								photo := ""
+								if len(pet.Photos) > 0 {
+									photo = pet.Photos[0].URL
+								}
+								m.Pets = append(m.Pets, domain.MemberPet{
+									ID: pet.ID, Name: pet.Name, PhotoURL: photo,
+								})
+							}
+						}
+						group.Members = append(group.Members, m)
+					}
+				}
+			}
+			return &group
+		}
+	}
+	return nil
+}
+
 func (s *MemoryStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {
 	s.mu.Lock()
 	defer s.mu.Unlock()

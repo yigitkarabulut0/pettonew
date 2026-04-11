@@ -2546,6 +2546,7 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 				for memberRows.Next() {
 					var m domain.GroupMember
 					memberRows.Scan(&m.UserID, &m.FirstName, &m.AvatarURL)
+					m.Pets = []domain.MemberPet{}
 					g.Members = append(g.Members, m)
 				}
 				memberRows.Close()
@@ -2558,6 +2559,72 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 		return []domain.CommunityGroup{}
 	}
 	return out
+}
+
+func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.CommunityGroup {
+	var g domain.CommunityGroup
+	var img, convID *string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at
+		 FROM community_groups WHERE conversation_id = $1`, conversationID).Scan(
+		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &g.CreatedAt)
+	if err != nil {
+		return nil
+	}
+	if img != nil {
+		g.ImageURL = *img
+	}
+	if convID != nil {
+		g.ConversationID = *convID
+	}
+
+	// Get conversation user_ids for members
+	var userIDs []string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT user_ids FROM conversations WHERE id = $1`, conversationID).Scan(&userIDs)
+
+	g.Members = []domain.GroupMember{}
+	if len(userIDs) > 0 {
+		// Fetch member profiles
+		memberRows, err := s.pool.Query(s.ctx(),
+			`SELECT user_id, first_name, COALESCE(avatar_url,'')
+			 FROM user_profiles WHERE user_id = ANY($1)`, userIDs)
+		if err == nil {
+			for memberRows.Next() {
+				var m domain.GroupMember
+				memberRows.Scan(&m.UserID, &m.FirstName, &m.AvatarURL)
+				m.Pets = []domain.MemberPet{}
+				g.Members = append(g.Members, m)
+			}
+			memberRows.Close()
+		}
+
+		// Fetch pets for each member, filtered by group petType
+		for i, member := range g.Members {
+			var petQuery string
+			var petArgs []any
+			if g.PetType != "" && g.PetType != "all" {
+				petQuery = `SELECT p.id, p.name, COALESCE((SELECT url FROM pet_photos WHERE pet_id = p.id ORDER BY display_order LIMIT 1),'')
+					FROM pets p WHERE p.owner_id = $1 AND p.is_hidden = false AND LOWER(p.species_label) = LOWER($2)`
+				petArgs = []any{member.UserID, g.PetType}
+			} else {
+				petQuery = `SELECT p.id, p.name, COALESCE((SELECT url FROM pet_photos WHERE pet_id = p.id ORDER BY display_order LIMIT 1),'')
+					FROM pets p WHERE p.owner_id = $1 AND p.is_hidden = false`
+				petArgs = []any{member.UserID}
+			}
+			petRows, err := s.pool.Query(s.ctx(), petQuery, petArgs...)
+			if err == nil {
+				for petRows.Next() {
+					var pet domain.MemberPet
+					petRows.Scan(&pet.ID, &pet.Name, &pet.PhotoURL)
+					g.Members[i].Pets = append(g.Members[i].Pets, pet)
+				}
+				petRows.Close()
+			}
+		}
+	}
+
+	return &g
 }
 
 func (s *PostgresStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {

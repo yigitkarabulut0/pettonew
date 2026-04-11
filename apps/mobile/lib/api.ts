@@ -842,6 +842,10 @@ export async function listGroups(accessToken: string): Promise<CommunityGroup[]>
 export async function joinGroup(accessToken: string, groupId: string): Promise<void> {
   await request(`/v1/groups/${groupId}/join`, { method: "POST", headers: authHeaders(accessToken) });
 }
+export async function getGroupByConversation(accessToken: string, conversationId: string): Promise<CommunityGroup | null> {
+  const data = await request<CommunityGroup | null>(`/v1/groups/conversation/${conversationId}`, { headers: authHeaders(accessToken) });
+  return data ?? null;
+}
 
 // Lost Pets
 export async function listLostPets(accessToken: string): Promise<LostPetAlert[]> {

@@ -126,6 +126,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/groups", s.handleListGroups)
 			router.Post("/groups", s.handleCreateGroup)
 			router.Post("/groups/{groupID}/join", s.handleJoinGroup)
+			router.Get("/groups/conversation/{conversationID}", s.handleGetGroupByConversation)
 			// Lost pets
 			router.Get("/lost-pets", s.handleListLostPets)
 			router.Post("/lost-pets", s.handleCreateLostPet)
@@ -1477,6 +1478,16 @@ func (s *Server) handleJoinGroup(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"joined": true}})
+}
+
+func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, request *http.Request) {
+	convID := chi.URLParam(request, "conversationID")
+	group := s.store.GetGroupByConversation(convID)
+	if group == nil {
+		writeJSON(writer, http.StatusOK, map[string]any{"data": nil})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
 
 // ── Lost Pets ────────────────────────────────────────────────────────

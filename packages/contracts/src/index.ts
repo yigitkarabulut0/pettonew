@@ -365,10 +365,17 @@ export interface Playdate {
   createdAt: string;
 }
 
+export interface MemberPet {
+  id: string;
+  name: string;
+  photoUrl?: string;
+}
+
 export interface GroupMember {
   userId: string;
   firstName: string;
   avatarUrl?: string;
+  pets: MemberPet[];
 }
 
 export interface CommunityGroup {
