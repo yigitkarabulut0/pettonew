@@ -31,6 +31,8 @@ import {
   X
 } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+
 import { Avatar } from "@/components/avatar";
 import { PetDetailModal } from "@/components/pet-card";
 import { ReportModal } from "@/components/report-modal";
@@ -48,6 +50,7 @@ import { useSessionStore } from "@/store/session";
 import type { Pet } from "@petto/contracts";
 
 export default function HomePage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
@@ -97,7 +100,7 @@ export default function HomePage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!session) throw new Error("No session found.");
+      if (!session) throw new Error(t("common.noSessionFound"));
 
       let imageUrl: string | undefined;
       if (imageAsset) {
@@ -135,7 +138,7 @@ export default function HomePage() {
     },
     onError: (error) => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to publish your post."
+        error instanceof Error ? error.message : t("home.unableToPublish")
       );
     }
   });
@@ -207,7 +210,7 @@ export default function HomePage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Fetcht
+          {t("home.appName")}
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -237,7 +240,7 @@ export default function HomePage() {
             flex: 1
           }}
         >
-          Write something...
+          {t("home.writeSomething")}
         </Text>
       </Pressable>
 
@@ -306,9 +309,9 @@ export default function HomePage() {
 
         <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
           {[
-            { label: "Groups", icon: Users, route: "/(app)/groups", color: theme.colors.secondary },
-            { label: "Playdates", icon: Calendar, route: "/(app)/playdates", color: theme.colors.primary },
-            { label: "Adopt", icon: Heart, route: "/(app)/lost-pets", color: theme.colors.primary }
+            { label: t("home.groups"), icon: Users, route: "/(app)/groups", color: theme.colors.secondary },
+            { label: t("home.playdates"), icon: Calendar, route: "/(app)/playdates", color: theme.colors.primary },
+            { label: t("home.adopt"), icon: Heart, route: "/(app)/lost-pets", color: theme.colors.primary }
           ].map((item) => (
             <Pressable
               key={item.label}
@@ -375,7 +378,7 @@ export default function HomePage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              No posts yet
+              {t("home.emptyFeed")}
             </Text>
             <Text
               style={{
@@ -386,7 +389,7 @@ export default function HomePage() {
                 fontFamily: "Inter_400Regular"
               }}
             >
-              Share the first post from your pet world and it will appear here.
+              {t("home.emptyFeedDescription")}
             </Text>
           </View>
         )}
@@ -444,7 +447,7 @@ export default function HomePage() {
                     fontFamily: "Inter_700Bold"
                   }}
                 >
-                  {createMutation.isPending ? "Posting..." : "Post"}
+                  {createMutation.isPending ? t("home.posting") : t("home.post")}
                 </Text>
               </Pressable>
             </View>
@@ -490,7 +493,7 @@ export default function HomePage() {
                       setBody(value);
                       setErrorMessage(null);
                     }}
-                    placeholder="What's happening?"
+                    placeholder={t("home.whatsHappening")}
                     placeholderTextColor={theme.colors.muted}
                     multiline
                     autoFocus
@@ -690,7 +693,7 @@ export default function HomePage() {
                       letterSpacing: mobileTheme.typography.label.letterSpacing
                     }}
                   >
-                    Tag a location
+                    {t("home.tagALocation")}
                   </Text>
                 </View>
                 <ScrollView
@@ -812,7 +815,7 @@ export default function HomePage() {
                       letterSpacing: mobileTheme.typography.label.letterSpacing
                     }}
                   >
-                    Tag a pet
+                    {t("home.tagAPet")}
                   </Text>
                 </View>
                 <ScrollView
@@ -983,6 +986,7 @@ function PostCard({
   onPetPress: (petId: string) => void;
   onReport: () => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <View
@@ -1033,7 +1037,7 @@ function PostCard({
                   fontFamily: "Inter_400Regular"
                 }}
               >
-                tagged
+                {t("common.tagged")}
               </Text>
               {post.taggedPets.map((pet) => (
                 <Pressable

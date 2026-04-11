@@ -8,6 +8,7 @@ import {
   type ViewToken
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Heart, MessageCircle, X } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
@@ -17,39 +18,36 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface TutorialPage {
   id: string;
-  title: string;
-  description: string;
+  titleKey: string;
+  descKey: string;
 }
 
 const PAGES: TutorialPage[] = [
   {
     id: "welcome",
-    title: "Welcome to Match",
-    description:
-      "Find perfect playmates for your pet. Swipe through profiles and discover pets nearby who share your vibe."
+    titleKey: "match.tutorial.welcome",
+    descKey: "match.tutorial.welcomeDesc"
   },
   {
     id: "like",
-    title: "Swipe Right to Like",
-    description:
-      "See a pet you like? Swipe right or tap the heart button. If they like you back, it's a match!"
+    titleKey: "match.tutorial.swipeRight",
+    descKey: "match.tutorial.swipeRightDesc"
   },
   {
     id: "pass",
-    title: "Swipe Left to Pass",
-    description:
-      "Not the right fit? Swipe left to skip. No worries — there are always more pets to discover."
+    titleKey: "match.tutorial.swipeLeft",
+    descKey: "match.tutorial.swipeLeftDesc"
   },
   {
     id: "chat",
-    title: "Match & Chat",
-    description:
-      "When both pets like each other, you get a match! Start a conversation and plan your first meetup."
+    titleKey: "match.tutorial.matchChat",
+    descKey: "match.tutorial.matchChatDesc"
   }
 ];
 
 export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
@@ -120,7 +118,7 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
             fontFamily: "Inter_600SemiBold"
           }}
         >
-          Skip
+          {t("common.skip")}
         </Text>
       </Pressable>
 
@@ -165,7 +163,7 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
                 fontFamily: "Inter_700Bold"
               }}
             >
-              {item.title}
+              {t(item.titleKey)}
             </Text>
             <Text
               style={{
@@ -177,7 +175,7 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
                 maxWidth: 300
               }}
             >
-              {item.description}
+              {t(item.descKey)}
             </Text>
           </View>
         )}
@@ -214,7 +212,7 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
         </View>
 
         <PrimaryButton
-          label={isLastPage ? "Get Started" : "Next"}
+          label={isLastPage ? t("match.tutorial.getStarted") : t("common.next")}
           onPress={handleNext}
         />
       </View>

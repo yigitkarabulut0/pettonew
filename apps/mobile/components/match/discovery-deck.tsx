@@ -10,6 +10,7 @@ import { Image } from "expo-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import * as Haptics from "expo-haptics";
 import {
   Check,
@@ -497,6 +498,7 @@ export function DiscoveryDeck({
   onPetPress
 }: DiscoveryDeckProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const activePetId = useSessionStore((state) => state.activePetId);
   const insets = useSafeAreaInsets();
 
@@ -638,7 +640,7 @@ export function DiscoveryDeck({
             textAlign: "center"
           }}
         >
-          Add a pet first
+          {t("discoveryDeck.addPetFirst")}
         </Text>
         <Text
           style={{
@@ -651,7 +653,7 @@ export function DiscoveryDeck({
             marginTop: mobileTheme.spacing.md
           }}
         >
-          You need at least one pet profile to start discovering other pets.
+          {t("discoveryDeck.addPetFirstDescription")}
         </Text>
       </View>
     );
@@ -689,7 +691,7 @@ export function DiscoveryDeck({
             marginTop: mobileTheme.spacing.md
           }}
         >
-          No new pets nearby
+          {t("discoveryDeck.noNewPets")}
         </Text>
         <Text
           style={{
@@ -702,7 +704,7 @@ export function DiscoveryDeck({
             marginTop: mobileTheme.spacing.sm
           }}
         >
-          Check back later for new pets in your area.
+          {t("discoveryDeck.checkBackLater")}
         </Text>
       </View>
     );
@@ -740,7 +742,7 @@ export function DiscoveryDeck({
             marginTop: mobileTheme.spacing.md
           }}
         >
-          No more pets to discover
+          {t("discoveryDeck.noMorePets")}
         </Text>
         <Text
           style={{
@@ -753,10 +755,10 @@ export function DiscoveryDeck({
             marginTop: mobileTheme.spacing.sm
           }}
         >
-          Check back later for new pets in your area.
+          {t("discoveryDeck.checkBackLater")}
         </Text>
         <PrimaryButton
-          label="Refresh"
+          label={t("discoveryDeck.refresh")}
           onPress={() => {
             setCurrentIndex(0);
             queryClient.invalidateQueries({

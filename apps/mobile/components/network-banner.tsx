@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import NetInfo from "@react-native-community/netinfo";
 import { WifiOff } from "lucide-react-native";
 
@@ -10,6 +11,7 @@ const BANNER_CONTENT_HEIGHT = 28;
 
 export function NetworkBanner() {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [isOffline, setIsOffline] = useState(false);
   const bannerFullHeight = insets.top + mobileTheme.spacing.xs + BANNER_CONTENT_HEIGHT + mobileTheme.spacing.sm;
   const heightAnim = useRef(new Animated.Value(0)).current;
@@ -57,7 +59,7 @@ export function NetworkBanner() {
               fontWeight: "600"
             }}
           >
-            No internet connection
+            {t("network.noConnection")}
           </Text>
         </Animated.View>
       )}

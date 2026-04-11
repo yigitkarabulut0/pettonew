@@ -20,6 +20,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Camera, X } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { listTaxonomies, savePet, uploadMedia } from "@/lib/api";
@@ -41,15 +43,16 @@ const petSchema = z.object({
 
 type PetValues = z.infer<typeof petSchema>;
 
-const ACTIVITY_COPY: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: "Very calm",
-  2: "Relaxed",
-  3: "Balanced",
-  4: "Active",
-  5: "Very active"
+const ACTIVITY_KEYS: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: "onboarding.pets.activityVeryCalmShort",
+  2: "onboarding.pets.activityRelaxed",
+  3: "onboarding.pets.activityBalanced",
+  4: "onboarding.pets.activityActive",
+  5: "onboarding.pets.activityVeryActive"
 };
 
 export default function PetsOnboardingPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const petCount = useSessionStore((state) => state.petCount);
@@ -140,7 +143,7 @@ export default function PetsOnboardingPage() {
 
   const submitPet = async (values: PetValues) => {
     if (!session) {
-      setErrorMessage("No session found.");
+      setErrorMessage(t("common.noSessionFound"));
       return;
     }
 
@@ -148,8 +151,8 @@ export default function PetsOnboardingPage() {
     setPhotoError(null);
 
     if (photoAssets.length < 1) {
-      setPhotoError("Please add at least one pet photo.");
-      setErrorMessage("Please fix the highlighted fields and try again.");
+      setPhotoError(t("onboarding.pets.photoRequired"));
+      setErrorMessage(t("onboarding.pets.fixFields"));
       return;
     }
 
@@ -159,7 +162,7 @@ export default function PetsOnboardingPage() {
         type: "manual",
         message: "Please enter a valid pet age."
       });
-      setErrorMessage("Please fix the highlighted fields and try again.");
+      setErrorMessage(t("onboarding.pets.fixFields"));
       return;
     }
 
@@ -171,7 +174,7 @@ export default function PetsOnboardingPage() {
         type: "manual",
         message: "Please choose a species."
       });
-      setErrorMessage("Please fix the highlighted fields and try again.");
+      setErrorMessage(t("onboarding.pets.fixFields"));
       return;
     }
 
@@ -183,7 +186,7 @@ export default function PetsOnboardingPage() {
         type: "manual",
         message: "Please choose a breed."
       });
-      setErrorMessage("Please fix the highlighted fields and try again.");
+      setErrorMessage(t("onboarding.pets.fixFields"));
       return;
     }
 
@@ -201,7 +204,7 @@ export default function PetsOnboardingPage() {
         breeds.find((item) => item.id === values.breedId)!;
 
       if (!session) {
-        throw new Error("No session found.");
+        throw new Error(t("common.noSessionFound"));
       }
 
       const uploadedPhotos = await Promise.all(
@@ -245,7 +248,7 @@ export default function PetsOnboardingPage() {
     },
     onError: (error) => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to save pet."
+        error instanceof Error ? error.message : t("onboarding.pets.unableToSavePet")
       );
     }
   });
@@ -283,9 +286,9 @@ export default function PetsOnboardingPage() {
 
   return (
     <ScreenShell
-      eyebrow="Pet onboarding"
-      title="Create a profile pets would actually swipe right on."
-      subtitle="Set species, breed, hobbies, energy level, and photos in a way that feels easy to scan."
+      eyebrow={t("onboarding.pets.eyebrow")}
+      title={t("onboarding.pets.title")}
+      subtitle={t("onboarding.pets.subtitle")}
     >
       {petCount > 0 && (
         <Pressable
@@ -311,7 +314,7 @@ export default function PetsOnboardingPage() {
               fontFamily: "Inter_600SemiBold"
             }}
           >
-            Back
+            {t("common.back")}
           </Text>
         </Pressable>
       )}
@@ -331,7 +334,7 @@ export default function PetsOnboardingPage() {
             fontFamily: "Inter_600SemiBold"
           }}
         >
-          Step 3 of 3
+          {t("onboarding.pets.step")}
         </Text>
 
         <Controller
@@ -339,8 +342,8 @@ export default function PetsOnboardingPage() {
           name="name"
           render={({ field: { onChange, value } }) => (
             <LabeledInput
-              label="Pet name"
-              placeholder="For example Milo"
+              label={t("onboarding.pets.petName")}
+              placeholder={t("onboarding.pets.petNamePlaceholder")}
               maxLength={30}
               value={value}
               onChangeText={(nextValue) => {
@@ -357,8 +360,8 @@ export default function PetsOnboardingPage() {
           name="ageYearsInput"
           render={({ field: { onChange, value } }) => (
             <LabeledInput
-              label="Pet age"
-              placeholder="Enter age in years"
+              label={t("onboarding.pets.petAge")}
+              placeholder={t("onboarding.pets.petAgePlaceholder")}
               value={value}
               onChangeText={(text) => {
                 setErrorMessage(null);
@@ -377,7 +380,7 @@ export default function PetsOnboardingPage() {
           render={({ field: { onChange, value } }) => (
             <View style={{ gap: mobileTheme.spacing.md }}>
               <Text selectable style={getFieldLabelStyle(theme.colors)}>
-                Gender
+                {t("onboarding.pets.gender")}
               </Text>
               <View
                 style={{
@@ -418,7 +421,7 @@ export default function PetsOnboardingPage() {
                             : theme.colors.muted
                       }}
                     >
-                      {g === "male" ? "Male" : "Female"}
+                      {g === "male" ? t("onboarding.pets.male") : t("onboarding.pets.female")}
                     </Text>
                   </Pressable>
                 ))}
@@ -432,7 +435,7 @@ export default function PetsOnboardingPage() {
           name="speciesId"
           render={({ field: { onChange, value } }) => (
             <PickerField
-              label="Species"
+              label={t("onboarding.pets.species")}
               value={value}
               onValueChange={(nextValue) => {
                 setErrorMessage(null);
@@ -441,7 +444,7 @@ export default function PetsOnboardingPage() {
                 setValue("breedId", "");
               }}
               items={species}
-              placeholder="Select a species"
+              placeholder={t("onboarding.pets.selectSpecies")}
               error={errors.speciesId}
             />
           )}
@@ -452,7 +455,7 @@ export default function PetsOnboardingPage() {
           name="breedId"
           render={({ field: { onChange, value } }) => (
             <PickerField
-              label="Breed"
+              label={t("onboarding.pets.breed")}
               value={value}
               onValueChange={(nextValue) => {
                 setErrorMessage(null);
@@ -461,7 +464,7 @@ export default function PetsOnboardingPage() {
               }}
               items={filteredBreeds}
               placeholder={
-                selectedSpeciesId ? "Select a breed" : "Choose species first"
+                selectedSpeciesId ? t("onboarding.pets.selectBreed") : t("onboarding.pets.chooseSpeciesFirst")
               }
               disabled={!selectedSpeciesId}
               error={errors.breedId}
@@ -471,7 +474,7 @@ export default function PetsOnboardingPage() {
 
         <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={getFieldLabelStyle(theme.colors)}>
-            Hobbies
+            {t("onboarding.pets.hobbies")}
           </Text>
           <View
             style={{
@@ -492,7 +495,7 @@ export default function PetsOnboardingPage() {
               />
             ))}
             <PrimaryButton
-              label="+ Add"
+              label={t("onboarding.pets.addHobby")}
               variant="ghost"
               onPress={() => setHobbiesModalOpen(true)}
             />
@@ -501,7 +504,7 @@ export default function PetsOnboardingPage() {
 
         <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={getFieldLabelStyle(theme.colors)}>
-            Good with
+            {t("onboarding.pets.goodWith")}
           </Text>
           <View
             style={{
@@ -532,7 +535,7 @@ export default function PetsOnboardingPage() {
 
         <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={getFieldLabelStyle(theme.colors)}>
-            Characters
+            {t("onboarding.pets.characters")}
           </Text>
           <View
             style={{
@@ -573,11 +576,11 @@ export default function PetsOnboardingPage() {
                   fontFamily: "Inter_400Regular"
                 }}
               >
-                Describe your pet's personality
+                {t("onboarding.pets.describePersonality")}
               </Text>
             )}
             <PrimaryButton
-              label="+ Add Character"
+              label={t("onboarding.pets.addCharacter")}
               variant="ghost"
               onPress={() => setCharactersModalOpen(true)}
             />
@@ -586,7 +589,7 @@ export default function PetsOnboardingPage() {
 
         <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={getFieldLabelStyle(theme.colors)}>
-            Activity level
+            {t("onboarding.pets.activityLevel")}
           </Text>
           <View
             style={{
@@ -607,7 +610,7 @@ export default function PetsOnboardingPage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              {ACTIVITY_COPY[selectedActivityLevel]}
+              {t(ACTIVITY_KEYS[selectedActivityLevel])}
             </Text>
             <ActivitySlider
               value={selectedActivityLevel}
@@ -621,7 +624,7 @@ export default function PetsOnboardingPage() {
           name="isNeutered"
           render={({ field: { onChange, value } }) => (
             <PickerBooleanField
-              label="Neutered"
+              label={t("onboarding.pets.neutered")}
               value={value}
               onValueChange={(nextValue) => onChange(nextValue === "true")}
             />
@@ -633,8 +636,8 @@ export default function PetsOnboardingPage() {
           name="bio"
           render={({ field: { onChange, value } }) => (
             <LabeledInput
-              label="Pet bio"
-              placeholder="Tell other pet parents about your pet's personality"
+              label={t("onboarding.pets.petBio")}
+              placeholder={t("onboarding.pets.petBioPlaceholder")}
               maxLength={1000}
               value={value}
               onChangeText={(nextValue) => {
@@ -649,7 +652,7 @@ export default function PetsOnboardingPage() {
 
         <View style={{ gap: mobileTheme.spacing.md }}>
           <Text selectable style={getFieldLabelStyle(theme.colors)}>
-            Photos
+            {t("onboarding.pets.photos")}
           </Text>
           <Pressable
             onPress={pickPhotos}
@@ -672,7 +675,7 @@ export default function PetsOnboardingPage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              Add up to 6 photos
+              {t("onboarding.pets.addPhotos")}
             </Text>
           </Pressable>
           <View
@@ -750,7 +753,7 @@ export default function PetsOnboardingPage() {
         ) : null}
 
         <PrimaryButton
-          label={mutation.isPending ? "Saving..." : "Save pet"}
+          label={mutation.isPending ? t("onboarding.pets.saving") : t("onboarding.pets.savePet")}
           onPress={handleSubmit(submitPet, () =>
             setErrorMessage("Please fix the highlighted fields and try again.")
           )}
@@ -760,8 +763,8 @@ export default function PetsOnboardingPage() {
 
       <SelectionModal
         visible={hobbiesModalOpen}
-        title="Select hobbies"
-        subtitle="Choose as many hobbies as you want, then tap Done."
+        title={t("onboarding.pets.selectHobbies")}
+        subtitle={t("onboarding.pets.selectHobbiesSubtitle")}
         items={hobbies}
         selectedIds={selectedHobbyIds}
         onToggle={(id) =>
@@ -776,8 +779,8 @@ export default function PetsOnboardingPage() {
 
       <SelectionModal
         visible={charactersModalOpen}
-        title="Select characters"
-        subtitle="Pick traits that best describe your pet's personality."
+        title={t("onboarding.pets.selectCharacters")}
+        subtitle={t("onboarding.pets.selectCharactersSubtitle")}
         items={characters}
         selectedIds={selectedCharacterIds}
         onToggle={(id) =>
@@ -915,6 +918,7 @@ function PickerBooleanField({
   value: boolean;
   onValueChange: (value: "true" | "false") => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <View style={{ gap: mobileTheme.spacing.md }}>
@@ -934,8 +938,8 @@ function PickerBooleanField({
           selectedValue={value ? "true" : "false"}
           onValueChange={onValueChange}
         >
-          <Picker.Item label="Yes" value="true" />
-          <Picker.Item label="No" value="false" />
+          <Picker.Item label={t("common.yes")} value="true" />
+          <Picker.Item label={t("common.no")} value="false" />
         </Picker>
       </View>
     </View>
@@ -992,6 +996,7 @@ function SelectionModal({
   onToggle: (id: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <Modal
@@ -999,7 +1004,7 @@ function SelectionModal({
       animationType="slide"
       presentationStyle="pageSheet"
     >
-      <ScreenShell eyebrow="Selection" title={title} subtitle={subtitle}>
+      <ScreenShell eyebrow={t("common.selection")} title={title} subtitle={subtitle}>
         <View
           style={{
             gap: mobileTheme.spacing.lg,
@@ -1030,7 +1035,7 @@ function SelectionModal({
               })}
             </View>
           </ScrollView>
-          <PrimaryButton label="Done" onPress={onClose} />
+          <PrimaryButton label={t("common.done")} onPress={onClose} />
         </View>
       </ScreenShell>
     </Modal>

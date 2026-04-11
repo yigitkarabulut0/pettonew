@@ -14,12 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { ArrowLeft, MapPin, MessageCircle, Star, UserCheck } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/avatar";
 import { listPetSitters } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function PetSittersPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((s) => s.session);
   const insets = useSafeAreaInsets();
@@ -86,7 +88,7 @@ export default function PetSittersPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Pet Sitters
+          {t("petSitters.title")}
         </Text>
       </View>
 
@@ -125,7 +127,7 @@ export default function PetSittersPage() {
                   color: theme.colors.ink
                 }}
               >
-                No pet sitters yet
+                {t("petSitters.noSitters")}
               </Text>
               <Text
                 style={{
@@ -135,7 +137,7 @@ export default function PetSittersPage() {
                   maxWidth: 260
                 }}
               >
-                Pet sitter profiles will appear here once available in your area.
+                {t("petSitters.noSittersDescription")}
               </Text>
             </View>
           ) : (
@@ -274,7 +276,7 @@ export default function PetSittersPage() {
                 <Pressable
                   onPress={() =>
                     Linking.openURL(
-                      `sms:?body=Hi ${sitter.name}, I found you on Fetcht and would like to inquire about your pet sitting services.`
+                      `sms:?body=${t("petSitters.contactMessage", { name: sitter.name })}`
                     )
                   }
                   style={({ pressed }) => ({
@@ -296,7 +298,7 @@ export default function PetSittersPage() {
                       fontSize: mobileTheme.typography.caption.fontSize
                     }}
                   >
-                    Contact
+                    {t("common.contact")}
                   </Text>
                 </Pressable>
               </View>

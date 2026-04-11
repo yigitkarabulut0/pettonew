@@ -8,6 +8,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import * as ImageManipulator from "expo-image-manipulator";
 import { X } from "lucide-react-native";
 
@@ -33,6 +34,7 @@ export function ImageCropModal({
   aspectRatio = 1
 }: ImageCropModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [processing, setProcessing] = useState(false);
 
@@ -115,7 +117,7 @@ export function ImageCropModal({
             textAlign: "center"
           }}
         >
-          Image will be optimized for upload
+          {t("imageCrop.optimizeNotice")}
         </Text>
 
         <View
@@ -128,7 +130,7 @@ export function ImageCropModal({
         >
           <View style={{ flex: 1 }}>
             <PrimaryButton
-              label="Cancel"
+              label={t("common.cancel")}
               variant="ghost"
               onPress={onCancel}
               style={{ borderColor: "rgba(255,255,255,0.3)" }}
@@ -136,7 +138,7 @@ export function ImageCropModal({
           </View>
           <View style={{ flex: 1 }}>
             <PrimaryButton
-              label={processing ? "Processing..." : "Use Photo"}
+              label={processing ? t("imageCrop.processing") : t("imageCrop.usePhoto")}
               onPress={handleCrop}
               disabled={processing}
             />

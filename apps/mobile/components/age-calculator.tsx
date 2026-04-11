@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 import { Calendar } from "lucide-react-native";
+import { useTranslation } from "react-i18next";
 
 import { mobileTheme, useTheme } from "@/lib/theme";
 
@@ -35,6 +36,7 @@ interface AgeCalculatorProps {
 
 export function AgeCalculator({ petName, ageYears, speciesLabel }: AgeCalculatorProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const humanAge = getHumanAge(ageYears, speciesLabel);
 
   return (
@@ -59,7 +61,7 @@ export function AgeCalculator({ petName, ageYears, speciesLabel }: AgeCalculator
             color: theme.colors.ink
           }}
         >
-          {petName} is {ageYears} {ageYears === 1 ? "year" : "years"} old
+          {t("petCard.ageYears", { name: petName, count: ageYears })}
         </Text>
         <Text
           style={{
@@ -69,7 +71,7 @@ export function AgeCalculator({ petName, ageYears, speciesLabel }: AgeCalculator
             marginTop: 2
           }}
         >
-          ~{humanAge} in human years
+          {t("petCard.humanYears", { age: humanAge })}
         </Text>
       </View>
     </View>

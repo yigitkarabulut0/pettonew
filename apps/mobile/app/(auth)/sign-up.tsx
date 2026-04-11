@@ -7,6 +7,8 @@ import { Text, TextInput, View } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { useTranslation } from "react-i18next";
+
 import { AnimatedLogo } from "@/components/animated-logo";
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
@@ -28,6 +30,7 @@ const schema = z
 type SignUpValues = z.infer<typeof schema>;
 
 export default function SignUpPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setSession = useSessionStore((state) => state.setSession);
@@ -53,16 +56,16 @@ export default function SignUpPage() {
     },
     onError: (error) => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to sign up."
+        error instanceof Error ? error.message : t("auth.unableToSignUp")
       );
     }
   });
 
   return (
     <ScreenShell
-      eyebrow="Create account"
-      title="Join Fetcht."
-      subtitle="Create your account and start matching pets near you."
+      eyebrow={t("auth.createAccount")}
+      title={t("auth.joinFetcht")}
+      subtitle={t("auth.joinSubtitle")}
     >
       <View style={{ alignItems: "center", marginBottom: mobileTheme.spacing.md }}>
         <AnimatedLogo size="sm" />
@@ -89,7 +92,7 @@ export default function SignUpPage() {
                 textContentType="emailAddress"
                 autoComplete="email"
                 returnKeyType="next"
-                placeholder="Email"
+                placeholder={t("auth.email")}
                 placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
@@ -113,7 +116,7 @@ export default function SignUpPage() {
                 autoCorrect={false}
                 spellCheck={false}
                 returnKeyType="next"
-                placeholder="Password"
+                placeholder={t("auth.password")}
                 placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
@@ -137,7 +140,7 @@ export default function SignUpPage() {
                 autoCorrect={false}
                 spellCheck={false}
                 returnKeyType="done"
-                placeholder="Confirm password"
+                placeholder={t("auth.confirmPassword")}
                 placeholderTextColor={theme.colors.muted}
                 value={value}
                 onChangeText={(nextValue) => {
@@ -162,7 +165,7 @@ export default function SignUpPage() {
           </Text>
         ) : null}
         <PrimaryButton
-          label={mutation.isPending ? "Creating..." : "Create account"}
+          label={mutation.isPending ? t("auth.creating") : t("auth.createAccount")}
           onPress={handleSubmit(
             (values) => {
               setErrorMessage(null);
@@ -170,7 +173,7 @@ export default function SignUpPage() {
             },
             () => {
               setErrorMessage(
-                "Please fix the highlighted fields and try again."
+                t("auth.fixFieldsError")
               );
             }
           )}
@@ -184,12 +187,12 @@ export default function SignUpPage() {
           fontFamily: "Inter_400Regular"
         }}
       >
-        Already have an account?{" "}
+        {t("auth.haveAccount")}{" "}
         <Link
           href="/(auth)/sign-in"
           style={{ color: theme.colors.primary, fontWeight: "700" }}
         >
-          Sign in
+          {t("auth.signIn")}
         </Link>
       </Text>
     </ScreenShell>

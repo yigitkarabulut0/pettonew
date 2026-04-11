@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import QRCode from "react-native-qrcode-svg";
 import { X } from "lucide-react-native";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -14,6 +15,7 @@ interface QRCodeModalProps {
 
 export function QRCodeModal({ visible, petId, petName, onClose }: QRCodeModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const deepLink = `petto://pet/${petId}`;
 
@@ -35,7 +37,7 @@ export function QRCodeModal({ visible, petId, petName, onClose }: QRCodeModalPro
               color: theme.colors.ink,
               fontFamily: "Inter_700Bold"
             }}>
-              {petName}'s QR Code
+              {t("petCard.qrCode", { name: petName })}
             </Text>
             <Pressable onPress={onClose} hitSlop={12} style={{
               width: 36, height: 36, borderRadius: 18,
@@ -62,7 +64,7 @@ export function QRCodeModal({ visible, petId, petName, onClose }: QRCodeModalPro
             fontFamily: "Inter_500Medium",
             textAlign: "center"
           }}>
-            Scan this QR code to view {petName}'s profile on Fetcht
+            {t("petCard.scanQrCode", { name: petName })}
           </Text>
         </View>
       </View>

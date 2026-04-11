@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { ArrowLeft, BookOpen, Check, GraduationCap } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listTrainingTips } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -25,6 +26,7 @@ const DIFFICULTY_COLORS: Record<string, { bg: string; text: string }> = {
 const PET_TYPE_FILTERS = ["all", "dog", "cat"] as const;
 
 export default function TrainingTipsPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((s) => s.session);
   const insets = useSafeAreaInsets();
@@ -81,7 +83,7 @@ export default function TrainingTipsPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Training Tips
+          {t("training.title")}
         </Text>
       </View>
 
@@ -122,7 +124,7 @@ export default function TrainingTipsPage() {
                     : theme.colors.muted
               }}
             >
-              {type === "all" ? "All" : type === "dog" ? "Dogs" : "Cats"}
+              {type === "all" ? t("training.filterAll") : type === "dog" ? t("training.filterDogs") : t("training.filterCats")}
             </Text>
           </Pressable>
         ))}
@@ -163,7 +165,7 @@ export default function TrainingTipsPage() {
                   textAlign: "center"
                 }}
               >
-                No training tips yet
+                {t("training.noTips")}
               </Text>
             </View>
           ) : (
@@ -243,7 +245,7 @@ export default function TrainingTipsPage() {
                               color: "#3F7D4E"
                             }}
                           >
-                            {stepCount} {stepCount === 1 ? "step" : "steps"}
+                            {stepCount} {stepCount === 1 ? t("training.step") : t("training.stepPlural")}
                           </Text>
                         </View>
                       )}

@@ -16,16 +16,18 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, BookOpen, Plus, Send } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import { listDiary, createDiaryEntry } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
-const MOOD_OPTIONS: { key: string; emoji: string; label: string }[] = [
-  { key: "happy", emoji: "\u{1F60A}", label: "Happy" },
-  { key: "sad", emoji: "\u{1F622}", label: "Sad" },
-  { key: "excited", emoji: "\u{1F389}", label: "Excited" },
-  { key: "calm", emoji: "\u{1F60C}", label: "Calm" },
-  { key: "playful", emoji: "\u{1F43E}", label: "Playful" }
+const MOOD_OPTIONS: { key: string; emoji: string; labelKey: string }[] = [
+  { key: "happy", emoji: "\u{1F60A}", labelKey: "diary.moodHappy" },
+  { key: "sad", emoji: "\u{1F622}", labelKey: "diary.moodSad" },
+  { key: "excited", emoji: "\u{1F389}", labelKey: "diary.moodExcited" },
+  { key: "calm", emoji: "\u{1F60C}", labelKey: "diary.moodCalm" },
+  { key: "playful", emoji: "\u{1F43E}", labelKey: "diary.moodPlayful" }
 ];
 
 function moodEmoji(mood: string): string {
@@ -41,7 +43,7 @@ function relativeTime(dateString: string): string {
   const diffHr = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHr / 24);
 
-  if (diffSec < 60) return "just now";
+  if (diffSec < 60) return i18n.t("diary.justNow");
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
@@ -49,6 +51,7 @@ function relativeTime(dateString: string): string {
 }
 
 export default function DiaryPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -126,7 +129,7 @@ export default function DiaryPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            Pet Diary
+            {t("diary.title")}
           </Text>
         </View>
         <Pressable
@@ -179,13 +182,13 @@ export default function DiaryPage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              New Entry
+              {t("diary.newEntry")}
             </Text>
 
             <TextInput
               value={body}
               onChangeText={setBody}
-              placeholder="What happened today?"
+              placeholder={t("diary.whatHappened")}
               placeholderTextColor={theme.colors.muted}
               multiline
               style={{
@@ -210,7 +213,7 @@ export default function DiaryPage() {
                   fontFamily: "Inter_500Medium"
                 }}
               >
-                Mood
+                {t("diary.mood")}
               </Text>
               <View
                 style={{
@@ -256,7 +259,7 @@ export default function DiaryPage() {
                             : "Inter_400Regular"
                       }}
                     >
-                      {mood.label}
+                      {t(mood.labelKey)}
                     </Text>
                   </Pressable>
                 ))}
@@ -291,7 +294,7 @@ export default function DiaryPage() {
                       fontFamily: "Inter_600SemiBold"
                     }}
                   >
-                    Save Entry
+                    {t("diary.saveEntry")}
                   </Text>
                 </>
               )}
@@ -329,7 +332,7 @@ export default function DiaryPage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              No diary entries yet
+              {t("diary.noEntries")}
             </Text>
             <Text
               style={{
@@ -340,7 +343,7 @@ export default function DiaryPage() {
                 paddingHorizontal: mobileTheme.spacing["3xl"]
               }}
             >
-              Tap the + button to add your first diary entry for your pet.
+              {t("diary.noEntriesDescription")}
             </Text>
           </View>
         )}

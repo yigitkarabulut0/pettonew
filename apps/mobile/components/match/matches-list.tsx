@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import { Check, Heart, ImageIcon } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
@@ -43,6 +44,7 @@ export function MatchesList({
   isRefreshing
 }: MatchesListProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const [petFilter, setPetFilter] = useState<string | null>(null);
 
   const filteredMatches = useMemo(() => {
@@ -97,7 +99,7 @@ export function MatchesList({
                 textTransform: "uppercase"
               }}
             >
-              New Matches
+              {t("match.newMatches")}
             </Text>
           </View>
           <ScrollView
@@ -232,7 +234,7 @@ export function MatchesList({
                   : theme.colors.ink
               }}
             >
-              All
+              {t("common.all")}
             </Text>
           </Pressable>
           {myPets.map((pet) => (
@@ -288,7 +290,7 @@ export function MatchesList({
             textTransform: "uppercase"
           }}
         >
-          Messages
+          {t("chat.messages")}
         </Text>
       </View>
 
@@ -329,7 +331,7 @@ export function MatchesList({
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              No matches yet
+              {t("match.noMatches")}
             </Text>
             <Text
               style={{
@@ -341,10 +343,10 @@ export function MatchesList({
                 maxWidth: 260
               }}
             >
-              Keep swiping to find the perfect playmate for your pet.
+              {t("match.noMatchesDescription")}
             </Text>
             <PrimaryButton
-              label="Start Discovering"
+              label={t("match.startDiscovering")}
               onPress={onStartDiscovering}
               size="sm"
             />

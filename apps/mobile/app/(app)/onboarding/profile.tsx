@@ -22,6 +22,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
+
 import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
 import { updateProfile, uploadMedia } from "@/lib/api";
@@ -39,6 +42,7 @@ const schema = z.object({
 type ProfileValues = z.infer<typeof schema>;
 
 export default function ProfileOnboardingPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const setSession = useSessionStore((state) => state.setSession);
@@ -74,7 +78,7 @@ export default function ProfileOnboardingPage() {
   const mutation = useMutation({
     mutationFn: async (values: ProfileValues) => {
       if (!session) {
-        throw new Error("No session found.");
+        throw new Error(t("common.noSessionFound"));
       }
 
       let avatarUrl = removeAvatar ? undefined : session.user.avatarUrl;
@@ -111,7 +115,7 @@ export default function ProfileOnboardingPage() {
     },
     onError: (error) => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to save profile."
+        error instanceof Error ? error.message : t("onboarding.profile.unableToSaveProfile")
       );
     }
   });
@@ -194,7 +198,7 @@ export default function ProfileOnboardingPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          {isEditing ? "Edit Profile" : "Your Profile"}
+          {isEditing ? t("onboarding.profile.editProfile") : t("onboarding.profile.yourProfile")}
         </Text>
         <View style={{ width: 36 }} />
       </View>
@@ -221,7 +225,7 @@ export default function ProfileOnboardingPage() {
               marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Birth date stays private and is used only for age verification.
+            {t("onboarding.profile.birthDatePrivacy")}
           </Text>
         )}
 
@@ -285,7 +289,7 @@ export default function ProfileOnboardingPage() {
                 fontWeight: "600"
               }}
             >
-              {currentAvatarUri ? "Change photo" : "Add photo"}
+              {currentAvatarUri ? t("onboarding.profile.changePhoto") : t("onboarding.profile.addPhoto")}
             </Text>
           </Pressable>
         </View>
@@ -304,7 +308,7 @@ export default function ProfileOnboardingPage() {
                   marginBottom: mobileTheme.spacing.sm
                 }}
               >
-                {field === "firstName" ? "First Name" : "Last Name"}
+                {field === "firstName" ? t("onboarding.profile.firstName") : t("onboarding.profile.lastName")}
               </Text>
             ) : null}
             <Controller
@@ -314,10 +318,10 @@ export default function ProfileOnboardingPage() {
                 <TextInput
                   placeholder={
                     field === "bio"
-                      ? "Write a short bio..."
+                      ? t("onboarding.profile.bioPlaceholder")
                       : field === "firstName"
-                        ? "First name"
-                        : "Last name"
+                        ? t("onboarding.profile.firstName")
+                        : t("onboarding.profile.lastName")
                   }
                   placeholderTextColor={theme.colors.muted}
                   multiline={field === "bio"}
@@ -360,7 +364,7 @@ export default function ProfileOnboardingPage() {
               marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Birth Date
+            {t("onboarding.profile.birthDate")}
           </Text>
           <Pressable
             onPress={() => setShowDatePicker(true)}
@@ -418,7 +422,7 @@ export default function ProfileOnboardingPage() {
                       fontFamily: "Inter_600SemiBold"
                     }}
                   >
-                    Done
+                    {t("common.done")}
                   </Text>
                 </Pressable>
               )}
@@ -438,7 +442,7 @@ export default function ProfileOnboardingPage() {
               marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Gender
+            {t("onboarding.profile.gender")}
           </Text>
           <View
             style={{
@@ -454,11 +458,11 @@ export default function ProfileOnboardingPage() {
               name="gender"
               render={({ field: { onChange, value } }) => (
                 <Picker selectedValue={value} onValueChange={onChange}>
-                  <Picker.Item label="Woman" value="woman" />
-                  <Picker.Item label="Man" value="man" />
-                  <Picker.Item label="Non-binary" value="non-binary" />
+                  <Picker.Item label={t("onboarding.profile.genderWoman")} value="woman" />
+                  <Picker.Item label={t("onboarding.profile.genderMan")} value="man" />
+                  <Picker.Item label={t("onboarding.profile.genderNonBinary")} value="non-binary" />
                   <Picker.Item
-                    label="Prefer not to say"
+                    label={t("onboarding.profile.genderPreferNotToSay")}
                     value="prefer-not-to-say"
                   />
                 </Picker>
@@ -481,7 +485,7 @@ export default function ProfileOnboardingPage() {
         ) : null}
 
         <PrimaryButton
-          label={mutation.isPending ? "Saving..." : "Save"}
+          label={mutation.isPending ? t("common.saving") : t("common.save")}
           onPress={handleSubmit((values) => mutation.mutate(values))}
         />
       </ScrollView>
@@ -500,10 +504,11 @@ function formatDateValue(date: Date) {
 function formatDateLabel(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return "Select your birth date";
+    return i18n.t("onboarding.profile.selectBirthDate");
   }
 
-  return parsed.toLocaleDateString("en-GB", {
+  const locale = i18n.language === "tr" ? "tr-TR" : "en-GB";
+  return parsed.toLocaleDateString(locale, {
     day: "2-digit",
     month: "long",
     year: "numeric"

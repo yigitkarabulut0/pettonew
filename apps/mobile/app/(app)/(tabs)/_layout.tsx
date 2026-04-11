@@ -9,6 +9,7 @@ import { Tabs } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 
 import { useTheme } from "@/lib/theme";
 
@@ -35,6 +36,7 @@ function TabIcon({
 }
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 16);
@@ -83,35 +85,35 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: "Home",
+          title: t("tabs.home"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />
         }}
       />
       <Tabs.Screen
         name="match"
         options={{
-          title: "Match",
+          title: t("tabs.match"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Heart} focused={focused} />
         }}
       />
       <Tabs.Screen
         name="discover"
         options={{
-          title: "Discover",
+          title: t("tabs.discover"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Compass} focused={focused} />
         }}
       />
       <Tabs.Screen
         name="care"
         options={{
-          title: "Care",
+          title: t("tabs.care"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Stethoscope} focused={focused} />
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: t("tabs.profile"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />
         }}
       />

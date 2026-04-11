@@ -15,11 +15,13 @@ import { useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { AlertTriangle, ArrowLeft, Globe, MapPin, Navigation, Phone, Stethoscope } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listVetClinics } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function VetContactsPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -108,7 +110,7 @@ export default function VetContactsPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Nearby Vets
+          {t("vets.title")}
         </Text>
       </View>
 
@@ -131,7 +133,7 @@ export default function VetContactsPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
             <LottieLoading size={70} />
             <Text style={{ marginTop: mobileTheme.spacing.md, color: theme.colors.muted, fontFamily: "Inter_500Medium" }}>
-              {!location ? "Getting your location..." : "Loading clinics..."}
+              {!location ? t("vets.gettingLocation") : t("vets.loadingClinics")}
             </Text>
           </View>
         )}
@@ -141,10 +143,10 @@ export default function VetContactsPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <MapPin size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink, fontFamily: "Inter_700Bold" }}>
-              Location access needed
+              {t("vets.locationNeeded")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"], fontFamily: "Inter_400Regular" }}>
-              Enable location permissions to find nearby vet clinics.
+              {t("vets.locationNeededDescription")}
             </Text>
           </View>
         )}
@@ -154,10 +156,10 @@ export default function VetContactsPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <Stethoscope size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink, fontFamily: "Inter_700Bold" }}>
-              No clinics nearby
+              {t("vets.noClinics")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"], fontFamily: "Inter_400Regular" }}>
-              No veterinary clinics found in your area. Try again later.
+              {t("vets.noClinicsDescription")}
             </Text>
           </View>
         )}
@@ -202,7 +204,7 @@ export default function VetContactsPage() {
                   >
                     <AlertTriangle size={12} color={theme.colors.danger} />
                     <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontFamily: "Inter_600SemiBold", color: theme.colors.danger }}>
-                      Emergency
+                      {t("vets.emergency")}
                     </Text>
                   </View>
                 )}
@@ -255,7 +257,7 @@ export default function VetContactsPage() {
               >
                 <Phone size={14} color={theme.colors.success} />
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontFamily: "Inter_600SemiBold", color: theme.colors.success }}>
-                  Call
+                  {t("vets.call")}
                 </Text>
               </Pressable>
 
@@ -275,7 +277,7 @@ export default function VetContactsPage() {
               >
                 <Navigation size={14} color={theme.colors.primary} />
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontFamily: "Inter_600SemiBold", color: theme.colors.primary }}>
-                  Directions
+                  {t("vets.directions")}
                 </Text>
               </Pressable>
 
@@ -296,7 +298,7 @@ export default function VetContactsPage() {
                 >
                   <Globe size={14} color={theme.colors.muted} />
                   <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontFamily: "Inter_600SemiBold", color: theme.colors.muted }}>
-                    Website
+                    {t("vets.website")}
                   </Text>
                 </Pressable>
               ) : null}

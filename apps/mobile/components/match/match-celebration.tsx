@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Dimensions, Modal, Pressable, Text, View } from "react-native";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
+import { useTranslation } from "react-i18next";
 import { Heart } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
@@ -30,6 +31,7 @@ export function MatchCelebrationModal({
   onSendMessage
 }: MatchCelebrationModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (visible) {
@@ -153,7 +155,7 @@ export function MatchCelebrationModal({
                 fontFamily: "Inter_700Bold"
               }}
             >
-              It&apos;s a Match!
+              {t("match.celebration.itsAMatch")}
             </Text>
 
             <Text
@@ -167,8 +169,8 @@ export function MatchCelebrationModal({
               }}
             >
               {myPet && matchedPet
-                ? `${myPet.name} and ${matchedPet.name} like each other! Start a conversation now.`
-                : "Your pets like each other! Start a conversation now."}
+                ? t("match.celebration.matchDescription", { myPet: myPet.name, matchedPet: matchedPet.name })
+                : t("match.celebration.matchDescriptionGeneric")}
             </Text>
 
             <View
@@ -179,11 +181,11 @@ export function MatchCelebrationModal({
               }}
             >
               <PrimaryButton
-                label="Send Message"
+                label={t("match.celebration.sendMessage")}
                 onPress={() => onSendMessage(conversationId)}
               />
               <PrimaryButton
-                label="Keep Swiping"
+                label={t("match.celebration.keepSwiping")}
                 onPress={onDismiss}
                 variant="ghost"
               />

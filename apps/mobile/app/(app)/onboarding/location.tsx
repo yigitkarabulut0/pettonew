@@ -6,6 +6,8 @@ import { Text, View } from "react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { MapPin } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { updateProfile } from "@/lib/api";
@@ -13,11 +15,12 @@ import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function LocationOnboardingPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const setSession = useSessionStore((state) => state.setSession);
   const [statusText, setStatusText] = useState(
-    "We use your current location to keep matches nearby and relevant."
+    t("onboarding.location.defaultStatus")
   );
   const [resolvedLabel, setResolvedLabel] = useState(
     session?.user.cityLabel ?? ""
@@ -27,20 +30,20 @@ export default function LocationOnboardingPage() {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!session) {
-        throw new Error("No session found.");
+        throw new Error(t("common.noSessionFound"));
       }
 
       setErrorMessage(null);
-      setStatusText("Requesting location permission...");
+      setStatusText(t("onboarding.location.requestingPermission"));
 
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
         throw new Error(
-          "Location permission is required to discover pets near you."
+          t("onboarding.location.permissionRequired")
         );
       }
 
-      setStatusText("Reading your current location...");
+      setStatusText(t("onboarding.location.readingLocation"));
       const currentPosition = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced
       });
@@ -52,7 +55,7 @@ export default function LocationOnboardingPage() {
       const cityId = slugifyLocation(locationLabel);
 
       setResolvedLabel(locationLabel);
-      setStatusText("Saving your location for local matching...");
+      setStatusText(t("onboarding.location.savingLocation"));
 
       return updateProfile(session.tokens.accessToken, {
         ...session.user,
@@ -75,19 +78,19 @@ export default function LocationOnboardingPage() {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Unable to access your location."
+          : t("onboarding.location.unableToAccessLocation")
       );
       setStatusText(
-        "We still need your location permission before showing nearby matches."
+        t("onboarding.location.needPermission")
       );
     }
   });
 
   return (
     <ScreenShell
-      eyebrow="Location access"
-      title="Matches work best when we know where you are."
-      subtitle="Allow current location so Fetcht can surface pets around you instead of showing a generic city list."
+      eyebrow={t("onboarding.location.eyebrow")}
+      title={t("onboarding.location.title")}
+      subtitle={t("onboarding.location.subtitle")}
     >
       <View
         style={{
@@ -106,7 +109,7 @@ export default function LocationOnboardingPage() {
             fontFamily: "Inter_600SemiBold"
           }}
         >
-          Step 1 of 3
+          {t("onboarding.location.step")}
         </Text>
 
         <View
@@ -126,7 +129,7 @@ export default function LocationOnboardingPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            Current location
+            {t("onboarding.location.currentLocation")}
           </Text>
           <Text
             selectable
@@ -136,7 +139,7 @@ export default function LocationOnboardingPage() {
               fontFamily: "Inter_600SemiBold"
             }}
           >
-            {resolvedLabel || "Not shared yet"}
+            {resolvedLabel || t("onboarding.location.notSharedYet")}
           </Text>
           <Text
             selectable
@@ -169,7 +172,7 @@ export default function LocationOnboardingPage() {
 
         <PrimaryButton
           label={
-            mutation.isPending ? "Getting location..." : "Allow location access"
+            mutation.isPending ? t("onboarding.location.gettingLocation") : t("onboarding.location.allow")
           }
           onPress={() => mutation.mutate()}
           disabled={mutation.isPending}

@@ -16,11 +16,13 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Plus, TrendingUp } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listWeightEntries, createWeightEntry } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function PetWeightPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -100,7 +102,7 @@ export default function PetWeightPage() {
               color: theme.colors.ink
             }}
           >
-            Weight Tracking
+            {t("weight.title")}
           </Text>
         </View>
         <Pressable
@@ -152,13 +154,13 @@ export default function PetWeightPage() {
                 color: theme.colors.ink
               }}
             >
-              Log Weight
+              {t("weight.logWeight")}
             </Text>
 
             <TextInput
               value={weight}
               onChangeText={setWeight}
-              placeholder="Weight"
+              placeholder={t("weight.weightPlaceholder")}
               placeholderTextColor={theme.colors.muted}
               keyboardType="decimal-pad"
               style={{
@@ -213,7 +215,7 @@ export default function PetWeightPage() {
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  Save Weight
+                  {t("weight.saveWeight")}
                 </Text>
               )}
             </Pressable>
@@ -232,10 +234,10 @@ export default function PetWeightPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <TrendingUp size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No weight entries yet
+              {t("weight.noEntries")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Tap the + button to log your pet's weight.
+              {t("weight.noEntriesDescription")}
             </Text>
           </View>
         )}
@@ -259,7 +261,7 @@ export default function PetWeightPage() {
                 marginBottom: mobileTheme.spacing.lg
               }}
             >
-              Weight History
+              {t("weight.weightHistory")}
             </Text>
             <View style={{ flexDirection: "row", alignItems: "flex-end", height: chartHeight, gap: 4 }}>
               {entries.slice(-10).map((entry, index) => {

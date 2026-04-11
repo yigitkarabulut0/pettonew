@@ -17,11 +17,13 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, CalendarDays, MapPin, Minus, Plus, Users } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listPlaydates, createPlaydate, joinPlaydate, listExploreVenues } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function PlaydatesPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -125,7 +127,7 @@ export default function PlaydatesPage() {
               color: theme.colors.ink
             }}
           >
-            Playdates
+            {t("playdates.title")}
           </Text>
         </View>
         <Pressable
@@ -177,13 +179,13 @@ export default function PlaydatesPage() {
                 color: theme.colors.ink
               }}
             >
-              New Playdate
+              {t("playdates.newPlaydate")}
             </Text>
 
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Title"
+              placeholder={t("playdates.titlePlaceholder")}
               placeholderTextColor={theme.colors.muted}
               style={{
                 backgroundColor: theme.colors.background,
@@ -197,7 +199,7 @@ export default function PlaydatesPage() {
             <TextInput
               value={description}
               onChangeText={setDescription}
-              placeholder="Description"
+              placeholder={t("playdates.descriptionPlaceholder")}
               placeholderTextColor={theme.colors.muted}
               multiline
               style={{
@@ -247,7 +249,7 @@ export default function PlaydatesPage() {
 
             <View style={{ gap: mobileTheme.spacing.sm }}>
               <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                Venue
+                {t("playdates.venue")}
               </Text>
               <ScrollView
                 horizontal
@@ -292,7 +294,7 @@ export default function PlaydatesPage() {
 
             <View style={{ gap: mobileTheme.spacing.sm }}>
               <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                Max Pets
+                {t("playdates.maxPets")}
               </Text>
               <View
                 style={{
@@ -361,7 +363,7 @@ export default function PlaydatesPage() {
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  Create Playdate
+                  {t("playdates.createPlaydate")}
                 </Text>
               )}
             </Pressable>
@@ -380,10 +382,10 @@ export default function PlaydatesPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <CalendarDays size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No playdates yet
+              {t("playdates.noPlaydates")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Tap the + button to organize a playdate for your pets.
+              {t("playdates.noPlaydatesDescription")}
             </Text>
           </View>
         )}
@@ -425,7 +427,7 @@ export default function PlaydatesPage() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Users size={14} color={theme.colors.secondary} />
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.secondary }}>
-                  {playdate.attendees.length} / {playdate.maxPets} attending
+                  {t("playdates.attending", { current: playdate.attendees.length, max: playdate.maxPets })}
                 </Text>
               </View>
               <Pressable
@@ -439,7 +441,7 @@ export default function PlaydatesPage() {
                 }}
               >
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
-                  Join
+                  {t("common.join")}
                 </Text>
               </Pressable>
             </View>

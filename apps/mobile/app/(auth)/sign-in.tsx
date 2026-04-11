@@ -60,16 +60,16 @@ export default function SignInPage() {
     },
     onError: (error) => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to sign in."
+        error instanceof Error ? error.message : t("auth.unableToSignIn")
       );
     }
   });
 
   return (
     <ScreenShell
-      eyebrow="Fetcht"
-      title="Welcome back."
-      subtitle="Sign in to continue discovering and matching."
+      eyebrow={t("home.appName")}
+      title={t("auth.welcomeBack")}
+      subtitle={t("auth.welcomeBackSubtitle")}
     >
       <View style={{ alignItems: "center", marginBottom: mobileTheme.spacing.md }}>
         <AnimatedLogo size="sm" />
@@ -95,7 +95,7 @@ export default function SignInPage() {
               textContentType="emailAddress"
               autoComplete="email"
               returnKeyType="next"
-              placeholder="Email"
+              placeholder={t("auth.email")}
               placeholderTextColor={theme.colors.muted}
               value={value}
               onChangeText={onChange}
@@ -114,7 +114,7 @@ export default function SignInPage() {
               autoCorrect={false}
               spellCheck={false}
               returnKeyType="done"
-              placeholder="Password"
+              placeholder={t("auth.password")}
               placeholderTextColor={theme.colors.muted}
               value={value}
               onChangeText={onChange}
@@ -135,7 +135,7 @@ export default function SignInPage() {
           </Text>
         ) : null}
         <PrimaryButton
-          label={mutation.isPending ? "Signing in..." : "Sign in"}
+          label={mutation.isPending ? t("auth.signingIn") : t("auth.signIn")}
           onPress={handleSubmit((values) => mutation.mutate(values))}
         />
       </View>
@@ -147,12 +147,12 @@ export default function SignInPage() {
           fontFamily: "Inter_400Regular"
         }}
       >
-        Need an account?{" "}
+        {t("auth.needAccount")}{" "}
         <Link
           href="/(auth)/sign-up"
           style={{ color: theme.colors.primary, fontWeight: "700" }}
         >
-          Create one
+          {t("auth.createOne")}
         </Link>
       </Text>
     </ScreenShell>

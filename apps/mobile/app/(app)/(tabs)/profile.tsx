@@ -32,6 +32,8 @@ import {
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useTranslation } from "react-i18next";
+
 import { Avatar } from "@/components/avatar";
 import { PetDetailModal } from "@/components/pet-card";
 import { listBadges, listMyPets, setPetVisibility } from "@/lib/api";
@@ -39,6 +41,7 @@ import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function ProfilePage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -92,26 +95,26 @@ export default function ProfilePage() {
   const petActionRow1 = (petId: string, isHidden: boolean) => [
     {
       key: "edit",
-      label: "Edit",
+      label: t("common.edit"),
       icon: PenSquare,
       onPress: () => router.push(`/(app)/edit-pet/${petId}` as any)
     },
     {
       key: "visibility",
-      label: isHidden ? "Hidden" : "Visible",
+      label: isHidden ? t("profile.hidden") : t("profile.visible"),
       icon: isHidden ? EyeOff : Eye,
       onPress: () =>
         visibilityMutation.mutate({ petId, hidden: !isHidden })
     },
     {
       key: "health",
-      label: "Health",
+      label: t("profile.health"),
       icon: Activity,
       onPress: () => router.push(`/(app)/pet-health/${petId}` as any)
     },
     {
       key: "diary",
-      label: "Diary",
+      label: t("care.diary"),
       icon: BookOpen,
       onPress: () => router.push(`/(app)/diary/${petId}` as any)
     }
@@ -120,13 +123,13 @@ export default function ProfilePage() {
   const petActionRow2 = (petId: string) => [
     {
       key: "weight",
-      label: "Weight",
+      label: t("profile.weight"),
       icon: Scale,
       onPress: () => router.push(`/(app)/pet-weight/${petId}` as any)
     },
     {
       key: "feeding",
-      label: "Feeding",
+      label: t("profile.feeding"),
       icon: UtensilsCrossed,
       onPress: () => router.push(`/(app)/feeding/${petId}` as any)
     }
@@ -138,13 +141,13 @@ export default function ProfilePage() {
   const quickLinks = [
     {
       key: "vet-contacts",
-      label: "Vet Contacts",
+      label: t("care.vetContacts"),
       icon: Phone,
       route: "/(app)/vet-contacts"
     },
     {
       key: "pet-sitters",
-      label: "Pet Sitters",
+      label: t("care.petSitters"),
       icon: Stethoscope,
       route: "/(app)/pet-sitters"
     }
@@ -193,7 +196,7 @@ export default function ProfilePage() {
                 letterSpacing: mobileTheme.typography.heading.letterSpacing
               }}
             >
-              Profile
+              {t("profile.title")}
             </Text>
 
             <Pressable
@@ -220,7 +223,7 @@ export default function ProfilePage() {
                   fontFamily: "Inter_600SemiBold"
                 }}
               >
-                Edit Profile
+                {t("profile.editProfile")}
               </Text>
             </Pressable>
           </View>
@@ -284,7 +287,7 @@ export default function ProfilePage() {
                   fontFamily: "Inter_500Medium"
                 }}
               >
-                {session?.user.cityLabel || "Location not shared"}
+                {session?.user.cityLabel || t("profile.locationNotShared")}
               </Text>
             </View>
 
@@ -313,9 +316,9 @@ export default function ProfilePage() {
                 width: "100%"
               }}
             >
-              <StatBox label="Pets" value={String(pets.length)} />
-              <StatBox label="Active" value={activePet?.name ?? "None"} />
-              <StatBox label="Matches" value="--" />
+              <StatBox label={t("profile.pets")} value={String(pets.length)} />
+              <StatBox label={t("profile.active")} value={activePet?.name ?? t("profile.none")} />
+              <StatBox label={t("profile.matches")} value="--" />
             </View>
           </View>
         </View>
@@ -401,7 +404,7 @@ export default function ProfilePage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Active
+                {t("profile.active")}
               </Text>
             </View>
           </Pressable>
@@ -427,7 +430,7 @@ export default function ProfilePage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              My Pets
+              {t("profile.myPets")}
             </Text>
             <Pressable
               accessibilityLabel="Add a new pet"
@@ -449,7 +452,7 @@ export default function ProfilePage() {
                   fontFamily: "Inter_600SemiBold"
                 }}
               >
-                Add
+                {t("profile.add")}
               </Text>
             </Pressable>
           </View>
@@ -548,7 +551,7 @@ export default function ProfilePage() {
                           }}
                         >
                           {pet.ageYears != null
-                            ? `${pet.ageYears} year${pet.ageYears === 1 ? "" : "s"} old`
+                            ? (pet.ageYears === 1 ? t("profile.yearsOld", { count: pet.ageYears }) : t("profile.yearsOldPlural", { count: pet.ageYears }))
                             : ""}
                         </Text>
                       </View>
@@ -575,7 +578,7 @@ export default function ProfilePage() {
                               fontFamily: "Inter_700Bold"
                             }}
                           >
-                            Active
+                            {t("profile.active")}
                           </Text>
                         </View>
                       ) : (
@@ -604,7 +607,7 @@ export default function ProfilePage() {
                               fontFamily: "Inter_600SemiBold"
                             }}
                           >
-                            Set Active
+                            {t("profile.setAsActive")}
                           </Text>
                         </Pressable>
                       )}
@@ -681,7 +684,7 @@ export default function ProfilePage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Add your first pet
+                {t("profile.addFirstPet")}
               </Text>
               <Text
                 style={{
@@ -693,8 +696,7 @@ export default function ProfilePage() {
                   maxWidth: 260
                 }}
               >
-                Register your pet to unlock discovery, matching, and all the
-                fun features Fetcht has to offer.
+                {t("profile.addFirstPetDescription")}
               </Text>
             </View>
           )}
@@ -712,7 +714,7 @@ export default function ProfilePage() {
               fontFamily: "Inter_600SemiBold"
             }}
           >
-            Achievements
+            {t("profile.achievements")}
           </Text>
 
           {badges.length > 0 ? (
@@ -762,7 +764,7 @@ export default function ProfilePage() {
                 paddingVertical: mobileTheme.spacing.xl
               }}
             >
-              No achievements yet
+              {t("profile.noAchievements")}
             </Text>
           )}
         </View>
@@ -779,7 +781,7 @@ export default function ProfilePage() {
               fontFamily: "Inter_600SemiBold"
             }}
           >
-            More
+            {t("profile.more")}
           </Text>
 
           <View
@@ -837,7 +839,7 @@ export default function ProfilePage() {
           />
 
           <Pressable
-            accessibilityLabel="Sign out"
+            accessibilityLabel={t("common.signOut")}
             onPress={() => {
               clearSession();
               router.replace("/");
@@ -861,7 +863,7 @@ export default function ProfilePage() {
                 fontFamily: "Inter_600SemiBold"
               }}
             >
-              Sign out
+              {t("common.signOut")}
             </Text>
           </Pressable>
         </View>

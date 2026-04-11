@@ -1,5 +1,6 @@
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import { Check, X } from "lucide-react-native";
 
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -21,6 +22,7 @@ export function PetSelectModal({
   onClose
 }: PetSelectModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -49,7 +51,7 @@ export function PetSelectModal({
               fontFamily: "Inter_700Bold"
             }}
           >
-            Switch pet
+            {t("match.petSelect.switchPet")}
           </Text>
           <Pressable onPress={onClose} hitSlop={12}>
             <X size={22} color={theme.colors.ink} />
@@ -72,7 +74,7 @@ export function PetSelectModal({
               marginBottom: mobileTheme.spacing.sm
             }}
           >
-            Choose which pet to discover with
+            {t("match.petSelect.chooseWhichPet")}
           </Text>
           {pets.map((pet) => {
             const isActive = pet.id === activePetId;

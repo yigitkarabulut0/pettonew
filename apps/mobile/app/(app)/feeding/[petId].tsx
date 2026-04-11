@@ -17,11 +17,13 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Clock, Plus, UtensilsCrossed } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listFeedingSchedules, createFeedingSchedule } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function FeedingPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -113,7 +115,7 @@ export default function FeedingPage() {
               color: theme.colors.ink
             }}
           >
-            Feeding Schedule
+            {t("feeding.title")}
           </Text>
         </View>
         <Pressable
@@ -165,13 +167,13 @@ export default function FeedingPage() {
                 color: theme.colors.ink
               }}
             >
-              New Feeding Schedule
+              {t("feeding.newSchedule")}
             </Text>
 
             <TextInput
               value={mealName}
               onChangeText={setMealName}
-              placeholder="Meal Name (e.g. Breakfast)"
+              placeholder={t("feeding.mealName")}
               placeholderTextColor={theme.colors.muted}
               style={{
                 backgroundColor: theme.colors.background,
@@ -218,7 +220,7 @@ export default function FeedingPage() {
             <TextInput
               value={foodType}
               onChangeText={setFoodType}
-              placeholder="Food Type (e.g. Dry Kibble)"
+              placeholder={t("feeding.foodType")}
               placeholderTextColor={theme.colors.muted}
               style={{
                 backgroundColor: theme.colors.background,
@@ -232,7 +234,7 @@ export default function FeedingPage() {
             <TextInput
               value={amount}
               onChangeText={setAmount}
-              placeholder="Amount (e.g. 1 cup)"
+              placeholder={t("feeding.amount")}
               placeholderTextColor={theme.colors.muted}
               style={{
                 backgroundColor: theme.colors.background,
@@ -257,7 +259,7 @@ export default function FeedingPage() {
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  Save Schedule
+                  {t("feeding.saveSchedule")}
                 </Text>
               )}
             </Pressable>
@@ -276,10 +278,10 @@ export default function FeedingPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <UtensilsCrossed size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No feeding schedules yet
+              {t("feeding.noSchedules")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Tap the + button to create a feeding schedule.
+              {t("feeding.noSchedulesDescription")}
             </Text>
           </View>
         )}

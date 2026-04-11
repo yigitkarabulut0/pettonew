@@ -15,12 +15,14 @@ import { ChevronLeft, Flag, Send } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { ReportModal } from "@/components/report-modal";
+import { useTranslation } from "react-i18next";
 import { listMessages, sendMessage } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import type { Conversation } from "@petto/contracts";
 
 export default function ConversationPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -37,7 +39,7 @@ export default function ConversationPage() {
   ]);
   const conversation = conversations?.find((c) => c.id === id) ?? null;
 
-  const otherUserName = conversation?.title ?? "Conversation";
+  const otherUserName = conversation?.title ?? t("chat.conversation");
   const otherUserAvatar = conversation?.matchPetPairs[0]?.matchedPetPhotoUrl;
   const subtitle = conversation?.subtitle ?? "";
 
@@ -292,7 +294,7 @@ export default function ConversationPage() {
         }}
       >
         <TextInput
-          placeholder="Type a message..."
+          placeholder={t("chat.typeMessage")}
           placeholderTextColor={theme.colors.muted}
           value={draft}
           onChangeText={setDraft}

@@ -1,6 +1,7 @@
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useEffect, useMemo, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
@@ -22,13 +23,14 @@ const DEFAULT_FILTERS: Filters = {
   neutered: null
 };
 
-const ACTIVITY_LABELS: Record<number, string> = {
-  1: "Very calm",
-  2: "Relaxed",
-  3: "Balanced",
-  4: "Active",
-  5: "Very active"
+const ACTIVITY_LABEL_KEYS: Record<number, string> = {
+  1: "onboarding.pets.activityVeryCalmShort",
+  2: "onboarding.pets.activityRelaxed",
+  3: "onboarding.pets.activityBalanced",
+  4: "onboarding.pets.activityActive",
+  5: "onboarding.pets.activityVeryActive"
 };
+
 
 interface FilterModalProps {
   visible: boolean;
@@ -41,7 +43,7 @@ interface FilterModalProps {
 
 export type { Filters };
 
-export { DEFAULT_FILTERS, ACTIVITY_LABELS };
+export { DEFAULT_FILTERS };
 
 export function FilterModal({
   visible,
@@ -52,6 +54,7 @@ export function FilterModal({
   onClose
 }: FilterModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [local, setLocal] = useState<Filters>(filters);
 
@@ -113,7 +116,7 @@ export function FilterModal({
               fontFamily: "Inter_700Bold"
             }}
           >
-            Filters{localCount > 0 ? ` (${localCount})` : ""}
+            {t("match.filter.title")}{localCount > 0 ? ` (${localCount})` : ""}
           </Text>
           <Pressable onPress={onClose} hitSlop={12}>
             <X size={22} color={theme.colors.ink} />
@@ -129,7 +132,7 @@ export function FilterModal({
           }}
         >
           {speciesList.length > 0 && (
-            <FilterSection title="Species">
+            <FilterSection title={t("match.filter.species")}>
               <View
                 style={{
                   flexDirection: "row",
@@ -138,7 +141,7 @@ export function FilterModal({
                 }}
               >
                 <FilterChip
-                  label="All"
+                  label={t("common.all")}
                   active={local.species === null}
                   onPress={() => setLocal((p) => ({ ...p, species: null }))}
                 />
@@ -159,7 +162,7 @@ export function FilterModal({
             </FilterSection>
           )}
 
-          <FilterSection title="Distance">
+          <FilterSection title={t("match.filter.distance")}>
             <View
               style={{
                 flexDirection: "row",
@@ -168,14 +171,14 @@ export function FilterModal({
               }}
             >
               <FilterChip
-                label="Any"
+                label={t("common.any")}
                 active={local.distance === null}
                 onPress={() => setLocal((p) => ({ ...p, distance: null }))}
               />
               {(["5", "10", "25", "50"] as const).map((d) => (
                 <FilterChip
                   key={d}
-                  label={`< ${d} km`}
+                  label={t("match.filter.lessThanKm", { distance: d })}
                   active={local.distance === d}
                   onPress={() =>
                     setLocal((p) => ({
@@ -188,7 +191,7 @@ export function FilterModal({
             </View>
           </FilterSection>
 
-          <FilterSection title="Energy level">
+          <FilterSection title={t("match.filter.energyLevel")}>
             <View
               style={{
                 flexDirection: "row",
@@ -197,14 +200,14 @@ export function FilterModal({
               }}
             >
               <FilterChip
-                label="Any"
+                label={t("common.any")}
                 active={local.activityLevel === null}
                 onPress={() => setLocal((p) => ({ ...p, activityLevel: null }))}
               />
               {([1, 2, 3, 4, 5] as const).map((level) => (
                 <FilterChip
                   key={level}
-                  label={ACTIVITY_LABELS[level] ?? String(level)}
+                  label={t(ACTIVITY_LABEL_KEYS[level])}
                   active={local.activityLevel === level}
                   onPress={() =>
                     setLocal((p) => ({
@@ -217,7 +220,7 @@ export function FilterModal({
             </View>
           </FilterSection>
 
-          <FilterSection title="Good with">
+          <FilterSection title={t("match.filter.goodWith")}>
             <View
               style={{
                 flexDirection: "row",
@@ -236,7 +239,7 @@ export function FilterModal({
             </View>
           </FilterSection>
 
-          <FilterSection title="Neutered">
+          <FilterSection title={t("match.filter.neutered")}>
             <View
               style={{
                 flexDirection: "row",
@@ -244,12 +247,12 @@ export function FilterModal({
               }}
             >
               <FilterChip
-                label="Any"
+                label={t("common.any")}
                 active={local.neutered === null}
                 onPress={() => setLocal((p) => ({ ...p, neutered: null }))}
               />
               <FilterChip
-                label="Yes"
+                label={t("common.yes")}
                 active={local.neutered === true}
                 onPress={() =>
                   setLocal((p) => ({
@@ -259,7 +262,7 @@ export function FilterModal({
                 }
               />
               <FilterChip
-                label="No"
+                label={t("common.no")}
                 active={local.neutered === false}
                 onPress={() =>
                   setLocal((p) => ({
@@ -284,7 +287,7 @@ export function FilterModal({
         >
           {localCount > 0 && (
             <PrimaryButton
-              label="Reset filters"
+              label={t("match.filter.resetFilters")}
               onPress={reset}
               variant="ghost"
             />
@@ -292,8 +295,8 @@ export function FilterModal({
           <PrimaryButton
             label={
               hasChanges
-                ? `Apply${localCount > 0 ? ` (${localCount})` : ""}`
-                : "Done"
+                ? `${t("common.apply")}${localCount > 0 ? ` (${localCount})` : ""}`
+                : t("common.done")
             }
             onPress={() => {
               if (hasChanges) {

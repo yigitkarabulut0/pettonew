@@ -22,6 +22,8 @@ import {
   UtensilsCrossed
 } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+
 import { Avatar } from "@/components/avatar";
 import { listMyPets } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -29,25 +31,26 @@ import { useSessionStore } from "@/store/session";
 
 const CARE_SECTIONS = [
   {
-    title: "Health & Tracking",
+    titleKey: "care.healthTracking",
     items: [
-      { label: "Health Records", subtitle: "Vaccines, checkups, surgeries", icon: Activity, color: "#3F7D4E", routeKey: "pet-health" },
-      { label: "Weight Log", subtitle: "Track weight over time", icon: Scale, color: "#5B9BD5", routeKey: "pet-weight" },
-      { label: "Feeding Plan", subtitle: "Meal schedules & nutrition", icon: UtensilsCrossed, color: "#E6694A", routeKey: "feeding" },
-      { label: "Diary", subtitle: "Notes, moods & memories", icon: BookOpen, color: "#8B6F47", routeKey: "diary" }
+      { labelKey: "care.healthRecords", subtitleKey: "care.healthRecordsSubtitle", icon: Activity, color: "#3F7D4E", routeKey: "pet-health" },
+      { labelKey: "care.weightLog", subtitleKey: "care.weightLogSubtitle", icon: Scale, color: "#5B9BD5", routeKey: "pet-weight" },
+      { labelKey: "care.feedingPlan", subtitleKey: "care.feedingPlanSubtitle", icon: UtensilsCrossed, color: "#E6694A", routeKey: "feeding" },
+      { labelKey: "care.diary", subtitleKey: "care.diarySubtitle", icon: BookOpen, color: "#8B6F47", routeKey: "diary" }
     ]
   },
   {
-    title: "Resources",
+    titleKey: "care.resources",
     items: [
-      { label: "Vet Contacts", subtitle: "Your veterinarians", icon: Phone, color: "#A14632", route: "/(app)/vet-contacts" },
-      { label: "Training Tips", subtitle: "Commands & behavior", icon: GraduationCap, color: "#21433C", route: "/(app)/training-tips" },
-      { label: "Pet Sitters", subtitle: "Find trusted caregivers", icon: Stethoscope, color: "#C48A3F", route: "/(app)/pet-sitters" }
+      { labelKey: "care.vetContacts", subtitleKey: "care.vetContactsSubtitle", icon: Phone, color: "#A14632", route: "/(app)/vet-contacts" },
+      { labelKey: "care.trainingTips", subtitleKey: "care.trainingTipsSubtitle", icon: GraduationCap, color: "#21433C", route: "/(app)/training-tips" },
+      { labelKey: "care.petSitters", subtitleKey: "care.petSittersSubtitle", icon: Stethoscope, color: "#C48A3F", route: "/(app)/pet-sitters" }
     ]
   }
 ] as const;
 
 export default function CarePage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((s) => s.session);
   const activePetId = useSessionStore((s) => s.activePetId);
@@ -83,7 +86,7 @@ export default function CarePage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Care
+          {t("care.title")}
         </Text>
         <Text
           style={{
@@ -93,7 +96,7 @@ export default function CarePage() {
             marginTop: 2
           }}
         >
-          Everything your pet needs in one place
+          {t("care.subtitle")}
         </Text>
       </View>
 
@@ -170,7 +173,7 @@ export default function CarePage() {
         )}
 
         {CARE_SECTIONS.map((section) => (
-          <View key={section.title} style={{ gap: mobileTheme.spacing.md }}>
+          <View key={section.titleKey} style={{ gap: mobileTheme.spacing.md }}>
             <Text
               style={{
                 fontSize: mobileTheme.typography.subheading.fontSize,
@@ -179,7 +182,7 @@ export default function CarePage() {
                 fontFamily: "Inter_700Bold"
               }}
             >
-              {section.title}
+              {t(section.titleKey)}
             </Text>
             <View style={{ gap: mobileTheme.spacing.sm }}>
               {section.items.map((item) => {
@@ -191,7 +194,7 @@ export default function CarePage() {
 
                 return (
                   <Pressable
-                    key={item.label}
+                    key={item.labelKey}
                     disabled={!targetRoute}
                     onPress={() => targetRoute && router.push(targetRoute as any)}
                     style={({ pressed }) => ({
@@ -225,7 +228,7 @@ export default function CarePage() {
                           color: theme.colors.ink
                         }}
                       >
-                        {item.label}
+                        {t(item.labelKey)}
                       </Text>
                       <Text
                         style={{
@@ -235,7 +238,7 @@ export default function CarePage() {
                           marginTop: 1
                         }}
                       >
-                        {item.subtitle}
+                        {t(item.subtitleKey)}
                       </Text>
                     </View>
                     <View
@@ -273,7 +276,7 @@ export default function CarePage() {
                 color: theme.colors.ink
               }}
             >
-              Add a pet first
+              {t("care.addPetFirst")}
             </Text>
             <Text
               style={{
@@ -283,7 +286,7 @@ export default function CarePage() {
                 maxWidth: 260
               }}
             >
-              Go to Profile and add your first pet to unlock all care features.
+              {t("care.addPetFirstDescription")}
             </Text>
           </View>
         )}

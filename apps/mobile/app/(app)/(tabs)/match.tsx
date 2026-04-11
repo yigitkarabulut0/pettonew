@@ -13,12 +13,13 @@ import { MatchesList } from "@/components/match/matches-list";
 import { MatchTutorial } from "@/components/match/match-tutorial";
 import {
   FilterModal,
-  DEFAULT_FILTERS,
-  ACTIVITY_LABELS
+  DEFAULT_FILTERS
 } from "@/components/match/filter-modal";
 import type { Filters } from "@/components/match/filter-modal";
 import { MatchCelebrationModal } from "@/components/match/match-celebration";
 import { PetSelectModal } from "@/components/match/pet-select-modal";
+import { useTranslation } from "react-i18next";
+
 import { getDiscoveryFeed, listMatches, listMyPets } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -28,6 +29,7 @@ const TUTORIAL_STORAGE_KEY = "petto_match_tutorial_seen";
 const DEFAULT_GOOD_WITH = ["Kids", "Dogs", "Cats", "Other pets", "Elderly"];
 
 export default function MatchesPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
@@ -281,7 +283,7 @@ export default function MatchesPage() {
                 fontFamily: "Inter_700Bold"
               }}
             >
-              Discover
+              {t("match.discover")}
             </Text>
             {tab === "discover" && !feedLoading && (
               <Text
@@ -292,7 +294,7 @@ export default function MatchesPage() {
                   marginTop: 2
                 }}
               >
-                {filteredFeed.length} pets near you
+                {t("match.petsNearYou", { count: filteredFeed.length })}
               </Text>
             )}
             {tab === "matches" && matches.length > 0 && (
@@ -304,7 +306,7 @@ export default function MatchesPage() {
                   marginTop: 2
                 }}
               >
-                {matches.length} {matches.length === 1 ? "match" : "matches"}
+                {t("match.matchCount", { count: matches.length })}
               </Text>
             )}
           </View>
@@ -419,7 +421,7 @@ export default function MatchesPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            Discover
+            {t("match.discover")}
           </Text>
         </Pressable>
         <Pressable
@@ -446,7 +448,7 @@ export default function MatchesPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            Matches{matches.length > 0 ? ` ${matches.length}` : ""}
+            {t("match.matches")}{matches.length > 0 ? ` ${matches.length}` : ""}
           </Text>
         </Pressable>
       </View>

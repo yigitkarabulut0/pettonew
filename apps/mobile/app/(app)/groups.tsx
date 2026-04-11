@@ -12,11 +12,13 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Users2 } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listGroups, joinGroup } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 export default function GroupsPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -82,7 +84,7 @@ export default function GroupsPage() {
               color: theme.colors.ink
             }}
           >
-            Community Groups
+            {t("groups.title")}
           </Text>
         </View>
       </View>
@@ -113,10 +115,10 @@ export default function GroupsPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <Users2 size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No groups yet
+              {t("groups.noGroups")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Community groups will appear here as they are created.
+              {t("groups.noGroupsDescription")}
             </Text>
           </View>
         )}
@@ -158,7 +160,7 @@ export default function GroupsPage() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Users2 size={14} color={theme.colors.muted} />
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                  {group.memberCount} members
+                  {t("groups.members", { count: group.memberCount })}
                 </Text>
               </View>
               <Pressable
@@ -172,7 +174,7 @@ export default function GroupsPage() {
                 }}
               >
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
-                  Join
+                  {t("common.join")}
                 </Text>
               </Pressable>
             </View>

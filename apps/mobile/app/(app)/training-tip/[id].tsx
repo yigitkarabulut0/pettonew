@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft, Bookmark, CheckCircle, Play } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { getTrainingTip, bookmarkTip, unbookmarkTip, completeTip } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -22,6 +23,7 @@ const DIFFICULTY_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function TrainingTipDetailPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -99,7 +101,7 @@ export default function TrainingTipDetailPage() {
           }}
           numberOfLines={1}
         >
-          Training Tip
+          {t("training.tipTitle")}
         </Text>
         <Pressable
           onPress={() => bookmarkMutation.mutate()}
@@ -212,7 +214,7 @@ export default function TrainingTipDetailPage() {
             >
               <Play size={40} color={theme.colors.primary} />
               <Text style={{ marginTop: 8, fontSize: mobileTheme.typography.caption.fontSize, fontFamily: "Inter_500Medium", color: theme.colors.muted }}>
-                Video available
+                {t("training.videoAvailable")}
               </Text>
             </View>
           ) : null}
@@ -228,7 +230,7 @@ export default function TrainingTipDetailPage() {
                   marginBottom: mobileTheme.spacing.sm
                 }}
               >
-                Details
+                {t("training.details")}
               </Text>
               <Text
                 style={{
@@ -253,7 +255,7 @@ export default function TrainingTipDetailPage() {
                   color: theme.colors.ink
                 }}
               >
-                Steps
+                {t("training.steps")}
               </Text>
               {tip.steps
                 .sort((a, b) => a.order - b.order)
@@ -320,7 +322,7 @@ export default function TrainingTipDetailPage() {
                         >
                           <Play size={14} color={theme.colors.primary} />
                           <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontFamily: "Inter_500Medium", color: theme.colors.primary }}>
-                            Video available
+                            {t("training.videoAvailable")}
                           </Text>
                         </View>
                       ) : null}
@@ -354,14 +356,14 @@ export default function TrainingTipDetailPage() {
                 color: completed ? "#3F7D4E" : "#FFFFFF"
               }}
             >
-              {completed ? "Completed" : completeMutation.isPending ? "Saving..." : "Mark as Completed"}
+              {completed ? t("training.completed") : completeMutation.isPending ? t("common.saving") : t("training.markCompleted")}
             </Text>
           </Pressable>
         </ScrollView>
       ) : (
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
           <Text style={{ color: theme.colors.muted, fontFamily: "Inter_500Medium" }}>
-            Training tip not found
+            {t("training.tipNotFound")}
           </Text>
         </View>
       )}

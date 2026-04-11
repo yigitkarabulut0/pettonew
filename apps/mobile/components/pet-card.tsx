@@ -14,6 +14,7 @@ import {
 import { Image } from "expo-image";
 import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   BookOpen,
@@ -37,12 +38,12 @@ import { QRCodeModal } from "@/components/qr-code-modal";
 import { ReportModal } from "@/components/report-modal";
 import { useSessionStore } from "@/store/session";
 
-const ACTIVITY_COPY: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: "Very calm",
-  2: "Relaxed",
-  3: "Balanced",
-  4: "Active",
-  5: "Very active"
+const ACTIVITY_KEYS: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: "onboarding.pets.activityVeryCalmShort",
+  2: "onboarding.pets.activityRelaxed",
+  3: "onboarding.pets.activityBalanced",
+  4: "onboarding.pets.activityActive",
+  5: "onboarding.pets.activityVeryActive"
 };
 
 const ACTIVITY_COLORS: Record<number, string> = {
@@ -159,6 +160,7 @@ export function CompactPetCard({
   onPress?: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const content = (
     <View
       style={{
@@ -230,7 +232,7 @@ export function CompactPetCard({
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Active
+                {t("profile.active")}
               </Text>
             </View>
           ) : null}
@@ -278,6 +280,7 @@ export function PetDetailModal({
   onClose: () => void;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const photos = (pet?.photos ?? []).filter((p) => p.url && p.url.length > 0);
@@ -371,8 +374,8 @@ export function PetDetailModal({
             <Pressable
               onPress={() => {
                 Share.share({
-                  message: `Check out ${pet.name} on Fetcht! ${pet.speciesLabel} - ${pet.breedLabel}. Download Fetcht to find playmates for your pet.`,
-                  title: `Meet ${pet.name} on Fetcht`
+                  message: t("petCard.shareMessage", { name: pet.name, species: pet.speciesLabel, breed: pet.breedLabel }),
+                  title: t("petCard.shareTitle", { name: pet.name })
                 });
               }}
               hitSlop={12}
@@ -541,12 +544,12 @@ export function PetDetailModal({
                 >
                   <StatChip
                     icon={ShieldCheck}
-                    label={ACTIVITY_COPY[activityLevel]}
+                    label={t(ACTIVITY_KEYS[activityLevel])}
                     accentColor={activityColor}
                   />
                   <StatChip
                     icon={pet.isNeutered ? CheckCircle2 : Calendar}
-                    label={pet.isNeutered ? "Neutered" : "Not neutered"}
+                    label={pet.isNeutered ? t("petCard.neutered") : t("petCard.notNeutered")}
                   />
                   {pet.cityLabel ? (
                     <StatChip icon={MapPin} label={pet.cityLabel} />
@@ -563,7 +566,7 @@ export function PetDetailModal({
                         fontFamily: "Inter_700Bold"
                       }}
                     >
-                      About
+                      {t("petCard.about")}
                     </Text>
                     <Text
                       style={{
@@ -588,7 +591,7 @@ export function PetDetailModal({
                         fontFamily: "Inter_700Bold"
                       }}
                     >
-                      Hobbies
+                      {t("petCard.hobbies")}
                     </Text>
                     <View
                       style={{
@@ -614,7 +617,7 @@ export function PetDetailModal({
                         fontFamily: "Inter_700Bold"
                       }}
                     >
-                      Good with
+                      {t("petCard.goodWith")}
                     </Text>
                     <View
                       style={{
@@ -642,9 +645,9 @@ export function PetDetailModal({
               <>
                 <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
                   {[
-                    { label: "Health", icon: Activity, route: `/(app)/pet-health/${pet.id}` },
-                    { label: "Weight", icon: Scale, route: `/(app)/pet-weight/${pet.id}` },
-                    { label: "Feeding", icon: UtensilsCrossed, route: `/(app)/feeding/${pet.id}` }
+                    { label: t("profile.health"), icon: Activity, route: `/(app)/pet-health/${pet.id}` },
+                    { label: t("profile.weight"), icon: Scale, route: `/(app)/pet-weight/${pet.id}` },
+                    { label: t("profile.feeding"), icon: UtensilsCrossed, route: `/(app)/feeding/${pet.id}` }
                   ].map((action) => (
                     <Pressable
                       key={action.label}
@@ -705,7 +708,7 @@ export function PetDetailModal({
                       fontFamily: "Inter_600SemiBold"
                     }}
                   >
-                    View Diary
+                    {t("petCard.viewDiary")}
                   </Text>
                 </Pressable>
               </>

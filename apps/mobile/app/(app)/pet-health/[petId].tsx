@@ -17,6 +17,7 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, CalendarDays, HeartPulse, Plus, Trash2 } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listHealthRecords, createHealthRecord } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -37,6 +38,7 @@ function typeBadgeColor(type: string, colors: ReturnType<typeof useTheme>["color
 }
 
 export default function PetHealthPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -128,7 +130,7 @@ export default function PetHealthPage() {
               color: theme.colors.ink
             }}
           >
-            Health Records
+            {t("health.title")}
           </Text>
         </View>
         <Pressable
@@ -180,12 +182,12 @@ export default function PetHealthPage() {
                 color: theme.colors.ink
               }}
             >
-              New Health Record
+              {t("health.newRecord")}
             </Text>
 
             {/* Type Selector */}
             <View style={{ gap: mobileTheme.spacing.sm }}>
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>Type</Text>
+              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>{t("health.type")}</Text>
               <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm, flexWrap: "wrap" }}>
                 {RECORD_TYPES.map((t) => {
                   const badge = typeBadgeColor(t, theme.colors);
@@ -221,7 +223,7 @@ export default function PetHealthPage() {
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Title (e.g. Rabies Vaccine)"
+              placeholder={t("health.titlePlaceholder")}
               placeholderTextColor={theme.colors.muted}
               style={{
                 backgroundColor: theme.colors.background,
@@ -268,7 +270,7 @@ export default function PetHealthPage() {
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder="Notes"
+              placeholder={t("health.notes")}
               placeholderTextColor={theme.colors.muted}
               multiline
               style={{
@@ -300,7 +302,7 @@ export default function PetHealthPage() {
                   color: selectedNextDueDate ? theme.colors.ink : theme.colors.muted
                 }}
               >
-                {selectedNextDueDate ? selectedNextDueDate.toLocaleDateString() : "Next Due Date (optional)"}
+                {selectedNextDueDate ? selectedNextDueDate.toLocaleDateString() : t("health.nextDueDate")}
               </Text>
             </Pressable>
             {showNextDuePicker && (
@@ -331,7 +333,7 @@ export default function PetHealthPage() {
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  Save Record
+                  {t("health.saveRecord")}
                 </Text>
               )}
             </Pressable>
@@ -350,10 +352,10 @@ export default function PetHealthPage() {
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
             <HeartPulse size={48} color={theme.colors.muted} />
             <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              No health records yet
+              {t("health.noRecords")}
             </Text>
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              Tap the + button to add your first health record.
+              {t("health.noRecordsDescription")}
             </Text>
           </View>
         )}
@@ -400,7 +402,7 @@ export default function PetHealthPage() {
               ) : null}
               {record.nextDueDate ? (
                 <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.primary }}>
-                  Next due: {new Date(record.nextDueDate).toLocaleDateString()}
+                  {t("health.nextDue", { date: new Date(record.nextDueDate).toLocaleDateString() })}
                 </Text>
               ) : null}
             </View>

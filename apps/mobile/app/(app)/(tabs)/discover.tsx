@@ -38,6 +38,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 
+import { useTranslation } from "react-i18next";
+
 import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
 import {
@@ -231,6 +233,7 @@ const VenueMarkers = React.memo(function VenueMarkers({
 /* ------------------------------------------------------------------ */
 
 export default function DiscoverPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((s) => s.session);
   const queryClient = useQueryClient();
@@ -394,14 +397,14 @@ export default function DiscoverPage() {
       ),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToast("Checked in!");
+      showToast(t("discover.checkedIn"));
       queryClient.invalidateQueries({
         queryKey: ["explore-venues", session?.tokens.accessToken]
       });
     },
     onError: (error) => {
       showToast(
-        error instanceof Error ? error.message : "Unable to check in."
+        error instanceof Error ? error.message : t("discover.unableToCheckIn")
       );
     }
   });
@@ -411,13 +414,13 @@ export default function DiscoverPage() {
       rsvpEvent(session!.tokens.accessToken, eventId, primaryPetIds),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToast("You're on the list!");
+      showToast(t("discover.rsvpSuccess"));
       queryClient.invalidateQueries({
         queryKey: ["explore-events", session?.tokens.accessToken]
       });
     },
     onError: (error) => {
-      showToast(error instanceof Error ? error.message : "Unable to join.");
+      showToast(error instanceof Error ? error.message : t("discover.unableToJoin"));
     }
   });
 
@@ -516,7 +519,7 @@ export default function DiscoverPage() {
   const handleCheckInPress = useCallback(
     (venueId: string) => {
       if (pets.length === 0) {
-        showToast("Add a pet first to check in.");
+        showToast(t("discover.addPetFirstCheckIn"));
         return;
       }
       if (pets.length === 1) {
@@ -552,7 +555,7 @@ export default function DiscoverPage() {
   const handleRsvpPress = useCallback(
     (eventId: string) => {
       if (primaryPetIds.length === 0) {
-        showToast("Add a pet first to join.");
+        showToast(t("discover.addPetFirstJoin"));
         return;
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -680,7 +683,7 @@ export default function DiscoverPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Discover
+          {t("discover.title")}
         </Text>
 
         <Pressable
@@ -807,7 +810,7 @@ export default function DiscoverPage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Check in with
+                {t("discover.selectPetsCheckIn")}
               </Text>
               <Pressable
                 onPress={() => setPetPickerOpen(false)}
@@ -896,7 +899,7 @@ export default function DiscoverPage() {
             {/* Confirm button */}
             <View style={{ gap: mobileTheme.spacing.sm }}>
               <PrimaryButton
-                label="Confirm Check-in"
+                label={t("discover.confirmCheckIn")}
                 disabled={selectedPetIds.length === 0}
                 onPress={confirmCheckIn}
               />
@@ -909,7 +912,7 @@ export default function DiscoverPage() {
                     fontFamily: "Inter_500Medium"
                   }}
                 >
-                  Select at least one pet to check in.
+                  {t("discover.selectAtLeastOnePet")}
                 </Text>
               )}
             </View>
@@ -1004,13 +1007,13 @@ export default function DiscoverPage() {
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 20, backgroundColor: theme.colors.successBg }}>
                   <Check size={15} color={theme.colors.success} />
-                  <Text style={{ color: theme.colors.success, fontFamily: "Inter_700Bold", fontSize: 13 }}>Checked in</Text>
+                  <Text style={{ color: theme.colors.success, fontFamily: "Inter_700Bold", fontSize: 13 }}>{t("discover.checkedInHere")}</Text>
                 </View>
               </View>
             ) : (
               <Pressable onPress={() => handleCheckInPress(selectedVenue.id)} disabled={checkInMutation.isPending} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 20, backgroundColor: theme.colors.primary, opacity: checkInMutation.isPending ? 0.5 : pressed ? 0.85 : 1 })}>
                 <Check size={15} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontFamily: "Inter_700Bold", fontSize: 13 }}>{checkInMutation.isPending ? "Checking in..." : "Check in here"}</Text>
+                <Text style={{ color: "#FFFFFF", fontFamily: "Inter_700Bold", fontSize: 13 }}>{checkInMutation.isPending ? t("common.loading") : t("discover.checkIn")}</Text>
               </Pressable>
             )}
           </View>
@@ -1096,7 +1099,7 @@ export default function DiscoverPage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Venues
+                {t("discover.venues")}
               </Text>
             </Pressable>
             <Pressable
@@ -1123,7 +1126,7 @@ export default function DiscoverPage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Events
+                {t("discover.events")}
               </Text>
             </Pressable>
             <Pressable
@@ -1150,7 +1153,7 @@ export default function DiscoverPage() {
                   fontFamily: "Inter_700Bold"
                 }}
               >
-                Vets
+                {t("discover.vets")}
               </Text>
             </Pressable>
           </View>
@@ -1232,6 +1235,7 @@ function VenuesTab({
   onCheckIn: (id: string) => void;
   checkInPending: boolean;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
 
   if (venues.length === 0) {
@@ -1258,7 +1262,7 @@ function VenuesTab({
             fontFamily: "Inter_400Regular"
           }}
         >
-          No venues found nearby. Check back soon!
+          {t("discover.noVenues")}
         </Text>
       </View>
     );
@@ -1384,7 +1388,7 @@ function VenuesTab({
                     fontFamily: "Inter_600SemiBold"
                   }}
                 >
-                  Check in
+                  {t("discover.checkIn")}
                 </Text>
               </Pressable>
             </Pressable>
@@ -1460,7 +1464,7 @@ function VenuesTab({
                     letterSpacing: 1.2
                   }}
                 >
-                  People here
+                  {t("discover.peopleHere")}
                 </Text>
                 {venue.currentCheckIns.map((checkIn, idx) => (
                   <View
@@ -1579,6 +1583,7 @@ function EventsTab({
   rsvpPending: boolean;
   userId?: string;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
 
   if (events.length === 0) {
@@ -1605,7 +1610,7 @@ function EventsTab({
             fontFamily: "Inter_400Regular"
           }}
         >
-          No upcoming events. Check back soon!
+          {t("discover.noVenues")}
         </Text>
       </View>
     );
@@ -1698,7 +1703,7 @@ function EventsTab({
                   fontFamily: "Inter_500Medium"
                 }}
               >
-                {event.attendeeCount} going
+                {t("discover.attendeesGoing", { count: event.attendeeCount })}
               </Text>
 
               <View
@@ -1744,7 +1749,7 @@ function EventsTab({
                       fontFamily: "Inter_700Bold"
                     }}
                   >
-                    Joined
+                    {t("discover.rsvpSuccess")}
                   </Text>
                 </View>
               ) : (
@@ -1767,7 +1772,7 @@ function EventsTab({
                       fontFamily: "Inter_700Bold"
                     }}
                   >
-                    Join
+                    {t("common.join")}
                   </Text>
                 </Pressable>
               )}
@@ -1796,6 +1801,7 @@ function VetsTab({
     distance?: number;
   }>;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
 
   if (clinics.length === 0) {
@@ -1822,7 +1828,7 @@ function VetsTab({
             fontFamily: "Inter_400Regular"
           }}
         >
-          No vet clinics found nearby. Check back soon!
+          {t("vets.noClinics")}
         </Text>
       </View>
     );
@@ -1894,7 +1900,7 @@ function VetsTab({
                         fontFamily: "Inter_700Bold"
                       }}
                     >
-                      Emergency
+                      {t("vets.emergency")}
                     </Text>
                   </View>
                 )}

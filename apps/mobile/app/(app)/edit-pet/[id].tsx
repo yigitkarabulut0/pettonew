@@ -21,6 +21,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Camera, X } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import { PrimaryButton } from "@/components/primary-button";
 import { listMyPets, listTaxonomies, updatePet, uploadMedia } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -42,14 +44,15 @@ const petSchema = z.object({
 type PetValues = z.infer<typeof petSchema>;
 
 const ACTIVITY_COPY: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: "Very calm",
-  2: "Relaxed",
-  3: "Balanced",
-  4: "Active",
-  5: "Very active"
+  1: i18n.t("onboarding.pets.activityVeryCalmShort"),
+  2: i18n.t("onboarding.pets.activityRelaxed"),
+  3: i18n.t("onboarding.pets.activityBalanced"),
+  4: i18n.t("onboarding.pets.activityActive"),
+  5: i18n.t("onboarding.pets.activityVeryActive")
 };
 
 export default function EditPetPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const { id: petId } = useLocalSearchParams<{ id: string }>();
   const session = useSessionStore((state) => state.session);
@@ -189,7 +192,7 @@ export default function EditPetPage() {
       router.back();
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Unable to update pet.");
+      setErrorMessage(error instanceof Error ? error.message : i18n.t("editPet.unableToUpdate"));
     }
   });
 
@@ -244,7 +247,7 @@ export default function EditPetPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Edit {pet.name}
+          {t("editPet.title", { name: pet.name })}
         </Text>
       </View>
 
@@ -260,7 +263,7 @@ export default function EditPetPage() {
           control={control}
           name="name"
           render={({ field: { onChange, value } }) => (
-            <LabeledInput label="Pet name" placeholder="Name" value={value} onChangeText={onChange} error={errors.name} />
+            <LabeledInput label={t("onboarding.pets.petName")} placeholder={t("editPet.namePlaceholder")} value={value} onChangeText={onChange} error={errors.name} />
           )}
         />
 
@@ -269,8 +272,8 @@ export default function EditPetPage() {
           name="ageYearsInput"
           render={({ field: { onChange, value } }) => (
             <LabeledInput
-              label="Pet age"
-              placeholder="Age in years"
+              label={t("onboarding.pets.petAge")}
+              placeholder={t("editPet.agePlaceholder")}
               value={value}
               onChangeText={(t) => onChange(t.replace(/[^0-9]/g, ""))}
               keyboardType="number-pad"
@@ -284,7 +287,7 @@ export default function EditPetPage() {
           name="gender"
           render={({ field: { onChange, value } }) => (
             <View style={{ gap: mobileTheme.spacing.md }}>
-              <Text style={getFieldLabelStyle(theme.colors)}>Gender</Text>
+              <Text style={getFieldLabelStyle(theme.colors)}>{t("onboarding.pets.gender")}</Text>
               <View style={{ flexDirection: "row", gap: mobileTheme.spacing.md }}>
                 {(["male", "female"] as const).map((g) => (
                   <Pressable
@@ -307,7 +310,7 @@ export default function EditPetPage() {
                         color: value === g ? theme.colors.primary : theme.colors.muted
                       }}
                     >
-                      {g === "male" ? "Male" : "Female"}
+                      {g === "male" ? t("onboarding.pets.male") : t("onboarding.pets.female")}
                     </Text>
                   </Pressable>
                 ))}
@@ -321,14 +324,14 @@ export default function EditPetPage() {
           name="speciesId"
           render={({ field: { onChange, value } }) => (
             <PickerField
-              label="Species"
+              label={t("onboarding.pets.species")}
               value={value}
               onValueChange={(v) => {
                 onChange(v);
                 setValue("breedId", "");
               }}
               items={species}
-              placeholder="Select a species"
+              placeholder={t("onboarding.pets.selectSpecies")}
               error={errors.speciesId}
             />
           )}
@@ -339,11 +342,11 @@ export default function EditPetPage() {
           name="breedId"
           render={({ field: { onChange, value } }) => (
             <PickerField
-              label="Breed"
+              label={t("onboarding.pets.breed")}
               value={value}
               onValueChange={onChange}
               items={filteredBreeds}
-              placeholder={selectedSpeciesId ? "Select a breed" : "Choose species first"}
+              placeholder={selectedSpeciesId ? t("onboarding.pets.selectBreed") : t("onboarding.pets.chooseSpeciesFirst")}
               disabled={!selectedSpeciesId}
               error={errors.breedId}
             />
@@ -351,7 +354,7 @@ export default function EditPetPage() {
         />
 
         <View style={{ gap: mobileTheme.spacing.md }}>
-          <Text style={getFieldLabelStyle(theme.colors)}>Activity level</Text>
+          <Text style={getFieldLabelStyle(theme.colors)}>{t("onboarding.pets.activityLevel")}</Text>
           <View
             style={{
               borderRadius: mobileTheme.radius.md,
@@ -398,7 +401,7 @@ export default function EditPetPage() {
         </View>
 
         <View style={{ gap: mobileTheme.spacing.md }}>
-          <Text style={getFieldLabelStyle(theme.colors)}>Hobbies</Text>
+          <Text style={getFieldLabelStyle(theme.colors)}>{t("onboarding.pets.hobbies")}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: mobileTheme.spacing.md }}>
             {selectedHobbies.map((item) => (
               <TagChip
@@ -407,12 +410,12 @@ export default function EditPetPage() {
                 onRemove={() => setSelectedHobbyIds((current) => current.filter((e) => e !== item.id))}
               />
             ))}
-            <PrimaryButton label="+ Add" variant="ghost" onPress={() => setHobbiesModalOpen(true)} />
+            <PrimaryButton label={t("onboarding.pets.addHobby")} variant="ghost" onPress={() => setHobbiesModalOpen(true)} />
           </View>
         </View>
 
         <View style={{ gap: mobileTheme.spacing.md }}>
-          <Text style={getFieldLabelStyle(theme.colors)}>Good with</Text>
+          <Text style={getFieldLabelStyle(theme.colors)}>{t("onboarding.pets.goodWith")}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: mobileTheme.spacing.md }}>
             {compatibility.map((item) => {
               const selected = selectedCompatibilityIds.includes(item.id);
@@ -435,7 +438,7 @@ export default function EditPetPage() {
         </View>
 
         <View style={{ gap: mobileTheme.spacing.md }}>
-          <Text style={getFieldLabelStyle(theme.colors)}>Characters</Text>
+          <Text style={getFieldLabelStyle(theme.colors)}>{t("onboarding.pets.characters")}</Text>
           <View
             style={{
               borderRadius: mobileTheme.radius.md,
@@ -464,10 +467,10 @@ export default function EditPetPage() {
                   fontFamily: "Inter_400Regular"
                 }}
               >
-                Describe your pet's personality
+                {t("onboarding.pets.describePersonality")}
               </Text>
             )}
-            <PrimaryButton label="+ Add Character" variant="ghost" onPress={() => setCharactersModalOpen(true)} />
+            <PrimaryButton label={t("onboarding.pets.addCharacter")} variant="ghost" onPress={() => setCharactersModalOpen(true)} />
           </View>
         </View>
 
@@ -475,7 +478,7 @@ export default function EditPetPage() {
           control={control}
           name="isNeutered"
           render={({ field: { onChange, value } }) => (
-            <PickerBooleanField label="Neutered" value={value} onValueChange={(v) => onChange(v === "true")} />
+            <PickerBooleanField label={t("onboarding.pets.neutered")} value={value} onValueChange={(v) => onChange(v === "true")} />
           )}
         />
 
@@ -483,7 +486,7 @@ export default function EditPetPage() {
           control={control}
           name="bio"
           render={({ field: { onChange, value } }) => (
-            <LabeledInput label="Pet bio" placeholder="Tell about your pet" value={value} onChangeText={onChange} multiline error={errors.bio} />
+            <LabeledInput label={t("onboarding.pets.petBio")} placeholder={t("editPet.tellAboutPet")} value={value} onChangeText={onChange} multiline error={errors.bio} />
           )}
         />
 
@@ -494,7 +497,7 @@ export default function EditPetPage() {
         )}
 
         <PrimaryButton
-          label={mutation.isPending ? "Saving..." : "Save changes"}
+          label={mutation.isPending ? t("common.saving") : t("editPet.saveChanges")}
           onPress={handleSubmit((values) => mutation.mutate(values))}
           disabled={mutation.isPending}
         />
@@ -502,8 +505,8 @@ export default function EditPetPage() {
 
       <SelectionModal
         visible={hobbiesModalOpen}
-        title="Select hobbies"
-        subtitle="Choose as many hobbies as you want, then tap Done."
+        title={t("onboarding.pets.selectHobbies")}
+        subtitle={t("onboarding.pets.selectHobbiesSubtitle")}
         items={hobbies}
         selectedIds={selectedHobbyIds}
         onToggle={(id) =>
@@ -516,8 +519,8 @@ export default function EditPetPage() {
 
       <SelectionModal
         visible={compatibilityModalOpen}
-        title="Select compatibility"
-        subtitle="Pick what your pet is good with."
+        title={t("editPet.selectCompatibility")}
+        subtitle={t("editPet.selectCompatibilitySubtitle")}
         items={compatibility}
         selectedIds={selectedCompatibilityIds}
         onToggle={(id) =>
@@ -530,8 +533,8 @@ export default function EditPetPage() {
 
       <SelectionModal
         visible={charactersModalOpen}
-        title="Select characters"
-        subtitle="Pick traits that best describe your pet's personality."
+        title={t("onboarding.pets.selectCharacters")}
+        subtitle={t("onboarding.pets.selectCharactersSubtitle")}
         items={characters}
         selectedIds={selectedCharacterIds}
         onToggle={(id) =>
@@ -594,6 +597,7 @@ function SelectionModal({
   onToggle: (id: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -647,7 +651,7 @@ function SelectionModal({
                 );
               })}
             </View>
-            <PrimaryButton label="Done" onPress={onClose} />
+            <PrimaryButton label={t("common.done")} onPress={onClose} />
           </View>
         </ScrollView>
       </View>
@@ -752,6 +756,7 @@ function PickerBooleanField({
   value: boolean;
   onValueChange: (value: "true" | "false") => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <View style={{ gap: mobileTheme.spacing.md }}>
@@ -766,8 +771,8 @@ function PickerBooleanField({
         }}
       >
         <Picker selectedValue={value ? "true" : "false"} onValueChange={onValueChange}>
-          <Picker.Item label="Yes" value="true" />
-          <Picker.Item label="No" value="false" />
+          <Picker.Item label={t("common.yes")} value="true" />
+          <Picker.Item label={t("common.no")} value="false" />
         </Picker>
       </View>
     </View>

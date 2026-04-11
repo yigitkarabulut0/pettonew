@@ -44,6 +44,8 @@ import {
   listTaxonomies,
   uploadMedia
 } from "@/lib/api";
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
@@ -65,27 +67,25 @@ const TUTORIAL_PAGES: TutorialPage[] = [
   {
     id: "find",
     icon: "heart",
-    title: "Find Your New Best Friend",
-    description:
-      "Thousands of pets are waiting for their forever home. Browse profiles, fall in love, and give a pet the life they deserve."
+    title: i18n.t("adoption.findFriend"),
+    description: i18n.t("adoption.findFriendDescription")
   },
   {
     id: "every",
     icon: "paw",
-    title: "Every Pet Deserves a Home",
-    description:
-      "Shelters and pet parents list animals looking for loving families. Each profile includes photos, personality traits, and contact info."
+    title: i18n.t("adoption.everyPet"),
+    description: i18n.t("adoption.everyPetDescription")
   },
   {
     id: "ready",
     icon: "home",
-    title: "Ready to Adopt?",
-    description:
-      "Browse available pets, connect with their current caregivers, and start your adoption journey today."
+    title: i18n.t("adoption.readyToAdopt"),
+    description: i18n.t("adoption.readyToAdoptDescription")
   }
 ];
 
 function AdoptionTutorial({ onComplete }: { onComplete: () => void }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -159,7 +159,7 @@ function AdoptionTutorial({ onComplete }: { onComplete: () => void }) {
             fontWeight: "600"
           }}
         >
-          Skip
+          {t("common.skip")}
         </Text>
       </Pressable>
 
@@ -252,7 +252,7 @@ function AdoptionTutorial({ onComplete }: { onComplete: () => void }) {
         </View>
 
         <PrimaryButton
-          label={isLastPage ? "Browse Pets" : "Next"}
+          label={isLastPage ? t("adoption.browsePets") : t("common.next")}
           onPress={handleNext}
         />
       </View>
@@ -312,6 +312,7 @@ function DetailModal({
   theme,
   insets
 }: DetailModalProps) {
+  const { t } = useTranslation();
   const [photoIndex, setPhotoIndex] = useState(0);
   const photoListRef = useRef<FlatList>(null);
 
@@ -335,7 +336,7 @@ function DetailModal({
 
   const dmMutation = useMutation({
     mutationFn: async () => {
-      if (!session || !listing) throw new Error("Please log in first");
+      if (!session || !listing) throw new Error(i18n.t("adoption.pleaseLogIn"));
       return createOrFindDMConversation(session.tokens.accessToken, listing.userId);
     },
     onSuccess: (conversation) => {
@@ -343,13 +344,13 @@ function DetailModal({
       router.push(`/(app)/conversation/${conversation.id}`);
     },
     onError: (error: Error) => {
-      Alert.alert("Error", error.message || "Could not start conversation");
+      Alert.alert(t("common.error"), error.message || t("adoption.couldNotStartChat"));
     }
   });
 
   const markAdoptedMutation = useMutation({
     mutationFn: async () => {
-      if (!session || !listing) throw new Error("Not logged in");
+      if (!session || !listing) throw new Error(t("adoption.pleaseLogIn"));
       return updateAdoptionStatus(session.tokens.accessToken, listing.id, "adopted");
     },
     onSuccess: () => {
@@ -357,13 +358,13 @@ function DetailModal({
       onClose();
     },
     onError: (error: Error) => {
-      Alert.alert("Error", error.message || "Could not update listing");
+      Alert.alert(t("common.error"), error.message || t("adoption.couldNotUpdateListing"));
     }
   });
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      if (!session || !listing) throw new Error("Not logged in");
+      if (!session || !listing) throw new Error(t("adoption.pleaseLogIn"));
       return deleteAdoption(session.tokens.accessToken, listing.id);
     },
     onSuccess: () => {
@@ -371,7 +372,7 @@ function DetailModal({
       onClose();
     },
     onError: (error: Error) => {
-      Alert.alert("Error", error.message || "Could not delete listing");
+      Alert.alert(t("common.error"), error.message || t("adoption.couldNotDeleteListing"));
     }
   });
 
@@ -394,11 +395,11 @@ function DetailModal({
 
   const handleContact = () => {
     if (!session) {
-      Alert.alert("Error", "Please log in first");
+      Alert.alert(t("common.error"), t("adoption.pleaseLogIn"));
       return;
     }
     if (listing.userId === session.user.id) {
-      Alert.alert("Info", "This is your own listing");
+      Alert.alert(t("common.info"), t("adoption.ownListing"));
       return;
     }
     dmMutation.mutate();
@@ -600,7 +601,7 @@ function DetailModal({
                       color: theme.colors.success
                     }}
                   >
-                    Neutered
+                    {t("onboarding.pets.neutered")}
                   </Text>
                 </View>
               )}
@@ -617,7 +618,7 @@ function DetailModal({
                     marginBottom: mobileTheme.spacing.sm
                   }}
                 >
-                  Personality
+                  {t("adoption.personality")}
                 </Text>
                 <View
                   style={{
@@ -666,7 +667,7 @@ function DetailModal({
                     marginBottom: mobileTheme.spacing.sm
                   }}
                 >
-                  Activity Level
+                  {t("adoption.activityLevelLabel")}
                 </Text>
                 <View style={{ flexDirection: "row", gap: 6 }}>
                   {[1, 2, 3, 4, 5].map((level) => (
@@ -697,7 +698,7 @@ function DetailModal({
                   marginBottom: mobileTheme.spacing.sm
                 }}
               >
-                About
+                {t("adoption.about")}
               </Text>
               <Text
                 style={{
@@ -707,7 +708,7 @@ function DetailModal({
                 }}
               >
                 {listing.description ||
-                  "Looking for a loving home \uD83C\uDFE1"}
+                  t("adoption.lookingForHome")}
               </Text>
             </View>
 
@@ -743,14 +744,14 @@ function DetailModal({
                 <>
                   {listing.status === "active" && (
                     <PrimaryButton
-                      label={markAdoptedMutation.isPending ? "Updating..." : "Mark as Adopted"}
+                      label={markAdoptedMutation.isPending ? t("adoption.updating") : t("adoption.markAsAdopted")}
                       onPress={() =>
                         Alert.alert(
-                          "Mark as Adopted",
-                          "Are you sure this pet has been adopted?",
+                          t("adoption.markAdoptedConfirmTitle"),
+                          t("adoption.markAdoptedConfirmMessage"),
                           [
-                            { text: "Cancel" },
-                            { text: "Yes", onPress: () => markAdoptedMutation.mutate() }
+                            { text: t("common.cancel") },
+                            { text: t("common.yes"), onPress: () => markAdoptedMutation.mutate() }
                           ]
                         )
                       }
@@ -759,15 +760,15 @@ function DetailModal({
                     />
                   )}
                   <PrimaryButton
-                    label={deleteMutation.isPending ? "Deleting..." : "Delete Listing"}
+                    label={deleteMutation.isPending ? t("adoption.deleting") : t("adoption.deleteListing")}
                     variant="ghost"
                     onPress={() =>
                       Alert.alert(
-                        "Delete Listing",
-                        "Are you sure you want to delete this listing? This cannot be undone.",
+                        t("adoption.deleteConfirmTitle"),
+                        t("adoption.deleteConfirmMessage"),
                         [
-                          { text: "Cancel" },
-                          { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate() }
+                          { text: t("common.cancel") },
+                          { text: t("common.delete"), style: "destructive", onPress: () => deleteMutation.mutate() }
                         ]
                       )
                     }
@@ -777,7 +778,7 @@ function DetailModal({
                 </>
               ) : (
                 <PrimaryButton
-                  label={dmMutation.isPending ? "Starting chat..." : "Message to Adopt"}
+                  label={dmMutation.isPending ? t("adoption.contacting") : t("adoption.contactOwner")}
                   onPress={handleContact}
                   loading={dmMutation.isPending}
                   disabled={dmMutation.isPending}
@@ -823,7 +824,7 @@ function DetailModal({
                     color: theme.colors.muted
                   }}
                 >
-                  Listed by {listing.userName}
+                  {t("adoption.listedBy", { name: listing.userName })}
                 </Text>
               </View>
             ) : null}
@@ -839,6 +840,7 @@ function DetailModal({
 /* ------------------------------------------------------------------ */
 
 export default function AdoptionPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const session = useSessionStore((state) => state.session);
@@ -1061,7 +1063,7 @@ export default function AdoptionPage() {
               color: theme.colors.ink
             }}
           >
-            Adopt a Pet
+            {t("adoption.title")}
           </Text>
         </View>
         <Pressable
@@ -1114,7 +1116,7 @@ export default function AdoptionPage() {
                 color: theme.colors.ink
               }}
             >
-              List a Pet for Adoption
+              {t("adoption.newListing")}
             </Text>
 
             {/* Pet Name */}
@@ -1125,7 +1127,7 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Pet Name *
+                {t("adoption.petNameLabel")} *
               </Text>
               <TextInput
                 value={petName}
@@ -1150,7 +1152,7 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Age (years) *
+                {t("adoption.ageLabel")} *
               </Text>
               <TextInput
                 value={petAge}
@@ -1176,7 +1178,7 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Species
+                {t("adoption.speciesLabel")}
               </Text>
               <View
                 style={{
@@ -1236,7 +1238,7 @@ export default function AdoptionPage() {
                     color: theme.colors.muted
                   }}
                 >
-                  Breed
+                  {t("adoption.breedLabel")}
                 </Text>
                 <ScrollView
                   horizontal
@@ -1295,7 +1297,7 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Gender
+                {t("adoption.genderLabel")}
               </Text>
               <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
                 {(["Male", "Female"] as const).map((g) => (
@@ -1349,7 +1351,7 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Photos (up to 6)
+                {t("onboarding.pets.photos")}
               </Text>
               <View
                 style={{
@@ -1416,12 +1418,12 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Description
+                {t("adoption.descriptionLabel")}
               </Text>
               <TextInput
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Tell us about this pet..."
+                placeholder={t("adoption.descriptionPlaceholder")}
                 placeholderTextColor={theme.colors.muted}
                 multiline
                 style={{
@@ -1444,12 +1446,12 @@ export default function AdoptionPage() {
                   color: theme.colors.muted
                 }}
               >
-                Location / City
+                {t("adoption.locationLabel")}
               </Text>
               <TextInput
                 value={location}
                 onChangeText={setLocation}
-                placeholder="e.g. San Francisco, CA"
+                placeholder={t("adoption.locationPlaceholder")}
                 placeholderTextColor={theme.colors.muted}
                 style={{
                   backgroundColor: theme.colors.background,
@@ -1463,7 +1465,7 @@ export default function AdoptionPage() {
 
             {/* Submit */}
             <PrimaryButton
-              label="List for Adoption"
+              label={t("adoption.createListing")}
               onPress={() => createMutation.mutate()}
               disabled={!canSubmit}
               loading={createMutation.isPending}
@@ -1511,7 +1513,7 @@ export default function AdoptionPage() {
                 color: theme.colors.ink
               }}
             >
-              No pets listed yet
+              {t("adoption.noListings")}
             </Text>
             <Text
               style={{
@@ -1521,8 +1523,7 @@ export default function AdoptionPage() {
                 paddingHorizontal: mobileTheme.spacing["3xl"]
               }}
             >
-              Be the first to list a pet for adoption. Tap the + button to get
-              started.
+              {t("adoption.noListingsDescription")}
             </Text>
           </View>
         )}
@@ -1680,7 +1681,7 @@ export default function AdoptionPage() {
                           color: theme.colors.success
                         }}
                       >
-                        Neutered
+                        {t("onboarding.pets.neutered")}
                       </Text>
                     </View>
                   )}
@@ -1697,7 +1698,7 @@ export default function AdoptionPage() {
                 >
                   {listing.description || (
                     <Text style={{ fontStyle: "italic" }}>
-                      Looking for a loving home {"\uD83C\uDFE1"}
+                      {t("adoption.lookingForHome")}
                     </Text>
                   )}
                 </Text>
@@ -1726,7 +1727,7 @@ export default function AdoptionPage() {
                 {/* Contact button */}
                 <View style={{ marginTop: mobileTheme.spacing.sm }}>
                   <PrimaryButton
-                    label="Contact"
+                    label={t("common.contact")}
                     onPress={() => setSelectedListing(listing)}
                     size="sm"
                   />

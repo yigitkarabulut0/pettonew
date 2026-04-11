@@ -2,34 +2,25 @@ import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Cloud, CloudRain, Sun, Snowflake, Wind } from "lucide-react-native";
 import * as Location from "expo-location";
+import { useTranslation } from "react-i18next";
 
 import { mobileTheme, useTheme } from "@/lib/theme";
 
 interface WeatherData {
   temp: number;
-  condition: string;
-  suggestion: string;
+  conditionKey: string;
+  suggestionKey: string;
   icon: "sun" | "cloud" | "rain" | "snow" | "wind";
 }
 
-const SUGGESTIONS: Record<string, string> = {
-  sunny: "Perfect for a park walk with your pet!",
-  cloudy: "Great weather for outdoor play.",
-  rainy: "Stay indoors — try puzzle toys!",
-  snowy: "Keep walks short and warm.",
-  windy: "A light walk, but watch for debris.",
-  hot: "Keep your pet hydrated, stay in shade.",
-  cold: "Bundle up for a short stroll."
-};
-
 function getCondition(temp: number, weatherCode: number): WeatherData {
-  if (weatherCode >= 71) return { temp, condition: "Snowy", suggestion: SUGGESTIONS.snowy, icon: "snow" };
-  if (weatherCode >= 61) return { temp, condition: "Rainy", suggestion: SUGGESTIONS.rainy, icon: "rain" };
-  if (weatherCode >= 51) return { temp, condition: "Drizzle", suggestion: SUGGESTIONS.rainy, icon: "rain" };
-  if (weatherCode >= 3) return { temp, condition: "Cloudy", suggestion: SUGGESTIONS.cloudy, icon: "cloud" };
-  if (temp >= 32) return { temp, condition: "Hot", suggestion: SUGGESTIONS.hot, icon: "sun" };
-  if (temp <= 5) return { temp, condition: "Cold", suggestion: SUGGESTIONS.cold, icon: "snow" };
-  return { temp, condition: "Sunny", suggestion: SUGGESTIONS.sunny, icon: "sun" };
+  if (weatherCode >= 71) return { temp, conditionKey: "weather.conditionSnowy", suggestionKey: "weather.snowy", icon: "snow" };
+  if (weatherCode >= 61) return { temp, conditionKey: "weather.conditionRainy", suggestionKey: "weather.rainy", icon: "rain" };
+  if (weatherCode >= 51) return { temp, conditionKey: "weather.conditionDrizzle", suggestionKey: "weather.rainy", icon: "rain" };
+  if (weatherCode >= 3) return { temp, conditionKey: "weather.conditionCloudy", suggestionKey: "weather.cloudy", icon: "cloud" };
+  if (temp >= 32) return { temp, conditionKey: "weather.conditionHot", suggestionKey: "weather.hot", icon: "sun" };
+  if (temp <= 5) return { temp, conditionKey: "weather.conditionCold", suggestionKey: "weather.cold", icon: "snow" };
+  return { temp, conditionKey: "weather.conditionSunny", suggestionKey: "weather.sunny", icon: "sun" };
 }
 
 const ICONS = {
@@ -42,6 +33,7 @@ const ICONS = {
 
 export function WeatherWidget() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -113,7 +105,7 @@ export function WeatherWidget() {
             color: theme.colors.ink
           }}
         >
-          {Math.round(weather.temp)}°C {weather.condition}
+          {Math.round(weather.temp)}°C {t(weather.conditionKey)}
         </Text>
         <Text
           style={{
@@ -123,7 +115,7 @@ export function WeatherWidget() {
             marginTop: 2
           }}
         >
-          {weather.suggestion}
+          {t(weather.suggestionKey)}
         </Text>
       </View>
     </View>

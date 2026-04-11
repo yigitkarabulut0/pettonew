@@ -9,6 +9,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
 import { useMutation } from "@tanstack/react-query";
 import { X } from "lucide-react-native";
 
@@ -18,11 +19,11 @@ import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
 const REPORT_REASONS = [
-  { value: "harassment", label: "Harassment" },
-  { value: "spam", label: "Spam" },
-  { value: "inappropriate", label: "Inappropriate content" },
-  { value: "fake_profile", label: "Fake profile" },
-  { value: "other", label: "Other" }
+  { value: "harassment", labelKey: "report.harassment" },
+  { value: "spam", labelKey: "report.spam" },
+  { value: "inappropriate", labelKey: "report.inappropriate" },
+  { value: "fake_profile", labelKey: "report.fakeProfile" },
+  { value: "other", labelKey: "report.other" }
 ] as const;
 
 interface ReportModalProps {
@@ -41,6 +42,7 @@ export function ReportModal({
   targetLabel
 }: ReportModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const session = useSessionStore((state) => state.session);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function ReportModal({
                 fontFamily: "Inter_500Medium"
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Text>
           </Pressable>
           <Text
@@ -110,7 +112,7 @@ export function ReportModal({
               fontFamily: "Inter_700Bold"
             }}
           >
-            Report
+            {t("report.title")}
           </Text>
           <View style={{ width: 48 }} />
         </View>
@@ -130,7 +132,7 @@ export function ReportModal({
               fontFamily: "Inter_400Regular"
             }}
           >
-            Why are you reporting this {targetType}?
+            {t("report.reason", { type: targetType })}
           </Text>
 
           <View style={{ gap: mobileTheme.spacing.sm }}>
@@ -198,7 +200,7 @@ export function ReportModal({
                       fontWeight: isActive ? "600" : "400"
                     }}
                   >
-                    {item.label}
+                    {t(item.labelKey)}
                   </Text>
                 </Pressable>
               );
@@ -210,7 +212,7 @@ export function ReportModal({
               <TextInput
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Please describe the issue..."
+                placeholder={t("report.descriptionPlaceholder")}
                 placeholderTextColor={theme.colors.muted}
                 multiline
                 maxLength={300}
@@ -234,7 +236,7 @@ export function ReportModal({
 
           <View style={{ marginTop: "auto" }}>
             <PrimaryButton
-              label={mutation.isPending ? "Reporting..." : "Submit Report"}
+              label={mutation.isPending ? t("report.submitting") : t("report.submit")}
               onPress={() => mutation.mutate()}
               disabled={!selectedReason || mutation.isPending}
             />

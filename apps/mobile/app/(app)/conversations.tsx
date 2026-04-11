@@ -7,6 +7,7 @@ import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, MessageCircle, Search } from "lucide-react-native";
 
+import { useTranslation } from "react-i18next";
 import { listConversations } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -26,6 +27,7 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 export default function ConversationsPage() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const insets = useSafeAreaInsets();
@@ -71,7 +73,7 @@ export default function ConversationsPage() {
             fontFamily: "Inter_700Bold"
           }}
         >
-          Messages
+          {t("chat.messages")}
         </Text>
       </View>
 
@@ -134,11 +136,12 @@ function ConversationItem({
   };
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const theme = useTheme();
   const lastMessage =
     conversation.messages.length > 0
       ? (conversation.messages[conversation.messages.length - 1]?.body ?? "")
-      : "Start the conversation.";
+      : t("chat.startConversation");
 
   const firstPair = conversation.matchPetPairs[0];
   const petPhoto = firstPair?.matchedPetPhotoUrl;
@@ -266,6 +269,7 @@ function ConversationItem({
 }
 
 function EmptyChatState() {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <View
@@ -296,7 +300,7 @@ function EmptyChatState() {
           fontFamily: "Inter_600SemiBold"
         }}
       >
-        No conversations yet
+        {t("chat.noConversations")}
       </Text>
       <Text
         style={{
@@ -307,7 +311,7 @@ function EmptyChatState() {
           maxWidth: 260
         }}
       >
-        Match with pets and start chatting with their owners.
+        {t("chat.noConversationsDescription")}
       </Text>
     </View>
   );
