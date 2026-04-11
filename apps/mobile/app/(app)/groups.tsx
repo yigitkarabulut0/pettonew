@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Users2 } from "lucide-react-native";
+import { ArrowLeft, MessageCircle, Users2 } from "lucide-react-native";
+import { Image } from "expo-image";
 
 import { useTranslation } from "react-i18next";
 import { listGroups, joinGroup } from "@/lib/api";
@@ -156,6 +157,46 @@ export default function GroupsPage() {
             <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, lineHeight: mobileTheme.typography.body.lineHeight }}>
               {group.description}
             </Text>
+            {/* Member avatars */}
+            {group.isMember && group.members.length > 0 && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                {group.members.slice(0, 5).map((member, idx) => (
+                  <View
+                    key={member.userId}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 14,
+                      borderWidth: 2,
+                      borderColor: theme.colors.white,
+                      overflow: "hidden",
+                      backgroundColor: theme.colors.background,
+                      marginLeft: idx > 0 ? -8 : 0
+                    }}
+                  >
+                    {member.avatarUrl ? (
+                      <Image
+                        source={{ uri: member.avatarUrl }}
+                        style={{ width: "100%", height: "100%" }}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.colors.primaryBg }}>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>
+                          {member.firstName?.[0] ?? "?"}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+                {group.members.length > 5 && (
+                  <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, color: theme.colors.muted, marginLeft: 4 }}>
+                    +{group.members.length - 5}
+                  </Text>
+                )}
+              </View>
+            )}
+
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Users2 size={14} color={theme.colors.muted} />
@@ -163,20 +204,40 @@ export default function GroupsPage() {
                   {t("groups.members", { count: group.memberCount })}
                 </Text>
               </View>
-              <Pressable
-                onPress={() => joinMutation.mutate(group.id)}
-                disabled={joinMutation.isPending}
-                style={{
-                  backgroundColor: theme.colors.primaryBg,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderRadius: mobileTheme.radius.md
-                }}
-              >
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
-                  {t("common.join")}
-                </Text>
-              </Pressable>
+              {group.isMember ? (
+                <Pressable
+                  onPress={() => group.conversationId && router.push(`/(app)/conversation/${group.conversationId}` as any)}
+                  style={{
+                    backgroundColor: theme.colors.primary,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: mobileTheme.radius.md,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  <MessageCircle size={14} color={theme.colors.white} />
+                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.white }}>
+                    {t("groups.chat")}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => joinMutation.mutate(group.id)}
+                  disabled={joinMutation.isPending}
+                  style={{
+                    backgroundColor: theme.colors.primaryBg,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: mobileTheme.radius.md
+                  }}
+                >
+                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
+                    {t("common.join")}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </View>
         ))}

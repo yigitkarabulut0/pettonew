@@ -78,7 +78,7 @@ type Store interface {
 	CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate
 	JoinPlaydate(userID string, playdateID string) error
 	// Groups
-	ListGroups() []domain.CommunityGroup
+	ListGroups(userID string) []domain.CommunityGroup
 	CreateGroup(group domain.CommunityGroup) domain.CommunityGroup
 	JoinGroup(userID string, groupID string) error
 	// Lost pets

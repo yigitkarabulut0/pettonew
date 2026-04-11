@@ -1268,7 +1268,7 @@ func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Reques
 // ── Admin Groups ────────────────────────────────────────────────────
 
 func (s *Server) handleAdminGroups(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups()})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups("")})
 }
 
 func (s *Server) handleAdminCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -1457,7 +1457,8 @@ func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Re
 // ── Groups ───────────────────────────────────────────────────────────
 
 func (s *Server) handleListGroups(writer http.ResponseWriter, request *http.Request) {
-	groups := s.store.ListGroups()
+	userID := currentUserID(request)
+	groups := s.store.ListGroups(userID)
 	writeJSON(writer, http.StatusOK, map[string]any{"data": groups})
 }
 

@@ -365,6 +365,12 @@ export interface Playdate {
   createdAt: string;
 }
 
+export interface GroupMember {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+}
+
 export interface CommunityGroup {
   id: string;
   name: string;
@@ -373,6 +379,8 @@ export interface CommunityGroup {
   memberCount: number;
   imageUrl?: string;
   conversationId?: string;
+  isMember: boolean;
+  members: GroupMember[];
   createdAt: string;
 }
 

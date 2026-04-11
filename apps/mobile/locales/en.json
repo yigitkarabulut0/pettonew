@@ -427,7 +427,8 @@
     "title": "Community Groups",
     "noGroups": "No groups yet",
     "noGroupsDescription": "Community groups will appear here as they are created.",
-    "members": "{{count}} members"
+    "members": "{{count}} members",
+    "chat": "Chat"
   },
   "playdates": {
     "title": "Playdates",

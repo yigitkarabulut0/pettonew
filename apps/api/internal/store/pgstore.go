@@ -2504,19 +2504,59 @@ func (s *PostgresStore) JoinPlaydate(userID string, playdateID string) error {
 	return err
 }
 
-func (s *PostgresStore) ListGroups() []domain.CommunityGroup {
-	rows, _ := s.pool.Query(s.ctx(), `SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at FROM community_groups ORDER BY created_at DESC`)
+func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT g.id, g.name, g.description, g.pet_type, g.member_count,
+		        g.image_url, g.conversation_id, g.created_at,
+		        COALESCE(c.user_ids, '{}')
+		 FROM community_groups g
+		 LEFT JOIN conversations c ON g.conversation_id = c.id
+		 ORDER BY g.created_at DESC`)
 	defer rows.Close()
 	var out []domain.CommunityGroup
 	for rows.Next() {
 		var g domain.CommunityGroup
 		var img, convID *string
-		rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &g.CreatedAt)
-		if img != nil { g.ImageURL = *img }
-		if convID != nil { g.ConversationID = *convID }
+		var convUserIDs []string
+		rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
+			&img, &convID, &g.CreatedAt, &convUserIDs)
+		if img != nil {
+			g.ImageURL = *img
+		}
+		if convID != nil {
+			g.ConversationID = *convID
+		}
+
+		// Check membership
+		g.IsMember = false
+		for _, uid := range convUserIDs {
+			if uid == userID {
+				g.IsMember = true
+				break
+			}
+		}
+
+		// Fetch member profiles
+		g.Members = []domain.GroupMember{}
+		if len(convUserIDs) > 0 {
+			memberRows, err := s.pool.Query(s.ctx(),
+				`SELECT user_id, first_name, COALESCE(avatar_url,'')
+				 FROM user_profiles WHERE user_id = ANY($1)`, convUserIDs)
+			if err == nil {
+				for memberRows.Next() {
+					var m domain.GroupMember
+					memberRows.Scan(&m.UserID, &m.FirstName, &m.AvatarURL)
+					g.Members = append(g.Members, m)
+				}
+				memberRows.Close()
+			}
+		}
+
 		out = append(out, g)
 	}
-	if out == nil { return []domain.CommunityGroup{} }
+	if out == nil {
+		return []domain.CommunityGroup{}
+	}
 	return out
 }
 

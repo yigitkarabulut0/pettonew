@@ -1132,12 +1132,36 @@ func (s *MemoryStore) JoinPlaydate(userID string, playdateID string) error {
 
 // ── Community Groups ────────────────────────────────────────────────
 
-func (s *MemoryStore) ListGroups() []domain.CommunityGroup {
+func (s *MemoryStore) ListGroups(userID string) []domain.CommunityGroup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := []domain.CommunityGroup{}
 	for _, g := range s.groups {
-		result = append(result, *g)
+		group := *g
+		group.Members = []domain.GroupMember{}
+		group.IsMember = false
+
+		if group.ConversationID != "" {
+			if conv, ok := s.conversations[group.ConversationID]; ok {
+				for _, uid := range conv.UserIDs {
+					if uid == userID {
+						group.IsMember = true
+					}
+					if user, ok := s.users[uid]; ok {
+						avatarURL := ""
+						if user.Profile.AvatarURL != nil {
+							avatarURL = *user.Profile.AvatarURL
+						}
+						group.Members = append(group.Members, domain.GroupMember{
+							UserID:    uid,
+							FirstName: user.Profile.FirstName,
+							AvatarURL: avatarURL,
+						})
+					}
+				}
+			}
+		}
+		result = append(result, group)
 	}
 	return result
 }

@@ -427,7 +427,8 @@
     "title": "Topluluk Grupları",
     "noGroups": "Henüz grup yok",
     "noGroupsDescription": "Topluluk grupları oluşturuldukça burada görünecektir.",
-    "members": "{{count}} üye"
+    "members": "{{count}} üye",
+    "chat": "Sohbet"
   },
   "playdates": {
     "title": "Buluşmalar",

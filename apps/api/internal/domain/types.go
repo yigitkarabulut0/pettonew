@@ -347,15 +347,23 @@ type Playdate struct {
 	CreatedAt   string   `json:"createdAt"`
 }
 
+type GroupMember struct {
+	UserID    string `json:"userId"`
+	FirstName string `json:"firstName"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
+}
+
 type CommunityGroup struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	PetType        string `json:"petType"`
-	MemberCount    int    `json:"memberCount"`
-	ImageURL       string `json:"imageUrl,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
-	CreatedAt      string `json:"createdAt"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Description    string        `json:"description"`
+	PetType        string        `json:"petType"`
+	MemberCount    int           `json:"memberCount"`
+	ImageURL       string        `json:"imageUrl,omitempty"`
+	ConversationID string        `json:"conversationId,omitempty"`
+	IsMember       bool          `json:"isMember"`
+	Members        []GroupMember `json:"members"`
+	CreatedAt      string        `json:"createdAt"`
 }
 
 type LostPetAlert struct {
