@@ -2359,6 +2359,7 @@ func (s *PostgresStore) ListFeedingSchedules(petID string) []domain.FeedingSched
 func (s *PostgresStore) CreateFeedingSchedule(petID string, schedule domain.FeedingSchedule) domain.FeedingSchedule {
 	schedule.ID = newID("fs")
 	schedule.PetID = petID
+	schedule.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	s.pool.Exec(s.ctx(), `INSERT INTO feeding_schedules(id,pet_id,meal_name,time,food_type,amount,notes) VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		schedule.ID, schedule.PetID, schedule.MealName, schedule.Time, schedule.FoodType, schedule.Amount, schedule.Notes)
 	return schedule
@@ -2380,8 +2381,10 @@ func (s *PostgresStore) ListDiary(petID string) []domain.DiaryEntry {
 	for rows.Next() {
 		var d domain.DiaryEntry
 		var img *string
-		rows.Scan(&d.ID, &d.PetID, &d.UserID, &d.Body, &img, &d.Mood, &d.CreatedAt)
+		var createdAt time.Time
+		rows.Scan(&d.ID, &d.PetID, &d.UserID, &d.Body, &img, &d.Mood, &createdAt)
 		d.ImageURL = img
+		d.CreatedAt = createdAt.Format(time.RFC3339)
 		out = append(out, d)
 	}
 	if out == nil { return []domain.DiaryEntry{} }
@@ -2733,7 +2736,9 @@ func (s *PostgresStore) ListNotifications() []domain.Notification {
 	var out []domain.Notification
 	for rows.Next() {
 		var n domain.Notification
-		rows.Scan(&n.ID, &n.Title, &n.Body, &n.Target, &n.SentAt, &n.SentBy)
+		var sentAt time.Time
+		rows.Scan(&n.ID, &n.Title, &n.Body, &n.Target, &sentAt, &n.SentBy)
+		n.SentAt = sentAt.Format(time.RFC3339)
 		out = append(out, n)
 	}
 	if out == nil { return []domain.Notification{} }

@@ -315,13 +315,14 @@ type VetClinic struct {
 }
 
 type FeedingSchedule struct {
-	ID       string `json:"id"`
-	PetID    string `json:"petId"`
-	MealName string `json:"mealName"`
-	Time     string `json:"time"`
-	FoodType string `json:"foodType"`
-	Amount   string `json:"amount"`
-	Notes    string `json:"notes"`
+	ID        string `json:"id"`
+	PetID     string `json:"petId"`
+	MealName  string `json:"mealName"`
+	Time      string `json:"time"`
+	FoodType  string `json:"foodType"`
+	Amount    string `json:"amount"`
+	Notes     string `json:"notes"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type VenueReview struct {

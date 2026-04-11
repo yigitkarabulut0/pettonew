@@ -1038,6 +1038,7 @@ func (s *MemoryStore) CreateFeedingSchedule(petID string, schedule domain.Feedin
 	defer s.mu.Unlock()
 	schedule.ID = newID("feed")
 	schedule.PetID = petID
+	schedule.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	s.feedingSchedules[petID] = append(s.feedingSchedules[petID], schedule)
 	return schedule
 }

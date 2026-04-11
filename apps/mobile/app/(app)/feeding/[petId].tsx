@@ -311,6 +311,7 @@ export default function FeedingPage() {
               >
                 <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: theme.colors.primary }}>
                   {schedule.time}
+                  {schedule.createdAt ? ` · ${new Date(schedule.createdAt).toLocaleDateString()}` : ""}
                 </Text>
               </View>
             </View>

@@ -350,6 +350,7 @@ export interface FeedingSchedule {
   foodType: string;
   amount: string;
   notes: string;
+  createdAt?: string;
 }
 
 export interface Playdate {

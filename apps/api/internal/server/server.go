@@ -243,6 +243,9 @@ func (s *Server) Routes() http.Handler {
 
 				// Badges
 				router.Get("/badges", s.handleAdminBadges)
+
+				// Media (reuse app handler)
+				router.Post("/media/presign", s.handleMediaPresign)
 			})
 		})
 	})
