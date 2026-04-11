@@ -162,8 +162,8 @@ export default function ProfileOnboardingPage() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-      <View
-        style={{
+        <View
+          style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
