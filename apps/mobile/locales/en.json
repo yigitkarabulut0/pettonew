@@ -535,6 +535,11 @@
     "noMorePets": "No more pets to discover",
     "refresh": "Refresh"
   },
+  "userProfile": {
+    "theirPets": "Their Pets",
+    "sendMessage": "Send Message",
+    "noPets": "No pets to show"
+  },
   "imageCrop": {
     "optimizeNotice": "Image will be optimized for upload",
     "processing": "Processing...",

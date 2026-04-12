@@ -679,6 +679,19 @@ export async function uploadMedia(
   };
 }
 
+export async function getUserProfile(
+  accessToken: string,
+  userId: string
+): Promise<{ user: any; pets: Pet[] }> {
+  const data = await request<{ user: any; pets: any[] }>(`/v1/users/${userId}/profile`, {
+    headers: authHeaders(accessToken)
+  });
+  return {
+    user: data?.user ?? {},
+    pets: Array.isArray(data?.pets) ? data.pets.map(normalizePet) : []
+  };
+}
+
 export async function submitReport(
   accessToken: string,
   reason: string,

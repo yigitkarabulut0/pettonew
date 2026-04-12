@@ -98,6 +98,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/favorites", s.handleListFavorites)
 			router.Post("/favorites", s.handleAddFavorite)
 			router.Delete("/favorites/{petID}", s.handleRemoveFavorite)
+			router.Get("/users/{userID}/profile", s.handlePublicUserProfile)
 			router.Post("/blocks", s.handleBlockUser)
 			router.Post("/reports", s.handleReport)
 			router.Post("/push-token", s.handleSavePushToken)
@@ -890,6 +891,36 @@ func (s *Server) handleBlockUser(writer http.ResponseWriter, request *http.Reque
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"blocked": true}})
+}
+
+func (s *Server) handlePublicUserProfile(writer http.ResponseWriter, request *http.Request) {
+	userID := chi.URLParam(request, "userID")
+	user, err := s.store.GetUser(userID)
+	if err != nil || user == nil {
+		writeError(writer, http.StatusNotFound, "user not found")
+		return
+	}
+	// Get visible pets
+	allPets := s.store.ListPets(userID)
+	visiblePets := make([]domain.Pet, 0)
+	for _, p := range allPets {
+		if !p.IsHidden {
+			visiblePets = append(visiblePets, p)
+		}
+	}
+	// Strip email for privacy
+	profile := user.Profile
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
+		"user": map[string]any{
+			"id":        profile.ID,
+			"firstName": profile.FirstName,
+			"lastName":  profile.LastName,
+			"avatarUrl": profile.AvatarURL,
+			"cityLabel": profile.CityLabel,
+			"bio":       profile.Bio,
+		},
+		"pets": visiblePets,
+	}})
 }
 
 func (s *Server) handleReport(writer http.ResponseWriter, request *http.Request) {

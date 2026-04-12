@@ -29,6 +29,7 @@ export default function AppLayout() {
       <Stack.Screen name="training-tips" options={{ headerShown: false }} />
       <Stack.Screen name="training-tip/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="pet-sitters" options={{ headerShown: false }} />
+      <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
     </Stack>
   );
 }

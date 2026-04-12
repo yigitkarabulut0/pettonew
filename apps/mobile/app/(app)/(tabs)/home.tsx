@@ -353,6 +353,7 @@ export default function HomePage() {
               post={post}
               onLike={() => likeMutation.mutate(post.id)}
               onPetPress={(petId) => setSelectedPetId(petId)}
+              onAuthorPress={() => expoRouter.push(`/(app)/user/${post.author.id}` as any)}
               onReport={() => {
                 setReportTarget({
                   type: "post",
@@ -974,6 +975,7 @@ function PostCard({
   post: {
     id: string;
     author: {
+      id: string;
       avatarUrl?: string | null;
       firstName: string;
       lastName: string;
@@ -989,6 +991,7 @@ function PostCard({
   };
   onLike: () => void;
   onPetPress: (petId: string) => void;
+  onAuthorPress: () => void;
   onReport: () => void;
 }) {
   const { t } = useTranslation();
@@ -1020,13 +1023,15 @@ function PostCard({
         ...mobileTheme.shadow.sm
       }}
     >
-      <View
-        style={{
+      <Pressable
+        onPress={onAuthorPress}
+        style={({ pressed }) => ({
           flexDirection: "row",
           padding: mobileTheme.spacing.lg,
           paddingBottom: 0,
-          gap: mobileTheme.spacing.md
-        }}
+          gap: mobileTheme.spacing.md,
+          opacity: pressed ? 0.7 : 1
+        })}
       >
         <Avatar
           uri={post.author.avatarUrl}
@@ -1095,7 +1100,7 @@ function PostCard({
             </Text>
           )}
         </View>
-      </View>
+      </Pressable>
 
       {/* Body + Image */}
       <View style={{ paddingHorizontal: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}>

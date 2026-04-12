@@ -535,6 +535,11 @@
     "noMorePets": "Keşfedecek başka hayvan yok",
     "refresh": "Yenile"
   },
+  "userProfile": {
+    "theirPets": "Evcil Hayvanları",
+    "sendMessage": "Mesaj Gönder",
+    "noPets": "Gösterilecek evcil hayvan yok"
+  },
   "imageCrop": {
     "optimizeNotice": "Görsel yükleme için optimize edilecek",
     "processing": "İşleniyor...",
