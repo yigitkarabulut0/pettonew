@@ -173,9 +173,9 @@ export default function GroupsPage() {
               {group.description}
             </Text>
             {/* Member avatars */}
-            {group.isMember && group.members.length > 0 && (
+            {group.isMember && group.members?.length > 0 && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-                {group.members.slice(0, 5).map((member, idx) => (
+                {group.members?.slice(0, 5).map((member, idx) => (
                   <View
                     key={member.userId}
                     style={{
@@ -204,9 +204,9 @@ export default function GroupsPage() {
                     )}
                   </View>
                 ))}
-                {group.members.length > 5 && (
+                {group.members?.length > 5 && (
                   <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, color: theme.colors.muted, marginLeft: 4 }}>
-                    +{group.members.length - 5}
+                    +{group.members?.length - 5}
                   </Text>
                 )}
               </View>
