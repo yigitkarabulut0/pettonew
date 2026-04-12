@@ -992,27 +992,19 @@ function PostCard({
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handleLikePress = () => {
+    onLike();
     if (!post.likedByMe) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      scaleAnim.setValue(1);
+      scaleAnim.setValue(1.3);
       Animated.spring(scaleAnim, {
-        toValue: 1.4, friction: 3, tension: 200, useNativeDriver: true,
-      }).start(() => {
-        Animated.spring(scaleAnim, {
-          toValue: 1, friction: 5, tension: 100, useNativeDriver: true,
-        }).start();
-      });
+        toValue: 1, friction: 4, tension: 300, useNativeDriver: true,
+      }).start();
     } else {
-      scaleAnim.setValue(1);
-      Animated.timing(scaleAnim, {
-        toValue: 0.8, duration: 100, useNativeDriver: true,
-      }).start(() => {
-        Animated.spring(scaleAnim, {
-          toValue: 1, friction: 5, tension: 150, useNativeDriver: true,
-        }).start();
-      });
+      scaleAnim.setValue(0.7);
+      Animated.spring(scaleAnim, {
+        toValue: 1, friction: 4, tension: 300, useNativeDriver: true,
+      }).start();
     }
-    onLike();
   };
 
   return (
