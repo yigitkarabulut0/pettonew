@@ -16,7 +16,7 @@ import {
   View
 } from "react-native";
 import { Image } from "expo-image";
-import * as FileSystem from "expo-file-system";
+import { File, Paths } from "expo-file-system/next";
 import * as Sharing from "expo-sharing";
 import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
@@ -1240,16 +1240,22 @@ function PostCard({
 
             if (post.imageUrl) {
               try {
-                const fileUri = `${FileSystem.cacheDirectory}fetcht-post-${Date.now()}.jpg`;
-                const download = await FileSystem.downloadAsync(post.imageUrl, fileUri);
-                if (download.status === 200) {
-                  await Sharing.shareAsync(download.uri, { mimeType: "image/jpeg", dialogTitle: text, UTI: "public.jpeg" });
-                  return;
-                }
+                const res = await fetch(post.imageUrl);
+                const blob = await res.blob();
+                const reader = new FileReader();
+                const base64 = await new Promise<string>((resolve) => {
+                  reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
+                  reader.readAsDataURL(blob);
+                });
+                const file = new File(Paths.cache, `fetcht-post-${Date.now()}.jpg`);
+                file.create();
+                file.write(base64, { encoding: "base64" });
+                await Sharing.shareAsync(file.uri, { mimeType: "image/jpeg", dialogTitle: text, UTI: "public.jpeg" });
+                return;
               } catch (e: any) {
                 console.warn("Share image error:", e?.message);
               }
-              // Fallback if download/share fails
+              // Fallback
               Share.share(Platform.OS === "ios" ? { message: text, url: post.imageUrl } : { message: `${text}\n${post.imageUrl}` });
             } else {
               Share.share({ message: text });
