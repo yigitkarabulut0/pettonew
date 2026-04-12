@@ -1235,22 +1235,26 @@ function PostCard({
         <Pressable
           onPress={async () => {
             try {
+              const text = post.body
+                ? `${post.author.firstName}: "${post.body}" — Fetcht`
+                : `${post.author.firstName} shared a post on Fetcht`;
+
               if (post.imageUrl) {
                 const fileUri = FileSystem.cacheDirectory + `share-${post.id}.jpg`;
-                const { uri } = await FileSystem.downloadAsync(post.imageUrl, fileUri);
-                await Sharing.shareAsync(uri, {
-                  mimeType: "image/jpeg",
-                  dialogTitle: post.body || "Fetcht"
-                });
+                const info = await FileSystem.getInfoAsync(fileUri);
+                if (!info.exists) {
+                  await FileSystem.downloadAsync(post.imageUrl, fileUri);
+                }
+                if (await Sharing.isAvailableAsync()) {
+                  await Sharing.shareAsync(fileUri, { mimeType: "image/jpeg", dialogTitle: text });
+                } else {
+                  await Share.share({ message: text, url: post.imageUrl });
+                }
               } else {
-                Share.share({
-                  message: post.body
-                    ? `${post.author.firstName}: "${post.body}" — Fetcht`
-                    : `${post.author.firstName} shared a post on Fetcht`
-                });
+                await Share.share({ message: text });
               }
             } catch {
-              // user cancelled or share failed
+              // user cancelled
             }
           }}
           style={{
