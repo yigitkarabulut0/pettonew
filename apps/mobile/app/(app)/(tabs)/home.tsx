@@ -10,6 +10,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View
@@ -27,6 +28,7 @@ import {
   ImageIcon,
   MapPin,
   PawPrint,
+  Share2,
   Users,
   Calendar,
   X
@@ -1093,12 +1095,8 @@ function PostCard({
         </View>
       </View>
 
-      <View
-        style={{
-          padding: mobileTheme.spacing.lg,
-          gap: mobileTheme.spacing.md
-        }}
-      >
+      {/* Body + Image */}
+      <View style={{ paddingHorizontal: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}>
         {post.body ? (
           <Text
             style={{
@@ -1189,32 +1187,40 @@ function PostCard({
             ))}
           </ScrollView>
         ) : null}
+      </View>
 
+      {/* Action row: Like · Share · Report */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: mobileTheme.spacing.lg,
+          paddingVertical: mobileTheme.spacing.sm,
+          borderTopWidth: 1,
+          borderTopColor: theme.colors.border,
+          marginTop: mobileTheme.spacing.sm
+        }}
+      >
         <Pressable
           onPress={handleLikePress}
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: mobileTheme.spacing.sm,
-            paddingVertical: mobileTheme.spacing.sm
+            gap: 5,
+            paddingVertical: 6,
+            paddingHorizontal: 8
           }}
         >
           <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
             <Heart
               size={18}
-              color={
-                post.likedByMe
-                  ? theme.colors.primary
-                  : theme.colors.muted
-              }
+              color={post.likedByMe ? theme.colors.primary : theme.colors.muted}
               fill={post.likedByMe ? theme.colors.primary : "transparent"}
             />
           </Animated.View>
           <Text
             style={{
-              color: post.likedByMe
-                ? theme.colors.primary
-                : theme.colors.muted,
+              color: post.likedByMe ? theme.colors.primary : theme.colors.muted,
               fontWeight: "600",
               fontSize: mobileTheme.typography.caption.fontSize,
               fontFamily: "Inter_600SemiBold"
@@ -1225,10 +1231,31 @@ function PostCard({
         </Pressable>
 
         <Pressable
+          onPress={() => {
+            Share.share({
+              message: post.body
+                ? `${post.author.firstName}: "${post.body}" — Fetcht`
+                : `${post.author.firstName} shared a post on Fetcht`
+            });
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 5,
+            paddingVertical: 6,
+            paddingHorizontal: 8,
+            marginLeft: mobileTheme.spacing.md
+          }}
+        >
+          <Share2 size={16} color={theme.colors.muted} />
+        </Pressable>
+
+        <Pressable
           onPress={onReport}
           hitSlop={8}
           style={{
-            paddingVertical: mobileTheme.spacing.sm,
+            paddingVertical: 6,
+            paddingHorizontal: 8,
             marginLeft: "auto"
           }}
         >
