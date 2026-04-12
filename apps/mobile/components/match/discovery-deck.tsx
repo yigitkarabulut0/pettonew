@@ -486,6 +486,7 @@ interface DiscoveryDeckProps {
   ) => void;
   queryClient: ReturnType<typeof useQueryClient>;
   onPetPress: (pet: Pet) => void;
+  onRemainingChange?: (remaining: number) => void;
 }
 
 export function DiscoveryDeck({
@@ -495,7 +496,8 @@ export function DiscoveryDeck({
   accessToken,
   onMatch,
   queryClient,
-  onPetPress
+  onPetPress,
+  onRemainingChange
 }: DiscoveryDeckProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -513,9 +515,15 @@ export function DiscoveryDeck({
     return myPets.length > 0 ? myPets[0] : null;
   }, [myPets, activePetId]);
 
+  // Only reset index when active pet changes (not on every feed refresh)
   useEffect(() => {
     setCurrentIndex(0);
-  }, [cards]);
+  }, [activePetId]);
+
+  // Report remaining cards to parent
+  useEffect(() => {
+    onRemainingChange?.(Math.max(0, cards.length - currentIndex));
+  }, [currentIndex, cards.length]);
 
   // Store card ref before advancing index so onSuccess can access it
   const pendingSwipeCard = useRef<DiscoveryCard | null>(null);
@@ -540,9 +548,6 @@ export function DiscoveryDeck({
         );
       }
       pendingSwipeCard.current = null;
-      queryClient.invalidateQueries({
-        queryKey: ["discovery-feed"]
-      });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
     },
     onError: () => {

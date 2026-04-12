@@ -70,6 +70,7 @@ export default function MatchesPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [petPickerOpen, setPetPickerOpen] = useState(false);
+  const [remainingCards, setRemainingCards] = useState(0);
 
   const activePetId = useSessionStore((state) => state.activePetId);
   const setActivePetId = useSessionStore((state) => state.setActivePetId);
@@ -294,7 +295,7 @@ export default function MatchesPage() {
                   marginTop: 2
                 }}
               >
-                {t("match.petsNearYou", { count: filteredFeed.length })}
+                {t("match.petsNearYou", { count: remainingCards })}
               </Text>
             )}
             {tab === "matches" && matches.length > 0 && (
@@ -467,6 +468,7 @@ export default function MatchesPage() {
           onMatch={handleMatch}
           queryClient={queryClient}
           onPetPress={(pet) => setDetailPet(pet)}
+          onRemainingChange={setRemainingCards}
         />
         )
       ) : (
