@@ -836,6 +836,23 @@ func (s *PostgresStore) discoveryFeed(userID string, actorPetID string) []domain
 	return cards
 }
 
+func (s *PostgresStore) GetConversationUserIDs(conversationID string) []string {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT unnest(user_ids) FROM conversations WHERE id = $1`, conversationID)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var uid string
+		if rows.Scan(&uid) == nil {
+			ids = append(ids, uid)
+		}
+	}
+	return ids
+}
+
 func (s *PostgresStore) GetPetOwnerID(petID string) string {
 	var ownerID string
 	_ = s.pool.QueryRow(s.ctx(), `SELECT owner_id FROM pets WHERE id = $1`, petID).Scan(&ownerID)

@@ -505,6 +505,17 @@ func (s *MemoryStore) discoveryFeed(userID string, actorPetID string) []domain.D
 	return cards
 }
 
+func (s *MemoryStore) GetConversationUserIDs(conversationID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if conv, ok := s.conversations[conversationID]; ok {
+		result := make([]string, len(conv.UserIDs))
+		copy(result, conv.UserIDs)
+		return result
+	}
+	return []string{}
+}
+
 func (s *MemoryStore) GetPetOwnerID(petID string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1240,23 +1251,18 @@ func (s *MemoryStore) JoinGroup(userID string, groupID string) error {
 	if !ok {
 		return fmt.Errorf("group not found")
 	}
-	g.MemberCount++
 
-	// Add user to the group conversation so they can send/receive messages
 	if g.ConversationID != "" {
 		if conv, ok := s.conversations[g.ConversationID]; ok {
-			alreadyIn := false
 			for _, uid := range conv.UserIDs {
 				if uid == userID {
-					alreadyIn = true
-					break
+					return nil // Already a member
 				}
 			}
-			if !alreadyIn {
-				conv.UserIDs = append(conv.UserIDs, userID)
-			}
+			conv.UserIDs = append(conv.UserIDs, userID)
 		}
 	}
+	g.MemberCount++
 	return nil
 }
 

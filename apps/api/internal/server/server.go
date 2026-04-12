@@ -590,18 +590,19 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 	}
 
 	if match != nil {
+		// Build notification body with pet names and actor's owner name
+		matchBody := fmt.Sprintf("%s and %s matched! Start chatting.", match.Pet.Name, match.MatchedPet.Name)
 		s.store.SaveNotification(domain.Notification{
-			ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "New Match!", Body: "You matched! Start chatting.",
+			ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "New Match! 🎉", Body: matchBody,
 			Target: match.MatchedPet.OwnerID, SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
 		})
-		// Send push notification to matched pet's owner
 		matchTokens := s.store.GetUserPushTokens(match.MatchedPet.OwnerID)
 		var pushTokens []string
 		for _, t := range matchTokens {
 			pushTokens = append(pushTokens, t.Token)
 		}
 		if len(pushTokens) > 0 {
-			go service.SendExpoPush(pushTokens, "New Match! 🎉", "Your pet matched! Start chatting.", map[string]string{
+			go service.SendExpoPush(pushTokens, "New Match! 🎉", matchBody, map[string]string{
 				"type": "match", "conversationId": match.ConversationID,
 			})
 		}
@@ -655,28 +656,40 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 		"data": message,
 	})
 
-	// Send push notification to other users in the conversation
+	// Send push notifications to other users — fast path (no ListConversations)
 	senderID := currentUserID(request)
-	convs := s.store.ListConversations(senderID)
-	for _, conv := range convs {
-		if conv.ID == payload.ConversationID {
-			for _, uid := range conv.UserIDs {
-				if uid != senderID {
-					userTokens := s.store.GetUserPushTokens(uid)
-					var tokens []string
-					for _, t := range userTokens {
-						tokens = append(tokens, t.Token)
-					}
-					if len(tokens) > 0 {
-						go service.SendExpoPush(tokens, "New Message 💬", message.SenderName+": "+message.Body, map[string]string{
-							"type": "message", "conversationId": payload.ConversationID,
-						})
-					}
-				}
+	go func() {
+		// Get conversation user_ids directly
+		convUserIDs := s.store.GetConversationUserIDs(payload.ConversationID)
+
+		// Check if group conversation
+		groupInfo := s.store.GetGroupByConversation(payload.ConversationID)
+		isGroup := groupInfo != nil
+
+		for _, uid := range convUserIDs {
+			if uid == senderID {
+				continue
 			}
-			break
+			userTokens := s.store.GetUserPushTokens(uid)
+			var tokens []string
+			for _, t := range userTokens {
+				tokens = append(tokens, t.Token)
+			}
+			if len(tokens) > 0 {
+				var title, body string
+				if isGroup {
+					title = groupInfo.Name
+					body = message.SenderName + ": " + message.Body
+				} else {
+					title = message.SenderName
+					body = message.Body
+				}
+				service.SendExpoPush(tokens, title, body, map[string]string{
+					"type": "message", "conversationId": payload.ConversationID,
+				})
+			}
 		}
-	}
+	}()
 
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": message})
 }

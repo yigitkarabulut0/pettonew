@@ -73,12 +73,33 @@ export default function ConversationPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: async () => {
-      if (!session || !draft.trim()) return null;
-      return sendMessage(session.tokens.accessToken, id, draft.trim());
+    mutationFn: async (text: string) => {
+      if (!session || !text.trim()) return null;
+      return sendMessage(session.tokens.accessToken, id, text.trim());
     },
-    onSuccess: () => {
+    onMutate: async (text: string) => {
+      // Optimistic: instantly show the message in the list
+      await queryClient.cancelQueries({ queryKey: ["messages", id] });
+      const prev = queryClient.getQueryData(["messages", id]);
+      const optimisticMsg = {
+        id: `temp-${Date.now()}`,
+        conversationId: id,
+        senderProfileId: session?.user.id ?? "",
+        senderName: session?.user.firstName ?? "",
+        body: text.trim(),
+        createdAt: new Date().toISOString(),
+        isMine: true
+      };
+      queryClient.setQueryData(["messages", id], (old: any) =>
+        [...(old ?? []), optimisticMsg]
+      );
       setDraft("");
+      return { prev };
+    },
+    onError: (_err, _text, context) => {
+      if (context?.prev) queryClient.setQueryData(["messages", id], context.prev);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["messages", id] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     }
@@ -124,42 +145,87 @@ export default function ConversationPage() {
     <View
       key={msg.id}
       style={{
+        flexDirection: isGroupChat && !msg.isMine ? "row" : "column",
         alignSelf: msg.isMine ? "flex-end" : "flex-start",
         maxWidth: "78%",
         marginHorizontal: mobileTheme.spacing.lg,
-        marginBottom: mobileTheme.spacing.sm
+        marginBottom: mobileTheme.spacing.sm,
+        gap: isGroupChat && !msg.isMine ? 8 : 0
       }}
     >
-      <View
-        style={{
-          paddingHorizontal: mobileTheme.spacing.lg,
-          paddingVertical: mobileTheme.spacing.sm + 4,
-          borderRadius: mobileTheme.radius.lg,
-          backgroundColor: msg.isMine
-            ? theme.colors.primary
-            : theme.colors.white,
-          borderTopRightRadius: msg.isMine
-            ? mobileTheme.radius.xs
-            : mobileTheme.radius.lg,
-          borderTopLeftRadius: msg.isMine
-            ? mobileTheme.radius.lg
-            : mobileTheme.radius.xs,
-          ...mobileTheme.shadow.sm
-        }}
-      >
-        <Text
-          selectable
+      {/* Sender avatar for group chats */}
+      {isGroupChat && !msg.isMine && (
+        <View
           style={{
-            color: msg.isMine
-              ? theme.colors.white
-              : theme.colors.ink,
-            lineHeight: mobileTheme.typography.body.lineHeight,
-            fontSize: mobileTheme.typography.body.fontSize,
-            fontFamily: "Inter_400Regular"
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            overflow: "hidden",
+            backgroundColor: theme.colors.primaryBg,
+            marginTop: 2
           }}
         >
-          {msg.body}
-        </Text>
+          {(() => {
+            const member = groupInfo?.members?.find((m) => m.userId === msg.senderProfileId);
+            return member?.avatarUrl ? (
+              <Image source={{ uri: member.avatarUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+            ) : (
+              <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.primary }}>
+                  {(msg.senderName || "?")[0]}
+                </Text>
+              </View>
+            );
+          })()}
+        </View>
+      )}
+      <View>
+        {/* Sender name for group chats */}
+        {isGroupChat && !msg.isMine && (
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: "600",
+              color: theme.colors.primary,
+              fontFamily: "Inter_600SemiBold",
+              marginBottom: 2,
+              marginLeft: 4
+            }}
+          >
+            {msg.senderName}
+          </Text>
+        )}
+        <View
+          style={{
+            paddingHorizontal: mobileTheme.spacing.lg,
+            paddingVertical: mobileTheme.spacing.sm + 4,
+            borderRadius: mobileTheme.radius.lg,
+            backgroundColor: msg.isMine
+              ? theme.colors.primary
+              : theme.colors.white,
+            borderTopRightRadius: msg.isMine
+              ? mobileTheme.radius.xs
+              : mobileTheme.radius.lg,
+            borderTopLeftRadius: msg.isMine
+              ? mobileTheme.radius.lg
+              : mobileTheme.radius.xs,
+            ...mobileTheme.shadow.sm
+          }}
+        >
+          <Text
+            selectable
+            style={{
+              color: msg.isMine
+                ? theme.colors.white
+                : theme.colors.ink,
+              lineHeight: mobileTheme.typography.body.lineHeight,
+              fontSize: mobileTheme.typography.body.fontSize,
+              fontFamily: "Inter_400Regular"
+            }}
+          >
+            {msg.body}
+          </Text>
+        </View>
       </View>
       {showTimestamp && (
         <Text
@@ -349,8 +415,8 @@ export default function ConversationPage() {
           }}
         />
         <Pressable
-          onPress={() => mutation.mutate()}
-          disabled={!draft.trim() || mutation.isPending}
+          onPress={() => draft.trim() && mutation.mutate(draft)}
+          disabled={!draft.trim()}
           style={{
             width: 44,
             height: 44,
