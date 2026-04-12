@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { listGroups, joinGroup } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
+import type { CommunityGroup } from "@petto/contracts";
 
 export default function GroupsPage() {
   const { t } = useTranslation();
@@ -36,7 +37,21 @@ export default function GroupsPage() {
 
   const joinMutation = useMutation({
     mutationFn: (groupId: string) => joinGroup(token, groupId),
-    onSuccess: () => {
+    onMutate: async (groupId: string) => {
+      // Optimistic update — immediately show as member
+      await queryClient.cancelQueries({ queryKey: ["groups"] });
+      const prev = queryClient.getQueryData<CommunityGroup[]>(["groups"]);
+      queryClient.setQueryData<CommunityGroup[]>(["groups"], (old) =>
+        old?.map((g) =>
+          g.id === groupId ? { ...g, isMember: true, memberCount: g.memberCount + 1 } : g
+        ) ?? []
+      );
+      return { prev };
+    },
+    onError: (_err, _groupId, context) => {
+      if (context?.prev) queryClient.setQueryData(["groups"], context.prev);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
     }
   });
@@ -230,11 +245,12 @@ export default function GroupsPage() {
                     backgroundColor: theme.colors.primaryBg,
                     paddingHorizontal: 14,
                     paddingVertical: 8,
-                    borderRadius: mobileTheme.radius.md
+                    borderRadius: mobileTheme.radius.md,
+                    opacity: joinMutation.isPending ? 0.5 : 1
                   }}
                 >
                   <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
-                    {t("common.join")}
+                    {joinMutation.isPending ? t("common.loading") : t("common.join")}
                   </Text>
                 </Pressable>
               )}
