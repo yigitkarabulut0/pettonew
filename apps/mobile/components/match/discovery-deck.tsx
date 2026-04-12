@@ -503,7 +503,7 @@ export function DiscoveryDeck({
   const insets = useSafeAreaInsets();
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
+  const [isSwiping] = useState(false); // kept for button disabled state
   const swipeLock = useRef(false);
 
   const activePet = useMemo(() => {
@@ -517,6 +517,9 @@ export function DiscoveryDeck({
     setCurrentIndex(0);
   }, [cards]);
 
+  // Store card ref before advancing index so onSuccess can access it
+  const pendingSwipeCard = useRef<DiscoveryCard | null>(null);
+
   const swipeMutation = useMutation({
     mutationFn: ({
       actorPetId,
@@ -528,37 +531,29 @@ export function DiscoveryDeck({
       direction: SwipeDirection;
     }) => createSwipe(accessToken, actorPetId, targetPetId, direction),
     onSuccess: (matchResult) => {
-      if (matchResult) {
-        const card = cards[currentIndex];
-        if (card && activePet) {
-          onMatch(
-            activePet,
-            card.pet,
-            card.owner.firstName,
-            matchResult.conversationId
-          );
-        }
+      if (matchResult && pendingSwipeCard.current && activePet) {
+        onMatch(
+          activePet,
+          pendingSwipeCard.current.pet,
+          pendingSwipeCard.current.owner.firstName,
+          matchResult.conversationId
+        );
       }
+      pendingSwipeCard.current = null;
       queryClient.invalidateQueries({
-        queryKey: ["discovery-feed", accessToken]
+        queryKey: ["discovery-feed"]
       });
-      queryClient.invalidateQueries({ queryKey: ["matches", accessToken] });
-      setCurrentIndex((prev) => prev + 1);
-      setIsSwiping(false);
-      swipeLock.current = false;
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
     },
     onError: () => {
-      setIsSwiping(false);
-      swipeLock.current = false;
+      pendingSwipeCard.current = null;
     }
   });
 
   const handleSwipeAction = useCallback(
     (direction: SwipeDirection) => {
-      if (swipeLock.current || isSwiping || currentIndex >= cards.length)
-        return;
+      if (swipeLock.current || currentIndex >= cards.length) return;
       swipeLock.current = true;
-      setIsSwiping(true);
 
       if (direction === "like" || direction === "super-like") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -568,17 +563,27 @@ export function DiscoveryDeck({
 
       const card = cards[currentIndex];
       if (!card || !activePet) {
-        setIsSwiping(false);
         swipeLock.current = false;
         return;
       }
+
+      // Store card ref and advance index IMMEDIATELY — don't wait for API
+      pendingSwipeCard.current = card;
+      setCurrentIndex((prev) => prev + 1);
+
+      // Fire API in background — card is already gone visually
       swipeMutation.mutate({
         actorPetId: activePet.id,
         targetPetId: card.pet.id,
         direction
       });
+
+      // Release lock after short delay (let animation finish)
+      setTimeout(() => {
+        swipeLock.current = false;
+      }, 350);
     },
-    [cards, currentIndex, activePet, isSwiping, swipeMutation, onMatch]
+    [cards, currentIndex, activePet, swipeMutation]
   );
 
   if (isLoading) {
