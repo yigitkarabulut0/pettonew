@@ -29,7 +29,26 @@ export default function UserProfilePage() {
 
   const likeMutation = useMutation({
     mutationFn: (postId: string) => toggleHomePostLike(token, postId),
-    onSuccess: () => {
+    onMutate: async (postId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["user-profile", id] });
+      const prev = queryClient.getQueryData(["user-profile", id]);
+      queryClient.setQueryData(["user-profile", id], (old: any) => {
+        if (!old?.posts) return old;
+        return {
+          ...old,
+          posts: old.posts.map((p: any) =>
+            p.id === postId
+              ? { ...p, likedByMe: !p.likedByMe, likeCount: p.likedByMe ? p.likeCount - 1 : p.likeCount + 1 }
+              : p
+          )
+        };
+      });
+      return { prev };
+    },
+    onError: (_err, _postId, context) => {
+      if (context?.prev) queryClient.setQueryData(["user-profile", id], context.prev);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["user-profile", id] });
       queryClient.invalidateQueries({ queryKey: ["home-feed"] });
     }
