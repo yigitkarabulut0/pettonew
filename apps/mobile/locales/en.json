@@ -537,7 +537,7 @@
   },
   "userProfile": {
     "theirPets": "Their Pets",
-    "sendMessage": "Send Message",
+    "theirPosts": "Their Posts",
     "noPets": "No pets to show"
   },
   "imageCrop": {

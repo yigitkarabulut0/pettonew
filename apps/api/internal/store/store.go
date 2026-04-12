@@ -41,6 +41,7 @@ type Store interface {
 	ResolveReport(reportID string, notes string) error
 	GetReportDetail(reportID string) (*domain.ReportDetail, error)
 	ListHomeFeed(userID string) []domain.HomePost
+	ListUserPosts(targetUserID string) []domain.HomePost
 	CreatePost(userID string, input PostInput) (domain.HomePost, error)
 	TogglePostLike(userID string, postID string) (domain.HomePost, error)
 	ListVenues() []domain.ExploreVenue

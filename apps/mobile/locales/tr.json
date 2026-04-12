@@ -537,7 +537,7 @@
   },
   "userProfile": {
     "theirPets": "Evcil Hayvanları",
-    "sendMessage": "Mesaj Gönder",
+    "theirPosts": "Paylaşımları",
     "noPets": "Gösterilecek evcil hayvan yok"
   },
   "imageCrop": {

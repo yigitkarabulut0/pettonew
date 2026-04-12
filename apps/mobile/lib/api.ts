@@ -682,13 +682,14 @@ export async function uploadMedia(
 export async function getUserProfile(
   accessToken: string,
   userId: string
-): Promise<{ user: any; pets: Pet[] }> {
-  const data = await request<{ user: any; pets: any[] }>(`/v1/users/${userId}/profile`, {
+): Promise<{ user: any; pets: Pet[]; posts: any[] }> {
+  const data = await request<{ user: any; pets: any[]; posts: any[] }>(`/v1/users/${userId}/profile`, {
     headers: authHeaders(accessToken)
   });
   return {
     user: data?.user ?? {},
-    pets: Array.isArray(data?.pets) ? data.pets.map(normalizePet) : []
+    pets: Array.isArray(data?.pets) ? data.pets.map(normalizePet) : [],
+    posts: Array.isArray(data?.posts) ? data.posts : []
   };
 }
 
