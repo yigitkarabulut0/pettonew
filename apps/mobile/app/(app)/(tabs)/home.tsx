@@ -1240,11 +1240,15 @@ function PostCard({
 
             if (post.imageUrl) {
               try {
-                const fileUri = FileSystem.cacheDirectory + "fetcht-post.jpg";
-                await FileSystem.downloadAsync(post.imageUrl, fileUri);
-                await Sharing.shareAsync(fileUri, { mimeType: "image/jpeg", dialogTitle: text });
-                return;
-              } catch {}
+                const fileUri = `${FileSystem.cacheDirectory}fetcht-post-${Date.now()}.jpg`;
+                const download = await FileSystem.downloadAsync(post.imageUrl, fileUri);
+                if (download.status === 200) {
+                  await Sharing.shareAsync(download.uri, { mimeType: "image/jpeg", dialogTitle: text, UTI: "public.jpeg" });
+                  return;
+                }
+              } catch (e: any) {
+                console.warn("Share image error:", e?.message);
+              }
               // Fallback if download/share fails
               Share.share(Platform.OS === "ios" ? { message: text, url: post.imageUrl } : { message: `${text}\n${post.imageUrl}` });
             } else {
