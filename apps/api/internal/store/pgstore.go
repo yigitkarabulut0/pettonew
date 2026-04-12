@@ -1173,14 +1173,22 @@ func (s *PostgresStore) ListConversations(userID string) []domain.Conversation {
 		c.Messages = []domain.Message{}
 		c.MatchPetPairs = s.getMatchPetPairs(c.ID)
 
-		// Set title to the OTHER user's name (viewer-relative)
-		for _, uid := range c.UserIDs {
-			if uid != userID {
-				otherName, _ := s.getOwnerInfo(uid)
-				if otherName != "" {
-					c.Title = otherName
+		// Check if this conversation belongs to a group
+		var groupName string
+		groupErr := s.pool.QueryRow(s.ctx(),
+			`SELECT name FROM community_groups WHERE conversation_id = $1`, c.ID).Scan(&groupName)
+		if groupErr == nil && groupName != "" {
+			c.Title = groupName
+		} else {
+			// Normal 1:1 — set title to the OTHER user's name
+			for _, uid := range c.UserIDs {
+				if uid != userID {
+					otherName, _ := s.getOwnerInfo(uid)
+					if otherName != "" {
+						c.Title = otherName
+					}
+					break
 				}
-				break
 			}
 		}
 
@@ -2563,13 +2571,15 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.CommunityGroup {
 	var g domain.CommunityGroup
 	var img, convID *string
+	var createdAt time.Time
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at
 		 FROM community_groups WHERE conversation_id = $1`, conversationID).Scan(
-		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &g.CreatedAt)
+		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &createdAt)
 	if err != nil {
 		return nil
 	}
+	g.CreatedAt = createdAt.Format(time.RFC3339)
 	if img != nil {
 		g.ImageURL = *img
 	}
