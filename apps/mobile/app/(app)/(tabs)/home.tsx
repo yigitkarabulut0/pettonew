@@ -1233,15 +1233,22 @@ function PostCard({
         </Pressable>
 
         <Pressable
-          onPress={() => {
+          onPress={async () => {
             const text = post.body
               ? `${post.author.firstName}: "${post.body}" — Fetcht`
               : `${post.author.firstName} shared a post on Fetcht`;
 
-            if (Platform.OS === "ios" && post.imageUrl) {
-              Share.share({ message: text, url: post.imageUrl });
+            if (post.imageUrl) {
+              try {
+                const fileUri = FileSystem.cacheDirectory + "fetcht-post.jpg";
+                await FileSystem.downloadAsync(post.imageUrl, fileUri);
+                await Sharing.shareAsync(fileUri, { mimeType: "image/jpeg", dialogTitle: text });
+                return;
+              } catch {}
+              // Fallback if download/share fails
+              Share.share(Platform.OS === "ios" ? { message: text, url: post.imageUrl } : { message: `${text}\n${post.imageUrl}` });
             } else {
-              Share.share({ message: post.imageUrl ? `${text}\n${post.imageUrl}` : text });
+              Share.share({ message: text });
             }
           }}
           style={{
