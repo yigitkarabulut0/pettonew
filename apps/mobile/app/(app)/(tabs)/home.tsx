@@ -16,6 +16,8 @@ import {
   View
 } from "react-native";
 import { Image } from "expo-image";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1231,12 +1233,25 @@ function PostCard({
         </Pressable>
 
         <Pressable
-          onPress={() => {
-            Share.share({
-              message: post.body
-                ? `${post.author.firstName}: "${post.body}" — Fetcht`
-                : `${post.author.firstName} shared a post on Fetcht`
-            });
+          onPress={async () => {
+            try {
+              if (post.imageUrl) {
+                const fileUri = FileSystem.cacheDirectory + `share-${post.id}.jpg`;
+                const { uri } = await FileSystem.downloadAsync(post.imageUrl, fileUri);
+                await Sharing.shareAsync(uri, {
+                  mimeType: "image/jpeg",
+                  dialogTitle: post.body || "Fetcht"
+                });
+              } else {
+                Share.share({
+                  message: post.body
+                    ? `${post.author.firstName}: "${post.body}" — Fetcht`
+                    : `${post.author.firstName} shared a post on Fetcht`
+                });
+              }
+            } catch {
+              // user cancelled or share failed
+            }
           }}
           style={{
             flexDirection: "row",
