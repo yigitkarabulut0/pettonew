@@ -321,7 +321,10 @@
     "inappropriate": "Inappropriate content",
     "fakeProfile": "Fake profile",
     "other": "Other",
-    "descriptionPlaceholder": "Please describe the issue..."
+    "descriptionPlaceholder": "Please describe the issue...",
+    "successTitle": "Thank you",
+    "submitted": "Your report has been submitted.",
+    "updated": "Your report reason has been updated."
   },
   "diary": {
     "title": "Pet Diary",

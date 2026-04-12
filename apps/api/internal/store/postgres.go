@@ -321,10 +321,13 @@ func (s *PersistentStore) BlockUser(userID string, targetUserID string) error {
 	return s.persistAfter(s.MemoryStore.BlockUser(userID, targetUserID))
 }
 
-func (s *PersistentStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) domain.ReportSummary {
-	report := s.MemoryStore.CreateReport(reporterID, reporterName, reason, targetType, targetID, targetLabel)
+func (s *PersistentStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) (domain.ReportSummary, error) {
+	report, err := s.MemoryStore.CreateReport(reporterID, reporterName, reason, targetType, targetID, targetLabel)
+	if err != nil {
+		return report, err
+	}
 	_ = s.persist(context.Background())
-	return report
+	return report, nil
 }
 
 func (s *PersistentStore) SuspendUser(userID string, status string) error {

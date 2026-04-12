@@ -867,9 +867,22 @@ func (s *MemoryStore) BlockUser(userID string, targetUserID string) error {
 	return nil
 }
 
-func (s *MemoryStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) domain.ReportSummary {
+func (s *MemoryStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) (domain.ReportSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Check for existing report within 2 hours
+	twoHoursAgo := time.Now().UTC().Add(-2 * time.Hour)
+	for i, r := range s.reports {
+		if r.ReporterID == reporterID && r.TargetID == targetID && r.TargetType == targetType {
+			created, _ := time.Parse(time.RFC3339, r.CreatedAt)
+			if created.After(twoHoursAgo) {
+				s.reports[i].Reason = reason
+				s.reports[i].Updated = true
+				return s.reports[i], nil
+			}
+		}
+	}
 
 	report := domain.ReportSummary{
 		ID:           newID("report"),
@@ -884,7 +897,7 @@ func (s *MemoryStore) CreateReport(reporterID string, reporterName string, reaso
 	}
 
 	s.reports = append([]domain.ReportSummary{report}, s.reports...)
-	return report
+	return report, nil
 }
 
 func (s *MemoryStore) AdminLogin(email string, password string) (*domain.AdminUser, error) {

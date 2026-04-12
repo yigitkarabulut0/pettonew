@@ -25,7 +25,7 @@ type Store interface {
 	SendMessage(userID string, conversationID string, body string) (domain.Message, error)
 	MarkMessagesRead(userID string, conversationID string)
 	BlockUser(userID string, targetUserID string) error
-	CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) domain.ReportSummary
+	CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) (domain.ReportSummary, error)
 	AdminLogin(email string, password string) (*domain.AdminUser, error)
 	Dashboard() domain.DashboardSnapshot
 	ListUsers() []domain.UserProfile

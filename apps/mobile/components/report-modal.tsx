@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -63,7 +64,10 @@ export function ReportModal({
         targetLabel
       );
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      const isUpdated = data?.updated === true;
+      const msg = isUpdated ? t("report.updated") : t("report.submitted");
+      Alert.alert(t("report.successTitle"), msg);
       setSelectedReason(null);
       setDescription("");
       onClose();

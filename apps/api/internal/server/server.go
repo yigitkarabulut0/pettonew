@@ -914,7 +914,11 @@ func (s *Server) handleReport(writer http.ResponseWriter, request *http.Request)
 	}
 
 	user, _ := s.store.GetUser(currentUserID(request))
-	report := s.store.CreateReport(user.Profile.ID, user.Profile.FirstName, payload.Reason, payload.TargetType, payload.TargetID, payload.TargetLabel)
+	report, err := s.store.CreateReport(user.Profile.ID, user.Profile.FirstName, payload.Reason, payload.TargetType, payload.TargetID, payload.TargetLabel)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": report})
 }
 

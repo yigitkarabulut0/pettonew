@@ -192,6 +192,7 @@ type ReportSummary struct {
 	Notes        string `json:"notes,omitempty"`
 	ResolvedAt   string `json:"resolvedAt,omitempty"`
 	CreatedAt    string `json:"createdAt"`
+	Updated      bool   `json:"updated,omitempty"`
 }
 
 type ReportMessage struct {

@@ -321,7 +321,10 @@
     "inappropriate": "Uygunsuz içerik",
     "fakeProfile": "Sahte profil",
     "other": "Diğer",
-    "descriptionPlaceholder": "Lütfen sorunu açıklayın..."
+    "descriptionPlaceholder": "Lütfen sorunu açıklayın...",
+    "successTitle": "Teşekkürler",
+    "submitted": "Raporunuz gönderildi.",
+    "updated": "Rapor sebebiniz güncellendi."
   },
   "diary": {
     "title": "Hayvan Günlüğü",

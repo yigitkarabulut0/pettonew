@@ -1911,7 +1911,35 @@ func (s *PostgresStore) CreateVenueReview(review domain.VenueReview) domain.Venu
 	return review
 }
 
-func (s *PostgresStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) domain.ReportSummary {
+func (s *PostgresStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) (domain.ReportSummary, error) {
+	// Check for existing report by same reporter on same target within 2 hours
+	var existingID string
+	var existingCreatedAt time.Time
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, created_at FROM reports
+		 WHERE reporter_id = $1 AND target_id = $2 AND target_type = $3
+		 AND created_at > NOW() - INTERVAL '2 hours'
+		 ORDER BY created_at DESC LIMIT 1`,
+		reporterID, targetID, targetType).Scan(&existingID, &existingCreatedAt)
+
+	if err == nil {
+		// Report exists within cooldown — update the reason instead of creating new
+		_, _ = s.pool.Exec(s.ctx(), `UPDATE reports SET reason = $1 WHERE id = $2`, reason, existingID)
+		return domain.ReportSummary{
+			ID:           existingID,
+			Reason:       reason,
+			ReporterID:   reporterID,
+			ReporterName: reporterName,
+			TargetType:   targetType,
+			TargetID:     targetID,
+			TargetLabel:  targetLabel,
+			Status:       "open",
+			CreatedAt:    existingCreatedAt.Format(time.RFC3339),
+			Updated:      true,
+		}, nil
+	}
+
+	// No recent report — create new one
 	report := domain.ReportSummary{
 		ID:           newID("report"),
 		Reason:       reason,
@@ -1929,7 +1957,7 @@ func (s *PostgresStore) CreateReport(reporterID string, reporterName string, rea
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		report.ID, reporterID, reporterName, reason, targetType, targetID, targetLabel, "open", time.Now().UTC())
 
-	return report
+	return report, nil
 }
 
 // ============================================================
