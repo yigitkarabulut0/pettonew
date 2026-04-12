@@ -2518,8 +2518,12 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 		var g domain.CommunityGroup
 		var img, convID *string
 		var convUserIDs []string
-		rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
-			&img, &convID, &g.CreatedAt, &convUserIDs)
+		var createdAt time.Time
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
+			&img, &convID, &createdAt, &convUserIDs); err != nil {
+			continue
+		}
+		g.CreatedAt = createdAt.Format(time.RFC3339)
 		if img != nil {
 			g.ImageURL = *img
 		}
@@ -2639,12 +2643,27 @@ func (s *PostgresStore) CreateGroup(group domain.CommunityGroup) domain.Communit
 }
 
 func (s *PostgresStore) JoinGroup(userID string, groupID string) error {
-	s.pool.Exec(s.ctx(), `UPDATE community_groups SET member_count = member_count + 1 WHERE id=$1`, groupID)
 	var convID string
 	s.pool.QueryRow(s.ctx(), `SELECT conversation_id FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
-	if convID != "" {
-		s.pool.Exec(s.ctx(), `UPDATE conversations SET user_ids = array_append(user_ids, $1) WHERE id=$2 AND NOT ($1 = ANY(user_ids))`, userID, convID)
+	if convID == "" {
+		return fmt.Errorf("group not found")
 	}
+
+	// Check if user is already a member
+	var userIDs []string
+	s.pool.QueryRow(s.ctx(), `SELECT user_ids FROM conversations WHERE id=$1`, convID).Scan(&userIDs)
+	for _, uid := range userIDs {
+		if uid == userID {
+			return nil // Already a member, do nothing
+		}
+	}
+
+	// Add user and sync member count from actual user_ids length
+	s.pool.Exec(s.ctx(), `UPDATE conversations SET user_ids = array_append(user_ids, $1) WHERE id=$2`, userID, convID)
+	s.pool.Exec(s.ctx(),
+		`UPDATE community_groups SET member_count = (
+			SELECT COALESCE(array_length(user_ids, 1), 0) FROM conversations WHERE id = $2
+		) WHERE id = $1`, groupID, convID)
 	return nil
 }
 
