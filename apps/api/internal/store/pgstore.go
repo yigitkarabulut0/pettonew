@@ -2505,22 +2505,23 @@ func (s *PostgresStore) JoinPlaydate(userID string, playdateID string) error {
 }
 
 func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
-	rows, _ := s.pool.Query(s.ctx(),
+	rows, err := s.pool.Query(s.ctx(),
 		`SELECT g.id, g.name, g.description, g.pet_type, g.member_count,
 		        g.image_url, g.conversation_id, g.created_at,
-		        COALESCE(c.user_ids, '{}')
+		        EXISTS(SELECT 1 FROM conversations c WHERE c.id = g.conversation_id AND $1 = ANY(c.user_ids))
 		 FROM community_groups g
-		 LEFT JOIN conversations c ON g.conversation_id = c.id
-		 ORDER BY g.created_at DESC`)
+		 ORDER BY g.created_at DESC`, userID)
+	if err != nil {
+		return []domain.CommunityGroup{}
+	}
 	defer rows.Close()
 	var out []domain.CommunityGroup
 	for rows.Next() {
 		var g domain.CommunityGroup
 		var img, convID *string
-		var convUserIDs []string
 		var createdAt time.Time
 		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
-			&img, &convID, &createdAt, &convUserIDs); err != nil {
+			&img, &convID, &createdAt, &g.IsMember); err != nil {
 			continue
 		}
 		g.CreatedAt = createdAt.Format(time.RFC3339)
@@ -2531,21 +2532,15 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 			g.ConversationID = *convID
 		}
 
-		// Check membership
-		g.IsMember = false
-		for _, uid := range convUserIDs {
-			if uid == userID {
-				g.IsMember = true
-				break
-			}
-		}
-
-		// Fetch member profiles
+		// Fetch member profiles via unnest (avoids TEXT[] scan)
 		g.Members = []domain.GroupMember{}
-		if len(convUserIDs) > 0 {
+		if g.ConversationID != "" {
 			memberRows, err := s.pool.Query(s.ctx(),
-				`SELECT user_id, first_name, COALESCE(avatar_url,'')
-				 FROM user_profiles WHERE user_id = ANY($1)`, convUserIDs)
+				`SELECT up.user_id, up.first_name, COALESCE(up.avatar_url,'')
+				 FROM user_profiles up
+				 WHERE up.user_id IN (
+				     SELECT unnest(c.user_ids) FROM conversations c WHERE c.id = $1
+				 )`, g.ConversationID)
 			if err == nil {
 				for memberRows.Next() {
 					var m domain.GroupMember
@@ -2644,23 +2639,27 @@ func (s *PostgresStore) CreateGroup(group domain.CommunityGroup) domain.Communit
 
 func (s *PostgresStore) JoinGroup(userID string, groupID string) error {
 	var convID string
-	s.pool.QueryRow(s.ctx(), `SELECT conversation_id FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
-	if convID == "" {
+	err := s.pool.QueryRow(s.ctx(), `SELECT conversation_id FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
+	if err != nil || convID == "" {
 		return fmt.Errorf("group not found")
 	}
 
-	// Check if user is already a member
-	var userIDs []string
-	s.pool.QueryRow(s.ctx(), `SELECT user_ids FROM conversations WHERE id=$1`, convID).Scan(&userIDs)
-	for _, uid := range userIDs {
-		if uid == userID {
-			return nil // Already a member, do nothing
-		}
+	// Check if user is already a member (SQL EXISTS — no array scan)
+	var alreadyMember bool
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS(SELECT 1 FROM conversations WHERE id = $1 AND $2 = ANY(user_ids))`,
+		convID, userID).Scan(&alreadyMember)
+	if alreadyMember {
+		return nil
 	}
 
-	// Add user and sync member count from actual user_ids length
-	s.pool.Exec(s.ctx(), `UPDATE conversations SET user_ids = array_append(user_ids, $1) WHERE id=$2`, userID, convID)
-	s.pool.Exec(s.ctx(),
+	// Add user to conversation
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET user_ids = array_append(user_ids, $1) WHERE id=$2 AND NOT ($1 = ANY(user_ids))`,
+		userID, convID)
+
+	// Sync member count from actual array length
+	_, _ = s.pool.Exec(s.ctx(),
 		`UPDATE community_groups SET member_count = (
 			SELECT COALESCE(array_length(user_ids, 1), 0) FROM conversations WHERE id = $2
 		) WHERE id = $1`, groupID, convID)
