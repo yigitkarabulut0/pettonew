@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, Flag, Send, X } from "lucide-react-native";
+import { ChevronLeft, Flag, Send, Users2, X } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { ReportModal } from "@/components/report-modal";
@@ -447,175 +447,262 @@ export default function ConversationPage() {
         targetLabel={otherUserName}
       />
 
-      {/* Group Info Modal */}
-      <Modal visible={groupInfoOpen} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+      {/* Group Info — Full Screen */}
+      <Modal visible={groupInfoOpen} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          {/* Header */}
           <View
             style={{
+              paddingTop: insets.top + mobileTheme.spacing.md,
+              paddingBottom: mobileTheme.spacing.lg,
+              paddingHorizontal: mobileTheme.spacing.xl,
               backgroundColor: theme.colors.white,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              maxHeight: "75%",
-              paddingBottom: insets.bottom + mobileTheme.spacing.xl
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.border,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: mobileTheme.spacing.md
             }}
           >
-            {/* Modal header */}
-            <View
+            <Pressable
+              onPress={() => setGroupInfoOpen(false)}
+              hitSlop={12}
               style={{
-                flexDirection: "row",
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: theme.colors.background,
                 alignItems: "center",
-                justifyContent: "space-between",
-                paddingHorizontal: mobileTheme.spacing.xl,
-                paddingVertical: mobileTheme.spacing.lg,
-                borderBottomWidth: 1,
-                borderBottomColor: theme.colors.border
+                justifyContent: "center"
               }}
             >
-              <View style={{ flex: 1 }}>
+              <ChevronLeft size={20} color={theme.colors.ink} />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.subheading.fontSize,
+                  fontWeight: "700",
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {groupInfo?.name}
+              </Text>
+            </View>
+          </View>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+            {/* Group info card */}
+            <View
+              style={{
+                backgroundColor: theme.colors.white,
+                marginHorizontal: mobileTheme.spacing.xl,
+                marginTop: mobileTheme.spacing.xl,
+                borderRadius: mobileTheme.radius.lg,
+                padding: mobileTheme.spacing.xl,
+                alignItems: "center",
+                gap: mobileTheme.spacing.md,
+                ...mobileTheme.shadow.sm
+              }}
+            >
+              <View
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: theme.colors.primaryBg,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Text style={{ fontSize: 28 }}>
+                  {groupInfo?.petType === "dog" ? "🐕" : groupInfo?.petType === "cat" ? "🐈" : "🐾"}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.heading.fontSize,
+                  fontWeight: "700",
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_700Bold",
+                  textAlign: "center"
+                }}
+              >
+                {groupInfo?.name}
+              </Text>
+              {groupInfo?.description ? (
                 <Text
                   style={{
-                    fontSize: mobileTheme.typography.subheading.fontSize,
-                    fontWeight: "700",
-                    color: theme.colors.ink,
-                    fontFamily: "Inter_700Bold"
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    color: theme.colors.muted,
+                    fontFamily: "Inter_400Regular",
+                    textAlign: "center",
+                    lineHeight: mobileTheme.typography.body.lineHeight
                   }}
                 >
-                  {groupInfo?.name}
+                  {groupInfo.description}
                 </Text>
+              ) : null}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: theme.colors.secondarySoft,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: mobileTheme.radius.pill
+                }}
+              >
+                <Users2 size={14} color={theme.colors.secondary} />
                 <Text
                   style={{
                     fontSize: mobileTheme.typography.caption.fontSize,
-                    color: theme.colors.muted,
-                    fontFamily: "Inter_500Medium",
-                    marginTop: 2
+                    fontWeight: "600",
+                    color: theme.colors.secondary,
+                    fontFamily: "Inter_600SemiBold"
                   }}
                 >
                   {t("groups.members", { count: groupInfo?.memberCount ?? 0 })}
                 </Text>
               </View>
-              <Pressable
-                onPress={() => setGroupInfoOpen(false)}
-                hitSlop={12}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: theme.colors.background,
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                <X size={18} color={theme.colors.ink} />
-              </Pressable>
             </View>
 
-            {/* Members list */}
-            <ScrollView
-              contentContainerStyle={{
+            {/* Members section */}
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.label.fontSize,
+                fontWeight: "700",
+                color: theme.colors.ink,
+                fontFamily: "Inter_700Bold",
+                letterSpacing: 0.5,
+                textTransform: "uppercase",
                 paddingHorizontal: mobileTheme.spacing.xl,
-                paddingTop: mobileTheme.spacing.lg,
-                gap: mobileTheme.spacing.lg
+                marginTop: mobileTheme.spacing.xl,
+                marginBottom: mobileTheme.spacing.md
               }}
             >
+              {t("groups.members", { count: groupInfo?.members?.length ?? 0 })}
+            </Text>
+
+            <View style={{ paddingHorizontal: mobileTheme.spacing.xl, gap: mobileTheme.spacing.sm }}>
               {groupInfo?.members?.map((member) => (
                 <View
                   key={member.userId}
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: mobileTheme.spacing.md
+                    backgroundColor: theme.colors.white,
+                    borderRadius: mobileTheme.radius.lg,
+                    padding: mobileTheme.spacing.lg,
+                    ...mobileTheme.shadow.sm
                   }}
                 >
-                  {/* Member avatar */}
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      overflow: "hidden",
-                      backgroundColor: theme.colors.primaryBg
-                    }}
-                  >
-                    {member.avatarUrl ? (
-                      <Image
-                        source={{ uri: member.avatarUrl }}
-                        style={{ width: "100%", height: "100%" }}
-                        contentFit="cover"
-                      />
-                    ) : (
-                      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                        <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.primary }}>
-                          {member.firstName?.[0] ?? "?"}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Member name + pets */}
-                  <View style={{ flex: 1 }}>
+                  {/* Member header row */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.md }}>
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        overflow: "hidden",
+                        backgroundColor: theme.colors.primaryBg
+                      }}
+                    >
+                      {member.avatarUrl ? (
+                        <Image
+                          source={{ uri: member.avatarUrl }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                          <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.primary }}>
+                            {member.firstName?.[0] ?? "?"}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                     <Text
                       style={{
                         fontSize: mobileTheme.typography.bodySemiBold.fontSize,
                         fontWeight: "600",
                         color: theme.colors.ink,
-                        fontFamily: "Inter_600SemiBold"
+                        fontFamily: "Inter_600SemiBold",
+                        flex: 1
                       }}
                     >
                       {member.firstName}
                     </Text>
-                    {member.pets?.length > 0 && (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ gap: 8, marginTop: 6 }}
-                      >
-                        {member.pets.map((pet) => (
-                          <View key={pet.id} style={{ alignItems: "center", width: 52 }}>
-                            <View
-                              style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 18,
-                                overflow: "hidden",
-                                backgroundColor: theme.colors.background,
-                                borderWidth: 2,
-                                borderColor: theme.colors.primaryBg
-                              }}
-                            >
-                              {pet.photoUrl ? (
-                                <Image
-                                  source={{ uri: pet.photoUrl }}
-                                  style={{ width: "100%", height: "100%" }}
-                                  contentFit="cover"
-                                />
-                              ) : (
-                                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                                  <Text style={{ fontSize: 12, color: theme.colors.muted }}>🐾</Text>
-                                </View>
-                              )}
-                            </View>
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                fontSize: 10,
-                                color: theme.colors.muted,
-                                fontFamily: "Inter_500Medium",
-                                marginTop: 2,
-                                maxWidth: 52,
-                                textAlign: "center"
-                              }}
-                            >
-                              {pet.name}
-                            </Text>
-                          </View>
-                        ))}
-                      </ScrollView>
-                    )}
                   </View>
+
+                  {/* Pets row */}
+                  {member.pets?.length > 0 && (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: mobileTheme.spacing.sm,
+                        marginTop: mobileTheme.spacing.md,
+                        paddingTop: mobileTheme.spacing.md,
+                        borderTopWidth: 1,
+                        borderTopColor: theme.colors.border
+                      }}
+                    >
+                      {member.pets.map((pet) => (
+                        <View
+                          key={pet.id}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                            backgroundColor: theme.colors.background,
+                            borderRadius: mobileTheme.radius.pill,
+                            paddingRight: 12,
+                            paddingVertical: 4,
+                            paddingLeft: 4
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              overflow: "hidden",
+                              backgroundColor: theme.colors.white
+                            }}
+                          >
+                            {pet.photoUrl ? (
+                              <Image
+                                source={{ uri: pet.photoUrl }}
+                                style={{ width: "100%", height: "100%" }}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                                <Text style={{ fontSize: 12 }}>🐾</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontSize: mobileTheme.typography.caption.fontSize,
+                              fontWeight: "500",
+                              color: theme.colors.ink,
+                              fontFamily: "Inter_500Medium",
+                              maxWidth: 100
+                            }}
+                          >
+                            {pet.name}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
               ))}
-            </ScrollView>
-          </View>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </KeyboardAvoidingView>
