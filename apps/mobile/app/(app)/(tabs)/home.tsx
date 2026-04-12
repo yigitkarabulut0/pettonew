@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useRef, useState } from "react";
 import {
@@ -988,6 +989,32 @@ function PostCard({
 }) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handleLikePress = () => {
+    if (!post.likedByMe) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      scaleAnim.setValue(1);
+      Animated.spring(scaleAnim, {
+        toValue: 1.4, friction: 3, tension: 200, useNativeDriver: true,
+      }).start(() => {
+        Animated.spring(scaleAnim, {
+          toValue: 1, friction: 5, tension: 100, useNativeDriver: true,
+        }).start();
+      });
+    } else {
+      scaleAnim.setValue(1);
+      Animated.timing(scaleAnim, {
+        toValue: 0.8, duration: 100, useNativeDriver: true,
+      }).start(() => {
+        Animated.spring(scaleAnim, {
+          toValue: 1, friction: 5, tension: 150, useNativeDriver: true,
+        }).start();
+      });
+    }
+    onLike();
+  };
+
   return (
     <View
       style={{
@@ -1172,7 +1199,7 @@ function PostCard({
         ) : null}
 
         <Pressable
-          onPress={onLike}
+          onPress={handleLikePress}
           style={{
             flexDirection: "row",
             alignItems: "center",
@@ -1180,15 +1207,17 @@ function PostCard({
             paddingVertical: mobileTheme.spacing.sm
           }}
         >
-          <Heart
-            size={18}
-            color={
-              post.likedByMe
-                ? theme.colors.primary
-                : theme.colors.muted
-            }
-            fill={post.likedByMe ? theme.colors.primary : "transparent"}
-          />
+          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <Heart
+              size={18}
+              color={
+                post.likedByMe
+                  ? theme.colors.primary
+                  : theme.colors.muted
+              }
+              fill={post.likedByMe ? theme.colors.primary : "transparent"}
+            />
+          </Animated.View>
           <Text
             style={{
               color: post.likedByMe
