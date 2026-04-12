@@ -970,6 +970,7 @@ function PostCard({
   post,
   onLike,
   onPetPress,
+  onAuthorPress,
   onReport
 }: {
   post: {
