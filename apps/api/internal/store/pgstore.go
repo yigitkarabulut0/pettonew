@@ -1434,7 +1434,7 @@ func (s *PostgresStore) ListHomeFeed(userID string) []domain.HomePost {
 	return s.scanPosts(rows, userID)
 }
 
-func (s *PostgresStore) ListUserPosts(targetUserID string) []domain.HomePost {
+func (s *PostgresStore) ListUserPosts(targetUserID string, viewerUserID string) []domain.HomePost {
 	rows, err := s.pool.Query(s.ctx(),
 		`SELECT po.id, po.body, po.image_url, po.venue_id, po.venue_name,
 		        po.event_id, po.event_name, po.like_count, po.created_at,
@@ -1452,7 +1452,7 @@ func (s *PostgresStore) ListUserPosts(targetUserID string) []domain.HomePost {
 	}
 	defer rows.Close()
 
-	return s.scanPosts(rows, "")
+	return s.scanPosts(rows, viewerUserID)
 }
 
 func (s *PostgresStore) CreatePost(userID string, input PostInput) (domain.HomePost, error) {

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Image } from "expo-image";
@@ -6,9 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Heart } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 
-import { Avatar } from "@/components/avatar";
 import { LottieLoading } from "@/components/lottie-loading";
-import { getUserProfile } from "@/lib/api";
+import { getUserProfile, toggleHomePostLike } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
@@ -20,11 +19,20 @@ export default function UserProfilePage() {
   const session = useSessionStore((s) => s.session);
   const insets = useSafeAreaInsets();
   const token = session?.tokens.accessToken ?? "";
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["user-profile", id],
     queryFn: () => getUserProfile(token, id),
     enabled: Boolean(token && id)
+  });
+
+  const likeMutation = useMutation({
+    mutationFn: (postId: string) => toggleHomePostLike(token, postId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-profile", id] });
+      queryClient.invalidateQueries({ queryKey: ["home-feed"] });
+    }
   });
 
   const user = data?.user;
@@ -98,11 +106,19 @@ export default function UserProfilePage() {
                 borderRadius: 42,
                 borderWidth: 3,
                 borderColor: theme.colors.primary,
-                padding: 3,
-                backgroundColor: theme.colors.white
+                overflow: "hidden",
+                backgroundColor: theme.colors.primaryBg
               }}
             >
-              <Avatar uri={user?.avatarUrl} name={user?.firstName ?? "?"} size="lg" />
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+              ) : (
+                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                  <Text style={{ fontSize: 28, fontWeight: "700", color: theme.colors.primary }}>
+                    {(user?.firstName ?? "?")[0]}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text
               style={{
@@ -258,16 +274,32 @@ export default function UserProfilePage() {
                         </Text>
                       ) : null}
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                        <Heart size={14} color={theme.colors.muted} />
-                        <Text
-                          style={{
-                            fontSize: mobileTheme.typography.micro.fontSize,
-                            color: theme.colors.muted,
-                            fontFamily: "Inter_500Medium"
-                          }}
+                        <Pressable
+                          onPress={() => likeMutation.mutate(post.id)}
+                          style={({ pressed }) => ({
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 5,
+                            paddingVertical: 4,
+                            opacity: pressed ? 0.6 : 1
+                          })}
                         >
-                          {post.likeCount ?? 0}
-                        </Text>
+                          <Heart
+                            size={16}
+                            color={post.likedByMe ? theme.colors.primary : theme.colors.muted}
+                            fill={post.likedByMe ? theme.colors.primary : "transparent"}
+                          />
+                          <Text
+                            style={{
+                              fontSize: mobileTheme.typography.micro.fontSize,
+                              color: post.likedByMe ? theme.colors.primary : theme.colors.muted,
+                              fontFamily: "Inter_600SemiBold",
+                              fontWeight: "600"
+                            }}
+                          >
+                            {post.likeCount ?? 0}
+                          </Text>
+                        </Pressable>
                         <Text
                           style={{
                             fontSize: mobileTheme.typography.micro.fontSize,

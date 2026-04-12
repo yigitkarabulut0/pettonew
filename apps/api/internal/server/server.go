@@ -910,8 +910,9 @@ func (s *Server) handlePublicUserProfile(writer http.ResponseWriter, request *ht
 	}
 	// Strip email for privacy
 	profile := user.Profile
-	// Get user's posts
-	posts := s.store.ListUserPosts(userID)
+	// Get user's posts (with like state for the viewer)
+	viewerID := currentUserID(request)
+	posts := s.store.ListUserPosts(userID, viewerID)
 
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
 		"user": map[string]any{

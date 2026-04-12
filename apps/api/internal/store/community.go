@@ -63,13 +63,13 @@ func (s *MemoryStore) ListHomeFeed(userID string) []domain.HomePost {
 	return posts
 }
 
-func (s *MemoryStore) ListUserPosts(targetUserID string) []domain.HomePost {
+func (s *MemoryStore) ListUserPosts(targetUserID string, viewerUserID string) []domain.HomePost {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	posts := make([]domain.HomePost, 0)
 	for _, post := range s.posts {
 		if post.Author.ID == targetUserID {
-			posts = append(posts, s.postForViewer(post, ""))
+			posts = append(posts, s.postForViewer(post, viewerUserID))
 		}
 	}
 	sort.Slice(posts, func(i, j int) bool {
