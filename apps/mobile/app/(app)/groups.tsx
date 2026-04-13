@@ -14,7 +14,20 @@ import {
 import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Key, MapPin, MessageCircle, Search, Users2 } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Bird,
+  Cat,
+  Dog,
+  Key,
+  MapPin,
+  MessageCircle,
+  PawPrint,
+  Rabbit,
+  Search,
+  Users2,
+  X
+} from "lucide-react-native";
 import * as Location from "expo-location";
 
 import { useTranslation } from "react-i18next";
@@ -23,7 +36,14 @@ import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import type { CommunityGroup } from "@petto/contracts";
 
-const PET_TYPES = ["all", "dog", "cat", "bird", "rabbit", "other"];
+const PET_TYPE_CONFIG = [
+  { key: "all", icon: PawPrint },
+  { key: "dog", icon: Dog },
+  { key: "cat", icon: Cat },
+  { key: "bird", icon: Bird },
+  { key: "rabbit", icon: Rabbit },
+  { key: "other", icon: PawPrint }
+];
 
 export default function GroupsPage() {
   const { t } = useTranslation();
@@ -42,13 +62,11 @@ export default function GroupsPage() {
   const [codeModalVisible, setCodeModalVisible] = useState(false);
   const [codeInput, setCodeInput] = useState("");
 
-  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchText), 300);
     return () => clearTimeout(timer);
   }, [searchText]);
 
-  // Get user location
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -108,32 +126,71 @@ export default function GroupsPage() {
 
   const formatDistance = (d: number) => d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
+  const getPetTypeIcon = (petType: string) => {
+    const config = PET_TYPE_CONFIG.find((c) => c.key === petType) ?? PET_TYPE_CONFIG[0];
+    const IconComponent = config.icon;
+    return <IconComponent size={12} color={theme.colors.secondary} />;
+  };
+
+  // ── Group Card ───────────────────────────────────────────────
   const renderGroupCard = (group: CommunityGroup) => (
-    <View
+    <Pressable
       key={group.id}
-      style={{
+      onPress={group.isMember && group.conversationId
+        ? () => router.push(`/(app)/conversation/${group.conversationId}` as any)
+        : undefined
+      }
+      style={({ pressed }) => ({
         backgroundColor: theme.colors.white,
         borderRadius: mobileTheme.radius.lg,
-        padding: mobileTheme.spacing.lg,
-        marginBottom: mobileTheme.spacing.sm,
-        gap: mobileTheme.spacing.sm,
-        ...mobileTheme.shadow.sm
-      }}
+        padding: mobileTheme.spacing.xl,
+        marginBottom: mobileTheme.spacing.md,
+        ...mobileTheme.shadow.sm,
+        opacity: pressed && group.isMember ? 0.85 : 1
+      })}
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={{ fontSize: mobileTheme.typography.bodySemiBold.fontSize, fontWeight: "600", color: theme.colors.ink, flex: 1, fontFamily: "Inter_600SemiBold" }}>
-          {group.name}
-        </Text>
+      {/* Header: Name + Badges */}
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: mobileTheme.spacing.sm, marginBottom: mobileTheme.spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{
+            fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+            fontWeight: "700",
+            color: theme.colors.ink,
+            fontFamily: "Inter_700Bold",
+            lineHeight: 22
+          }}>
+            {group.name}
+          </Text>
+          {group.cityLabel ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 }}>
+              <MapPin size={11} color={theme.colors.muted} />
+              <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, color: theme.colors.muted, fontFamily: "Inter_400Regular" }}>
+                {group.cityLabel}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           {group.distance != null && group.distance > 0 && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: theme.colors.primaryBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: mobileTheme.radius.pill }}>
-              <MapPin size={10} color={theme.colors.primary} />
-              <Text style={{ fontSize: 10, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>
+            <View style={{
+              flexDirection: "row", alignItems: "center", gap: 4,
+              backgroundColor: theme.colors.primaryBg,
+              paddingHorizontal: 10, paddingVertical: 5,
+              borderRadius: mobileTheme.radius.pill
+            }}>
+              <MapPin size={11} color={theme.colors.primary} />
+              <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>
                 {formatDistance(group.distance)}
               </Text>
             </View>
           )}
-          <View style={{ backgroundColor: theme.colors.secondarySoft, paddingHorizontal: 8, paddingVertical: 3, borderRadius: mobileTheme.radius.pill }}>
+          <View style={{
+            flexDirection: "row", alignItems: "center", gap: 4,
+            backgroundColor: theme.colors.secondarySoft,
+            paddingHorizontal: 10, paddingVertical: 5,
+            borderRadius: mobileTheme.radius.pill
+          }}>
+            {getPetTypeIcon(group.petType)}
             <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: theme.colors.secondary, textTransform: "capitalize", fontFamily: "Inter_600SemiBold" }}>
               {group.petType}
             </Text>
@@ -141,53 +198,167 @@ export default function GroupsPage() {
         </View>
       </View>
 
-      <Text numberOfLines={2} style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted, lineHeight: 18, fontFamily: "Inter_400Regular" }}>
+      {/* Description */}
+      <Text numberOfLines={2} style={{
+        fontSize: mobileTheme.typography.body.fontSize,
+        color: theme.colors.muted,
+        lineHeight: mobileTheme.typography.body.lineHeight,
+        fontFamily: "Inter_400Regular",
+        marginBottom: mobileTheme.spacing.md
+      }}>
         {group.description}
       </Text>
 
-      {/* Member avatars */}
-      {group.isMember && group.members?.length > 0 && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          {group.members.slice(0, 5).map((member, idx) => (
-            <View key={member.userId} style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: theme.colors.white, overflow: "hidden", backgroundColor: theme.colors.primaryBg, marginLeft: idx > 0 ? -8 : 0 }}>
-              {member.avatarUrl ? (
-                <Image source={{ uri: member.avatarUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
-              ) : (
-                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                  <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.primary }}>{member.firstName?.[0] ?? "?"}</Text>
+      {/* Footer: Members + Action */}
+      <View style={{
+        flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+        paddingTop: mobileTheme.spacing.md,
+        borderTopWidth: 1, borderTopColor: theme.colors.border
+      }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {/* Stacked avatars */}
+          {group.members?.length > 0 && (
+            <View style={{ flexDirection: "row", marginRight: 4 }}>
+              {group.members?.slice(0, 4).map((member, idx) => (
+                <View key={member.userId} style={{
+                  width: 28, height: 28, borderRadius: 14,
+                  borderWidth: 2, borderColor: theme.colors.white,
+                  overflow: "hidden", backgroundColor: theme.colors.primaryBg,
+                  marginLeft: idx > 0 ? -10 : 0
+                }}>
+                  {member.avatarUrl ? (
+                    <Image source={{ uri: member.avatarUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+                  ) : (
+                    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                      <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.primary }}>{member.firstName?.[0] ?? "?"}</Text>
+                    </View>
+                  )}
                 </View>
-              )}
+              ))}
             </View>
-          ))}
-          {group.members.length > 5 && (
-            <Text style={{ fontSize: 10, color: theme.colors.muted, marginLeft: 4 }}>+{group.members.length - 5}</Text>
           )}
-        </View>
-      )}
-
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <Users2 size={13} color={theme.colors.muted} />
-          <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, color: theme.colors.muted, fontFamily: "Inter_500Medium" }}>
+          <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted, fontFamily: "Inter_500Medium" }}>
             {t("groups.members", { count: group.memberCount })}
           </Text>
         </View>
+
         {group.isMember ? (
           <Pressable
             onPress={() => group.conversationId && router.push(`/(app)/conversation/${group.conversationId}` as any)}
-            style={{ backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 7, borderRadius: mobileTheme.radius.md, flexDirection: "row", alignItems: "center", gap: 5 }}
+            style={({ pressed }) => ({
+              backgroundColor: theme.colors.primary,
+              paddingHorizontal: 16, paddingVertical: 10,
+              borderRadius: mobileTheme.radius.pill,
+              flexDirection: "row", alignItems: "center", gap: 6,
+              minHeight: 44,
+              opacity: pressed ? 0.85 : 1
+            })}
           >
-            <MessageCircle size={13} color={theme.colors.white} />
-            <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: theme.colors.white, fontFamily: "Inter_600SemiBold" }}>{t("groups.chat")}</Text>
+            <MessageCircle size={15} color={theme.colors.white} />
+            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.white, fontFamily: "Inter_600SemiBold" }}>
+              {t("groups.chat")}
+            </Text>
           </Pressable>
         ) : (
           <Pressable
             onPress={() => joinMutation.mutate(group.id)}
             disabled={joinMutation.isPending}
-            style={{ backgroundColor: theme.colors.primaryBg, paddingHorizontal: 12, paddingVertical: 7, borderRadius: mobileTheme.radius.md, opacity: joinMutation.isPending ? 0.5 : 1 }}
+            style={({ pressed }) => ({
+              backgroundColor: theme.colors.primaryBg,
+              paddingHorizontal: 16, paddingVertical: 10,
+              borderRadius: mobileTheme.radius.pill,
+              borderWidth: 1, borderColor: theme.colors.primary,
+              minHeight: 44,
+              opacity: pressed || joinMutation.isPending ? 0.6 : 1
+            })}
           >
-            <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>
+            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>
               {joinMutation.isPending ? t("common.loading") : t("common.join")}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </Pressable>
+  );
+
+  // ── Section Header ────────────────────────────────────────────
+  const renderSectionHeader = (title: string, icon?: React.ReactNode) => (
+    <View style={{
+      flexDirection: "row", alignItems: "center", gap: 8,
+      marginBottom: mobileTheme.spacing.md, marginTop: mobileTheme.spacing.lg
+    }}>
+      {icon}
+      <Text style={{
+        fontSize: mobileTheme.typography.label.fontSize,
+        fontWeight: "700", color: theme.colors.ink,
+        fontFamily: "Inter_700Bold", letterSpacing: 0.8,
+        textTransform: "uppercase"
+      }}>
+        {title}
+      </Text>
+    </View>
+  );
+
+  // ── Empty State ───────────────────────────────────────────────
+  const renderEmptyState = (title: string, subtitle: string, showCodeCta?: boolean, showDiscoverCta?: boolean) => (
+    <View style={{
+      paddingVertical: mobileTheme.spacing["4xl"],
+      alignItems: "center", gap: mobileTheme.spacing.lg
+    }}>
+      <View style={{
+        width: 72, height: 72, borderRadius: 36,
+        backgroundColor: theme.colors.primaryBg,
+        alignItems: "center", justifyContent: "center"
+      }}>
+        <Users2 size={32} color={theme.colors.primary} />
+      </View>
+      <Text style={{
+        fontSize: mobileTheme.typography.subheading.fontSize,
+        fontWeight: "600", color: theme.colors.ink,
+        fontFamily: "Inter_600SemiBold", textAlign: "center"
+      }}>
+        {title}
+      </Text>
+      <Text style={{
+        fontSize: mobileTheme.typography.body.fontSize,
+        color: theme.colors.muted, textAlign: "center",
+        paddingHorizontal: mobileTheme.spacing["3xl"],
+        fontFamily: "Inter_400Regular",
+        lineHeight: mobileTheme.typography.body.lineHeight
+      }}>
+        {subtitle}
+      </Text>
+      <View style={{ gap: mobileTheme.spacing.sm, alignItems: "center" }}>
+        {showDiscoverCta && (
+          <Pressable
+            onPress={() => setTab("discover")}
+            style={({ pressed }) => ({
+              backgroundColor: theme.colors.primary,
+              paddingHorizontal: 24, paddingVertical: 12,
+              borderRadius: mobileTheme.radius.pill, minHeight: 44,
+              opacity: pressed ? 0.85 : 1
+            })}
+          >
+            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.white, fontFamily: "Inter_600SemiBold" }}>
+              {t("groups.discover")}
+            </Text>
+          </Pressable>
+        )}
+        {showCodeCta && (
+          <Pressable
+            onPress={() => setCodeModalVisible(true)}
+            style={({ pressed }) => ({
+              flexDirection: "row", alignItems: "center", gap: 6,
+              paddingVertical: 12, paddingHorizontal: 20,
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor: theme.colors.surface,
+              borderWidth: 1, borderColor: theme.colors.border,
+              minHeight: 44, opacity: pressed ? 0.7 : 1
+            })}
+          >
+            <Key size={15} color={theme.colors.primary} />
+            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>
+              {t("groups.enterGroupCode")}
             </Text>
           </Pressable>
         )}
@@ -195,72 +366,147 @@ export default function GroupsPage() {
     </View>
   );
 
-  const renderSectionHeader = (title: string) => (
-    <Text style={{ fontSize: mobileTheme.typography.label.fontSize, fontWeight: "700", color: theme.colors.ink, fontFamily: "Inter_700Bold", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: mobileTheme.spacing.sm, marginTop: mobileTheme.spacing.md }}>
-      {title}
-    </Text>
-  );
-
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      {/* Header */}
-      <View style={{ paddingTop: insets.top + mobileTheme.spacing.md, paddingBottom: mobileTheme.spacing.md, paddingHorizontal: mobileTheme.spacing.xl, backgroundColor: theme.colors.white, flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center" }}>
-          <ArrowLeft size={18} color={theme.colors.ink} />
+      {/* ── Header ──────────────────────────────────── */}
+      <View style={{
+        paddingTop: insets.top + mobileTheme.spacing.md,
+        paddingBottom: mobileTheme.spacing.lg,
+        paddingHorizontal: mobileTheme.spacing.xl,
+        backgroundColor: theme.colors.white,
+        flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.md,
+        borderBottomWidth: 1, borderBottomColor: theme.colors.border
+      }}>
+        <Pressable onPress={() => router.back()} hitSlop={12} style={{
+          width: 44, height: 44, borderRadius: 22,
+          backgroundColor: theme.colors.background,
+          alignItems: "center", justifyContent: "center"
+        }}>
+          <ArrowLeft size={20} color={theme.colors.ink} />
         </Pressable>
-        <Text style={{ flex: 1, fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: "700", color: theme.colors.ink, fontFamily: "Inter_700Bold" }}>
+        <Text style={{
+          flex: 1, fontSize: mobileTheme.typography.subheading.fontSize,
+          fontWeight: "700", color: theme.colors.ink, fontFamily: "Inter_700Bold"
+        }}>
           {t("groups.title")}
         </Text>
-        <Pressable onPress={() => setCodeModalVisible(true)} hitSlop={12} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.primaryBg, alignItems: "center", justifyContent: "center" }}>
-          <Key size={16} color={theme.colors.primary} />
+        <Pressable onPress={() => setCodeModalVisible(true)} hitSlop={12} style={{
+          width: 44, height: 44, borderRadius: 22,
+          backgroundColor: theme.colors.primaryBg,
+          alignItems: "center", justifyContent: "center"
+        }}>
+          <Key size={18} color={theme.colors.primary} />
         </Pressable>
       </View>
 
-      {/* Tabs */}
-      <View style={{ flexDirection: "row", marginHorizontal: mobileTheme.spacing.xl, marginTop: mobileTheme.spacing.md, backgroundColor: theme.colors.surface, borderRadius: mobileTheme.radius.pill, padding: 3 }}>
+      {/* ── Tabs ────────────────────────────────────── */}
+      <View style={{
+        flexDirection: "row",
+        marginHorizontal: mobileTheme.spacing.xl,
+        marginTop: mobileTheme.spacing.lg,
+        backgroundColor: theme.colors.surface,
+        borderRadius: mobileTheme.radius.pill,
+        padding: 4, borderWidth: 1, borderColor: theme.colors.border
+      }}>
         {(["discover", "myGroups"] as const).map((t2) => (
-          <Pressable key={t2} onPress={() => setTab(t2)} style={{ flex: 1, paddingVertical: 10, borderRadius: mobileTheme.radius.pill, backgroundColor: tab === t2 ? theme.colors.white : "transparent", alignItems: "center", ...(tab === t2 ? mobileTheme.shadow.sm : {}) }}>
-            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: tab === t2 ? theme.colors.ink : theme.colors.muted, fontFamily: "Inter_600SemiBold" }}>
+          <Pressable key={t2} onPress={() => setTab(t2)} style={{
+            flex: 1, paddingVertical: 12,
+            borderRadius: mobileTheme.radius.pill,
+            backgroundColor: tab === t2 ? theme.colors.white : "transparent",
+            alignItems: "center",
+            ...(tab === t2 ? mobileTheme.shadow.sm : {})
+          }}>
+            <Text style={{
+              fontSize: mobileTheme.typography.caption.fontSize,
+              fontWeight: tab === t2 ? "700" : "500",
+              color: tab === t2 ? theme.colors.ink : theme.colors.muted,
+              fontFamily: tab === t2 ? "Inter_700Bold" : "Inter_500Medium"
+            }}>
               {t2 === "discover" ? t("groups.discover") : t("groups.myGroups")}
             </Text>
           </Pressable>
         ))}
       </View>
 
-      {/* Search + Filters (only in Discover tab) */}
+      {/* ── Search + Filters (Discover only) ─────── */}
       {tab === "discover" && (
-        <>
-          <View style={{ marginHorizontal: mobileTheme.spacing.xl, marginTop: mobileTheme.spacing.md, flexDirection: "row", alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: mobileTheme.radius.pill, paddingHorizontal: mobileTheme.spacing.md, gap: 8 }}>
-            <Search size={16} color={theme.colors.muted} />
+        <View style={{ paddingHorizontal: mobileTheme.spacing.xl, gap: mobileTheme.spacing.md, marginTop: mobileTheme.spacing.lg }}>
+          {/* Search */}
+          <View style={{
+            flexDirection: "row", alignItems: "center",
+            backgroundColor: theme.colors.white,
+            borderRadius: mobileTheme.radius.lg,
+            paddingHorizontal: mobileTheme.spacing.lg,
+            gap: mobileTheme.spacing.sm,
+            borderWidth: 1, borderColor: theme.colors.border,
+            ...mobileTheme.shadow.sm
+          }}>
+            <Search size={18} color={theme.colors.muted} />
             <TextInput
               placeholder={t("groups.searchPlaceholder")}
               placeholderTextColor={theme.colors.muted}
               value={searchText}
               onChangeText={setSearchText}
-              style={{ flex: 1, paddingVertical: 10, fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.ink, fontFamily: "Inter_400Regular" }}
+              style={{
+                flex: 1, paddingVertical: 14,
+                fontSize: mobileTheme.typography.body.fontSize,
+                color: theme.colors.ink, fontFamily: "Inter_400Regular"
+              }}
             />
+            {searchText.length > 0 && (
+              <Pressable onPress={() => setSearchText("")} hitSlop={8}>
+                <X size={16} color={theme.colors.muted} />
+              </Pressable>
+            )}
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: mobileTheme.spacing.xl, gap: 8, marginTop: mobileTheme.spacing.sm }}>
-            {PET_TYPES.map((pt) => (
-              <Pressable
-                key={pt}
-                onPress={() => setSelectedPetType(pt)}
-                style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: mobileTheme.radius.pill, backgroundColor: selectedPetType === pt ? theme.colors.primaryBg : theme.colors.surface, borderWidth: 1, borderColor: selectedPetType === pt ? theme.colors.primary : theme.colors.border }}
-              >
-                <Text style={{ fontSize: mobileTheme.typography.micro.fontSize, fontWeight: "600", color: selectedPetType === pt ? theme.colors.primary : theme.colors.ink, fontFamily: "Inter_600SemiBold", textTransform: "capitalize" }}>
-                  {pt === "all" ? t("groups.all") : pt}
-                </Text>
-              </Pressable>
-            ))}
+          {/* Pet Type Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {PET_TYPE_CONFIG.map(({ key, icon: Icon }) => {
+              const active = selectedPetType === key;
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => setSelectedPetType(key)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    paddingHorizontal: 14, paddingVertical: 10,
+                    borderRadius: mobileTheme.radius.pill,
+                    backgroundColor: active ? theme.colors.primary : theme.colors.white,
+                    borderWidth: 1,
+                    borderColor: active ? theme.colors.primary : theme.colors.border,
+                    minHeight: 44,
+                    opacity: pressed ? 0.8 : 1,
+                    ...(active ? {} : mobileTheme.shadow.sm)
+                  })}
+                >
+                  <Icon size={16} color={active ? theme.colors.white : theme.colors.muted} />
+                  <Text style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontWeight: "600",
+                    color: active ? theme.colors.white : theme.colors.ink,
+                    fontFamily: "Inter_600SemiBold",
+                    textTransform: "capitalize"
+                  }}>
+                    {key === "all" ? t("groups.all") : key}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
-        </>
+        </View>
       )}
 
-      {/* Content */}
+      {/* ── Content ─────────────────────────────────── */}
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: mobileTheme.spacing.xl, paddingTop: mobileTheme.spacing.md, paddingBottom: insets.bottom + 24 }}
-        refreshControl={<RefreshControl refreshing={groupsQuery.isRefetching} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
+        contentContainerStyle={{
+          paddingHorizontal: mobileTheme.spacing.xl,
+          paddingTop: mobileTheme.spacing.md,
+          paddingBottom: insets.bottom + 32
+        }}
+        refreshControl={
+          <RefreshControl refreshing={groupsQuery.isRefetching} onRefresh={onRefresh} tintColor={theme.colors.primary} />
+        }
       >
         {groupsQuery.isLoading && (
           <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
@@ -271,35 +517,40 @@ export default function GroupsPage() {
         {!groupsQuery.isLoading && tab === "discover" && (
           <>
             {allGroups.length === 0 ? (
-              <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
-                <Users2 size={48} color={theme.colors.muted} />
-                <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: "600", color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                  {debouncedSearch ? t("groups.noSearchResults") : t("groups.noGroups")}
-                </Text>
-                <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"], fontFamily: "Inter_400Regular" }}>
-                  {debouncedSearch ? t("groups.tryDifferentKeywords") : t("groups.noGroupsDescription")}
-                </Text>
-                <Pressable onPress={() => setCodeModalVisible(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.primaryBg, paddingHorizontal: 16, paddingVertical: 10, borderRadius: mobileTheme.radius.pill }}>
-                  <Key size={14} color={theme.colors.primary} />
-                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>{t("groups.enterGroupCode")}</Text>
-                </Pressable>
-              </View>
+              renderEmptyState(
+                debouncedSearch ? t("groups.noSearchResults") : t("groups.noGroups"),
+                debouncedSearch ? t("groups.tryDifferentKeywords") : t("groups.noGroupsDescription"),
+                true
+              )
             ) : (
               <>
                 {nearbyGroups.length > 0 && (
                   <>
-                    {renderSectionHeader(t("groups.nearby"))}
+                    {renderSectionHeader(t("groups.nearby"), <MapPin size={14} color={theme.colors.primary} />)}
                     {nearbyGroups.map(renderGroupCard)}
                   </>
                 )}
                 {nearbyGroups.length === 0 && userLocation && allGroups.length > 0 && (
-                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted, textAlign: "center", paddingVertical: mobileTheme.spacing.md, fontFamily: "Inter_400Regular" }}>
-                    {t("groups.noNearbyGroups")}
-                  </Text>
+                  <View style={{
+                    backgroundColor: theme.colors.primaryBg,
+                    borderRadius: mobileTheme.radius.lg,
+                    padding: mobileTheme.spacing.lg,
+                    marginTop: mobileTheme.spacing.md,
+                    marginBottom: mobileTheme.spacing.sm,
+                    flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.sm
+                  }}>
+                    <MapPin size={16} color={theme.colors.primary} />
+                    <Text style={{
+                      fontSize: mobileTheme.typography.caption.fontSize,
+                      color: theme.colors.primary, fontFamily: "Inter_500Medium", flex: 1
+                    }}>
+                      {t("groups.noNearbyGroups")}
+                    </Text>
+                  </View>
                 )}
                 {globalGroups.length > 0 && (
                   <>
-                    {renderSectionHeader(t("groups.global"))}
+                    {renderSectionHeader(t("groups.global"), <Users2 size={14} color={theme.colors.secondary} />)}
                     {globalGroups.map(renderGroupCard)}
                   </>
                 )}
@@ -309,76 +560,107 @@ export default function GroupsPage() {
         )}
 
         {!groupsQuery.isLoading && tab === "myGroups" && (
-          <>
-            {myGroups.length === 0 ? (
-              <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
-                <Users2 size={48} color={theme.colors.muted} />
-                <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: "600", color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                  {t("groups.noMyGroups")}
-                </Text>
-                <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"], fontFamily: "Inter_400Regular" }}>
-                  {t("groups.noMyGroupsDescription")}
-                </Text>
-                <Pressable onPress={() => setTab("discover")} style={{ backgroundColor: theme.colors.primaryBg, paddingHorizontal: 16, paddingVertical: 10, borderRadius: mobileTheme.radius.pill }}>
-                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>{t("groups.discover")}</Text>
-                </Pressable>
-                <Pressable onPress={() => setCodeModalVisible(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 }}>
-                  <Key size={14} color={theme.colors.primary} />
-                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary, fontFamily: "Inter_600SemiBold" }}>{t("groups.enterGroupCode")}</Text>
-                </Pressable>
-              </View>
-            ) : (
-              myGroups.map(renderGroupCard)
-            )}
-          </>
+          myGroups.length === 0
+            ? renderEmptyState(t("groups.noMyGroups"), t("groups.noMyGroupsDescription"), true, true)
+            : myGroups.map(renderGroupCard)
         )}
       </ScrollView>
 
-      {/* Code Entry Modal */}
-      <Modal visible={codeModalVisible} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", paddingHorizontal: mobileTheme.spacing.xl }}>
-          <View style={{ backgroundColor: theme.colors.white, borderRadius: mobileTheme.radius.lg, padding: mobileTheme.spacing.xl, gap: mobileTheme.spacing.lg }}>
-            <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: "700", color: theme.colors.ink, fontFamily: "Inter_700Bold", textAlign: "center" }}>
-              {t("groups.enterGroupCode")}
-            </Text>
+      {/* ── Code Entry Modal ────────────────────────── */}
+      <Modal visible={codeModalVisible} animationType="fade" transparent>
+        <Pressable
+          onPress={() => { setCodeModalVisible(false); setCodeInput(""); }}
+          style={{ flex: 1, backgroundColor: theme.colors.overlay, justifyContent: "center", paddingHorizontal: mobileTheme.spacing.xl }}
+        >
+          <Pressable style={{
+            backgroundColor: theme.colors.white,
+            borderRadius: mobileTheme.radius.xl,
+            padding: mobileTheme.spacing["2xl"],
+            gap: mobileTheme.spacing.xl,
+            ...mobileTheme.shadow.lg
+          }}>
+            {/* Modal header */}
+            <View style={{ alignItems: "center", gap: mobileTheme.spacing.md }}>
+              <View style={{
+                width: 56, height: 56, borderRadius: 28,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center", justifyContent: "center"
+              }}>
+                <Key size={24} color={theme.colors.primary} />
+              </View>
+              <Text style={{
+                fontSize: mobileTheme.typography.subheading.fontSize,
+                fontWeight: "700", color: theme.colors.ink,
+                fontFamily: "Inter_700Bold", textAlign: "center"
+              }}>
+                {t("groups.enterGroupCode")}
+              </Text>
+            </View>
+
+            {/* Code input */}
             <TextInput
               placeholder={t("groups.codePlaceholder")}
               placeholderTextColor={theme.colors.muted}
               value={codeInput}
               onChangeText={setCodeInput}
               autoCapitalize="characters"
+              autoFocus
               style={{
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                borderRadius: mobileTheme.radius.md,
-                paddingHorizontal: mobileTheme.spacing.lg,
-                paddingVertical: mobileTheme.spacing.md,
-                fontSize: mobileTheme.typography.body.fontSize,
+                borderWidth: 1.5,
+                borderColor: codeInput.trim() ? theme.colors.primary : theme.colors.border,
+                borderRadius: mobileTheme.radius.lg,
+                paddingHorizontal: mobileTheme.spacing.xl,
+                paddingVertical: mobileTheme.spacing.lg,
+                fontSize: 20,
                 color: theme.colors.ink,
-                fontFamily: "Inter_500Medium",
+                fontFamily: "Inter_600SemiBold",
                 textAlign: "center",
-                letterSpacing: 2
+                letterSpacing: 4
               }}
             />
+
+            {/* Buttons */}
             <View style={{ flexDirection: "row", gap: mobileTheme.spacing.md }}>
               <Pressable
                 onPress={() => { setCodeModalVisible(false); setCodeInput(""); }}
-                style={{ flex: 1, paddingVertical: 12, borderRadius: mobileTheme.radius.md, backgroundColor: theme.colors.surface, alignItems: "center" }}
+                style={({ pressed }) => ({
+                  flex: 1, paddingVertical: 14,
+                  borderRadius: mobileTheme.radius.lg,
+                  backgroundColor: theme.colors.surface,
+                  alignItems: "center", minHeight: 48,
+                  justifyContent: "center",
+                  borderWidth: 1, borderColor: theme.colors.border,
+                  opacity: pressed ? 0.7 : 1
+                })}
               >
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>{t("common.cancel")}</Text>
+                <Text style={{ fontSize: mobileTheme.typography.bodySemiBold.fontSize, fontWeight: "600", color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
+                  {t("common.cancel")}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => codeInput.trim() && codeMutation.mutate(codeInput.trim())}
                 disabled={!codeInput.trim() || codeMutation.isPending}
-                style={{ flex: 1, paddingVertical: 12, borderRadius: mobileTheme.radius.md, backgroundColor: codeInput.trim() ? theme.colors.primary : theme.colors.border, alignItems: "center", opacity: codeMutation.isPending ? 0.5 : 1 }}
+                style={({ pressed }) => ({
+                  flex: 1, paddingVertical: 14,
+                  borderRadius: mobileTheme.radius.lg,
+                  backgroundColor: codeInput.trim() ? theme.colors.primary : theme.colors.border,
+                  alignItems: "center", minHeight: 48,
+                  justifyContent: "center",
+                  opacity: pressed || codeMutation.isPending ? 0.7 : 1
+                })}
               >
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: codeInput.trim() ? theme.colors.white : theme.colors.muted, fontFamily: "Inter_600SemiBold" }}>
+                <Text style={{
+                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                  fontWeight: "600",
+                  color: codeInput.trim() ? theme.colors.white : theme.colors.muted,
+                  fontFamily: "Inter_600SemiBold"
+                }}>
                   {codeMutation.isPending ? t("common.loading") : t("groups.joinByCode")}
                 </Text>
               </Pressable>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
