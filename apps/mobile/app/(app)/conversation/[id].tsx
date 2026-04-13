@@ -8,13 +8,14 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, Flag, Send, Users2, X } from "lucide-react-native";
+import { ChevronLeft, Flag, Key, Send, Share2, Users2, X } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { ReportModal } from "@/components/report-modal";
@@ -568,6 +569,121 @@ export default function ConversationPage() {
                 </Text>
               </View>
             </View>
+
+            {/* Group Code section (visible to members of private groups) */}
+            {groupInfo?.isPrivate && groupInfo?.code ? (
+              <View
+                style={{
+                  marginHorizontal: mobileTheme.spacing.xl,
+                  marginTop: mobileTheme.spacing.lg
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.label.fontSize,
+                    fontWeight: "700",
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_700Bold",
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                    marginBottom: mobileTheme.spacing.md
+                  }}
+                >
+                  {t("groups.groupCode") ?? "Group Code"}
+                </Text>
+                <View
+                  style={{
+                    backgroundColor: theme.colors.white,
+                    borderRadius: mobileTheme.radius.lg,
+                    padding: mobileTheme.spacing.lg,
+                    gap: mobileTheme.spacing.md,
+                    ...mobileTheme.shadow.sm
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.sm }}>
+                    <View
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: theme.colors.primaryBg,
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      <Key size={16} color={theme.colors.primary} />
+                    </View>
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: mobileTheme.typography.caption.fontSize,
+                        color: theme.colors.muted,
+                        fontFamily: "Inter_400Regular"
+                      }}
+                    >
+                      {t("groups.shareCode") ?? "Share this code with members:"}
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      backgroundColor: theme.colors.primaryBg,
+                      borderRadius: mobileTheme.radius.md,
+                      borderWidth: 2,
+                      borderColor: theme.colors.primary,
+                      borderStyle: "dashed",
+                      paddingVertical: mobileTheme.spacing.lg,
+                      alignItems: "center"
+                    }}
+                  >
+                    <Text
+                      selectable
+                      style={{
+                        fontSize: 28,
+                        fontWeight: "800",
+                        color: theme.colors.primary,
+                        fontFamily: "Inter_700Bold",
+                        letterSpacing: 5
+                      }}
+                    >
+                      {groupInfo.code}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      Share.share({
+                        message: t("groups.shareCodeMessage", {
+                          name: groupInfo.name,
+                          code: groupInfo.code
+                        }) as string
+                      });
+                    }}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      paddingVertical: 12,
+                      borderRadius: mobileTheme.radius.md,
+                      backgroundColor: theme.colors.primary,
+                      minHeight: 44,
+                      opacity: pressed ? 0.85 : 1
+                    })}
+                  >
+                    <Share2 size={16} color={theme.colors.white} />
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                        fontWeight: "600",
+                        color: theme.colors.white,
+                        fontFamily: "Inter_600SemiBold"
+                      }}
+                    >
+                      {t("common.share") ?? "Share"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             {/* Members section */}
             <Text

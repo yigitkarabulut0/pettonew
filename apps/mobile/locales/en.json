@@ -28,7 +28,8 @@
     "apply": "Apply",
     "selection": "Selection",
     "tagged": "tagged",
-    "noSessionFound": "No session found."
+    "noSessionFound": "No session found.",
+    "share": "Share"
   },
   "tabs": {
     "home": "Home",
@@ -481,6 +482,9 @@
     "creating": "Creating...",
     "groupCreatedSuccess": "Group created!",
     "shareCode": "Share this code with members:",
+    "shareCodeMessage": "Join \"{{name}}\" on Fetcht with code: {{code}}",
+    "groupCode": "Group Code",
+    "openGroup": "Open Group",
     "createError": "Could not create group. Please try again.",
     "addPhoto": "Add photo",
     "changePhoto": "Change photo"

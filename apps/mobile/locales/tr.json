@@ -28,7 +28,8 @@
     "apply": "Uygula",
     "selection": "Seçim",
     "tagged": "etiketlendi",
-    "noSessionFound": "Oturum bulunamadı."
+    "noSessionFound": "Oturum bulunamadı.",
+    "share": "Paylaş"
   },
   "tabs": {
     "home": "Ana Sayfa",
@@ -481,6 +482,9 @@
     "creating": "Oluşturuluyor...",
     "groupCreatedSuccess": "Grup oluşturuldu!",
     "shareCode": "Bu kodu üyelerle paylaş:",
+    "shareCodeMessage": "\"{{name}}\" grubuna Fetcht'te şu kodla katıl: {{code}}",
+    "groupCode": "Grup Kodu",
+    "openGroup": "Grubu Aç",
     "createError": "Grup oluşturulamadı. Tekrar deneyin.",
     "addPhoto": "Fotoğraf ekle",
     "changePhoto": "Fotoğrafı değiştir"

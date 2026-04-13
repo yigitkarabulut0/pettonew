@@ -1579,6 +1579,19 @@ func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, reques
 		writeJSON(writer, http.StatusOK, map[string]any{"data": nil})
 		return
 	}
+	// Only reveal private code to members of the group
+	userID := currentUserID(request)
+	isMember := false
+	for _, m := range group.Members {
+		if m.UserID == userID {
+			isMember = true
+			break
+		}
+	}
+	group.IsMember = isMember
+	if !isMember {
+		group.Code = ""
+	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
 

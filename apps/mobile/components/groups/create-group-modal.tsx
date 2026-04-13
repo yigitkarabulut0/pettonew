@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   Switch,
   Text,
   TextInput,
@@ -23,6 +24,7 @@ import {
   Bird,
   Camera,
   Cat,
+  CheckCircle2,
   Compass,
   Dog,
   GraduationCap,
@@ -35,6 +37,7 @@ import {
   PawPrint,
   Plus,
   Rabbit,
+  Share2,
   Users2,
   X
 } from "lucide-react-native";
@@ -88,6 +91,7 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
   const [rules, setRules] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [successPopup, setSuccessPopup] = useState<{ code: string; conversationId: string; name: string } | null>(null);
 
   // Reset on close
   useEffect(() => {
@@ -146,25 +150,18 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
     onSuccess: (group) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["groups"] });
-      onClose();
-      // Show code if private
+      // Show in-app code popup for private groups; otherwise navigate immediately
       if (group.isPrivate && group.code) {
-        Alert.alert(
-          t("groups.groupCreatedSuccess"),
-          `${t("groups.shareCode")}\n\n${group.code}`,
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                if (group.conversationId) {
-                  router.push(`/(app)/conversation/${group.conversationId}` as any);
-                }
-              }
-            }
-          ]
-        );
-      } else if (group.conversationId) {
-        router.push(`/(app)/conversation/${group.conversationId}` as any);
+        setSuccessPopup({
+          code: group.code,
+          conversationId: group.conversationId ?? "",
+          name: group.name
+        });
+      } else {
+        onClose();
+        if (group.conversationId) {
+          router.push(`/(app)/conversation/${group.conversationId}` as any);
+        }
       }
     },
     onError: (err: any) => {
@@ -255,8 +252,9 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
   const speciesList = speciesQuery.data ?? [];
 
   return (
+    <>
     <Modal
-      visible={visible}
+      visible={visible && !successPopup}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
@@ -912,6 +910,171 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
         </View>
       </KeyboardAvoidingView>
     </Modal>
+
+    {/* ── Success Popup with Group Code (in-app style) ── */}
+    <Modal visible={Boolean(successPopup)} animationType="fade" transparent>
+      <Pressable
+        onPress={() => {
+          const conversationId = successPopup?.conversationId;
+          setSuccessPopup(null);
+          onClose();
+          if (conversationId) {
+            router.push(`/(app)/conversation/${conversationId}` as any);
+          }
+        }}
+        style={{
+          flex: 1,
+          backgroundColor: theme.colors.overlay,
+          justifyContent: "center",
+          paddingHorizontal: mobileTheme.spacing.xl
+        }}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation()}
+          style={{
+            backgroundColor: theme.colors.white,
+            borderRadius: mobileTheme.radius.xl,
+            padding: mobileTheme.spacing["2xl"],
+            gap: mobileTheme.spacing.lg,
+            ...mobileTheme.shadow.lg
+          }}
+        >
+          {/* Success icon */}
+          <View style={{ alignItems: "center", gap: mobileTheme.spacing.md }}>
+            <View
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                backgroundColor: theme.colors.successBg ?? theme.colors.primaryBg,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <CheckCircle2 size={32} color={theme.colors.success ?? theme.colors.primary} />
+            </View>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.heading.fontSize,
+                fontWeight: "700",
+                color: theme.colors.ink,
+                fontFamily: "Inter_700Bold",
+                textAlign: "center"
+              }}
+            >
+              {t("groups.groupCreatedSuccess")}
+            </Text>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.caption.fontSize,
+                color: theme.colors.muted,
+                fontFamily: "Inter_400Regular",
+                textAlign: "center"
+              }}
+            >
+              {t("groups.shareCode")}
+            </Text>
+          </View>
+
+          {/* Code display */}
+          <View
+            style={{
+              backgroundColor: theme.colors.primaryBg,
+              borderRadius: mobileTheme.radius.lg,
+              borderWidth: 2,
+              borderColor: theme.colors.primary,
+              borderStyle: "dashed",
+              paddingVertical: mobileTheme.spacing.xl,
+              paddingHorizontal: mobileTheme.spacing.lg,
+              alignItems: "center"
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 32,
+                fontWeight: "800",
+                color: theme.colors.primary,
+                fontFamily: "Inter_700Bold",
+                letterSpacing: 6
+              }}
+              selectable
+            >
+              {successPopup?.code}
+            </Text>
+          </View>
+
+          {/* Buttons: Share + Continue */}
+          <View style={{ flexDirection: "row", gap: mobileTheme.spacing.md }}>
+            <Pressable
+              onPress={() => {
+                if (!successPopup) return;
+                Share.share({
+                  message: `${t("groups.shareCodeMessage", { name: successPopup.name, code: successPopup.code })}`
+                });
+              }}
+              style={({ pressed }) => ({
+                flex: 1,
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.lg,
+                backgroundColor: theme.colors.surface,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 48,
+                flexDirection: "row",
+                gap: 6,
+                opacity: pressed ? 0.7 : 1
+              })}
+            >
+              <Share2 size={16} color={theme.colors.ink} />
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                  fontWeight: "600",
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_600SemiBold"
+                }}
+              >
+                {t("common.share") ?? "Share"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const conversationId = successPopup?.conversationId;
+                setSuccessPopup(null);
+                onClose();
+                if (conversationId) {
+                  router.push(`/(app)/conversation/${conversationId}` as any);
+                }
+              }}
+              style={({ pressed }) => ({
+                flex: 1,
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.lg,
+                backgroundColor: theme.colors.primary,
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 48,
+                opacity: pressed ? 0.85 : 1
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                  fontWeight: "700",
+                  color: theme.colors.white,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {t("groups.openGroup") ?? "Open"}
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
