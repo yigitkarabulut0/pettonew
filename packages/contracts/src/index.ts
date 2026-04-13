@@ -134,6 +134,7 @@ export interface TaxonomyItem {
   isActive: boolean;
   icon?: string;
   color?: string;
+  translations?: Record<string, string>;
 }
 
 export interface VenueCheckIn {

@@ -18,7 +18,7 @@ type Store interface {
 	UpdateProfile(userID string, input UpdateProfileInput) (domain.UserProfile, error)
 	ListPets(userID string) []domain.Pet
 	UpsertPet(userID string, petID string, input PetInput) (domain.Pet, error)
-	ListTaxonomy(kind string) []domain.TaxonomyItem
+	ListTaxonomy(kind string, lang string) []domain.TaxonomyItem
 	DiscoveryFeed(userID string) []domain.DiscoveryCard
 	DiscoveryFeedForPet(userID string, actorPetID string) []domain.DiscoveryCard
 	CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error)

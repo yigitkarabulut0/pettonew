@@ -65,18 +65,21 @@ export default function TaxonomiesPage() {
     mutationFn: ({
       kind,
       label,
-      speciesId
+      speciesId,
+      translationTr
     }: {
       kind: (typeof taxonomyKinds)[number];
       label: string;
       speciesId?: string;
+      translationTr?: string;
     }) =>
       upsertTaxonomy(kind, {
         id: "",
         label,
         slug: label.toLowerCase().trim().replace(/\s+/g, "-"),
         speciesId: speciesId || undefined,
-        isActive: true
+        isActive: true,
+        translations: translationTr ? { tr: translationTr } : undefined
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["taxonomy", variables.kind] });
@@ -116,7 +119,7 @@ export default function TaxonomiesPage() {
           eyebrow={sectionMeta.species.eyebrow}
           description={sectionMeta.species.description}
           addLabel="Add species"
-          onSubmit={(payload) => createMutation.mutate({ kind: "species", ...payload })}
+          onSubmit={(payload) => createMutation.mutate({ kind: "species", ...payload } as any)}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "species", itemId }), label)}
           renderMeta={(item) => `${item.breedCount} linked breed${item.breedCount === 1 ? "" : "s"}`}
         />
@@ -132,7 +135,7 @@ export default function TaxonomiesPage() {
           description={sectionMeta.breeds.description}
           addLabel="Add breed"
           species={species}
-          onSubmit={(payload) => createMutation.mutate({ kind: "breeds", ...payload })}
+          onSubmit={(payload) => createMutation.mutate({ kind: "breeds", ...payload } as any)}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "breeds", itemId }), label)}
           renderMeta={(item) => item.speciesLabel ?? "Unknown species"}
         />
@@ -144,7 +147,7 @@ export default function TaxonomiesPage() {
           eyebrow={sectionMeta.hobbies.eyebrow}
           description={sectionMeta.hobbies.description}
           addLabel="Add hobby"
-          onSubmit={(payload) => createMutation.mutate({ kind: "hobbies", ...payload })}
+          onSubmit={(payload) => createMutation.mutate({ kind: "hobbies", ...payload } as any)}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "hobbies", itemId }), label)}
         />
 
@@ -155,7 +158,7 @@ export default function TaxonomiesPage() {
           eyebrow={sectionMeta.compatibility.eyebrow}
           description={sectionMeta.compatibility.description}
           addLabel="Add compatibility tag"
-          onSubmit={(payload) => createMutation.mutate({ kind: "compatibility", ...payload })}
+          onSubmit={(payload) => createMutation.mutate({ kind: "compatibility", ...payload } as any)}
           onDelete={(itemId, label) =>
             confirmDelete(() => deleteMutation.mutate({ kind: "compatibility", itemId }), label)
           }
@@ -168,7 +171,7 @@ export default function TaxonomiesPage() {
           eyebrow={sectionMeta.characters.eyebrow}
           description={sectionMeta.characters.description}
           addLabel="Add character trait"
-          onSubmit={(payload) => createMutation.mutate({ kind: "characters", ...payload })}
+          onSubmit={(payload) => createMutation.mutate({ kind: "characters", ...payload } as any)}
           onDelete={(itemId, label) =>
             confirmDelete(() => deleteMutation.mutate({ kind: "characters", itemId }), label)
           }
@@ -197,15 +200,16 @@ function TaxonomySection({
   description: string;
   addLabel: string;
   species?: Array<{ id: string; label: string }>;
-  onSubmit: (payload: { label: string; speciesId?: string }) => void;
+  onSubmit: (payload: { label: string; speciesId?: string; translationTr?: string }) => void;
   onDelete: (itemId: string, label: string) => void;
-  renderMeta?: (item: { id: string; label: string; speciesId?: string; speciesLabel?: string; breedCount?: number }) => string;
+  renderMeta?: (item: { id: string; label: string; speciesId?: string; speciesLabel?: string; breedCount?: number; translations?: Record<string, string> }) => string;
 }) {
   const isBreedSection = kind === "breeds";
-  const { register, handleSubmit, reset, watch } = useForm<{ label: string; speciesId: string }>({
+  const { register, handleSubmit, reset, watch } = useForm<{ label: string; speciesId: string; translationTr: string }>({
     defaultValues: {
       label: "",
-      speciesId: ""
+      speciesId: "",
+      translationTr: ""
     }
   });
 
@@ -227,12 +231,16 @@ function TaxonomySection({
         onSubmit={handleSubmit((values) => {
           onSubmit({
             label: values.label.trim(),
-            speciesId: isBreedSection ? values.speciesId : undefined
+            speciesId: isBreedSection ? values.speciesId : undefined,
+            translationTr: values.translationTr.trim() || undefined
           });
           reset();
         })}
       >
-        <Input placeholder={addLabel} {...register("label", { required: true })} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input placeholder={`${addLabel} (English)`} {...register("label", { required: true })} />
+          <Input placeholder="Turkish translation" {...register("translationTr")} />
+        </div>
         {isBreedSection ? (
           <select
             className="flex h-11 w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 text-sm text-[var(--petto-ink)] outline-none"
@@ -261,7 +269,14 @@ function TaxonomySection({
               className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-[var(--petto-border)] bg-[rgba(255,252,248,0.92)] px-4 py-4"
             >
               <div className="space-y-1">
-                <p className="font-semibold text-[var(--petto-ink)]">{item.label}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-[var(--petto-ink)]">{item.label}</p>
+                  {(item as any).translations?.tr && (
+                    <span className="rounded-full bg-[var(--petto-primary-bg)] px-2 py-0.5 text-xs font-medium text-[var(--petto-primary)]">
+                      TR: {(item as any).translations.tr}
+                    </span>
+                  )}
+                </div>
                 {renderMeta ? <p className="text-sm text-[var(--petto-muted)]">{renderMeta(item)}</p> : null}
               </div>
               <Button variant="ghost" className="text-rose-700 hover:text-rose-800" onClick={() => onDelete(item.id, item.label)}>

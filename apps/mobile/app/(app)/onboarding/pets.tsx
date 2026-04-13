@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { listTaxonomies, savePet, uploadMedia } from "@/lib/api";
+import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
@@ -73,27 +74,27 @@ export default function PetsOnboardingPage() {
 
   const { data: species = [] } = useQuery({
     queryKey: ["species", session?.tokens.accessToken],
-    queryFn: () => listTaxonomies(session!.tokens.accessToken, "species"),
+    queryFn: () => listTaxonomies(session!.tokens.accessToken, "species", getCurrentLanguage()),
     enabled: Boolean(session)
   });
   const { data: breeds = [] } = useQuery({
     queryKey: ["breeds", session?.tokens.accessToken],
-    queryFn: () => listTaxonomies(session!.tokens.accessToken, "breeds"),
+    queryFn: () => listTaxonomies(session!.tokens.accessToken, "breeds", getCurrentLanguage()),
     enabled: Boolean(session)
   });
   const { data: hobbies = [] } = useQuery({
     queryKey: ["hobbies", session?.tokens.accessToken],
-    queryFn: () => listTaxonomies(session!.tokens.accessToken, "hobbies"),
+    queryFn: () => listTaxonomies(session!.tokens.accessToken, "hobbies", getCurrentLanguage()),
     enabled: Boolean(session)
   });
   const { data: compatibility = [] } = useQuery({
     queryKey: ["compatibility", session?.tokens.accessToken],
-    queryFn: () => listTaxonomies(session!.tokens.accessToken, "compatibility"),
+    queryFn: () => listTaxonomies(session!.tokens.accessToken, "compatibility", getCurrentLanguage()),
     enabled: Boolean(session)
   });
   const { data: characters = [] } = useQuery({
     queryKey: ["characters", session?.tokens.accessToken],
-    queryFn: () => listTaxonomies(session!.tokens.accessToken, "characters"),
+    queryFn: () => listTaxonomies(session!.tokens.accessToken, "characters", getCurrentLanguage()),
     enabled: Boolean(session)
   });
 

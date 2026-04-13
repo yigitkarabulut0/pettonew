@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { createAdminGroup, getAdminGroups } from "@/lib/admin-api";
+import { createAdminGroup, getAdminGroups, getTaxonomy } from "@/lib/admin-api";
 
 export default function GroupsPage() {
   const queryClient = useQueryClient();
@@ -15,13 +15,17 @@ export default function GroupsPage() {
     queryKey: ["admin-groups"],
     queryFn: getAdminGroups
   });
+  const { data: speciesList = [] } = useQuery({
+    queryKey: ["taxonomy", "species"],
+    queryFn: () => getTaxonomy("species")
+  });
   const { register, handleSubmit, reset } = useForm<{
     name: string;
     description: string;
     petType: string;
   }>({
     defaultValues: {
-      petType: "dog"
+      petType: "all"
     }
   });
 
@@ -45,9 +49,10 @@ export default function GroupsPage() {
         <form className="grid gap-3 lg:grid-cols-2" onSubmit={handleSubmit((values) => createMutation.mutate(values))}>
           <Input placeholder="Group name" {...register("name")} />
           <select className="flex h-10 w-full rounded-md border border-[var(--petto-border)] bg-white px-3 py-2 text-sm" {...register("petType")}>
-            <option value="dog">Dog</option>
-            <option value="cat">Cat</option>
             <option value="all">All</option>
+            {speciesList.map((s) => (
+              <option key={s.id} value={s.slug}>{s.label}</option>
+            ))}
           </select>
           <div className="lg:col-span-2">
             <Input placeholder="Description" {...register("description")} />

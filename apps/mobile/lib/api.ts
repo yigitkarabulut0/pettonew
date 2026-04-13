@@ -419,9 +419,11 @@ export async function updatePet(
 
 export async function listTaxonomies(
   accessToken: string,
-  kind: TaxonomyKind
+  kind: TaxonomyKind,
+  lang?: string
 ): Promise<TaxonomyItem[]> {
-  const items = await request<TaxonomyItem[] | null>(`/v1/taxonomies/${kind}`, {
+  const params = lang ? `?lang=${lang}` : "";
+  const items = await request<TaxonomyItem[] | null>(`/v1/taxonomies/${kind}${params}`, {
     headers: authHeaders(accessToken)
   });
   return items ?? [];

@@ -103,13 +103,14 @@ type Conversation struct {
 }
 
 type TaxonomyItem struct {
-	ID        string  `json:"id"`
-	Label     string  `json:"label"`
-	Slug      string  `json:"slug"`
-	SpeciesID *string `json:"speciesId,omitempty"`
-	IsActive  bool    `json:"isActive"`
-	Icon      string  `json:"icon,omitempty"`
-	Color     string  `json:"color,omitempty"`
+	ID           string            `json:"id"`
+	Label        string            `json:"label"`
+	Slug         string            `json:"slug"`
+	SpeciesID    *string           `json:"speciesId,omitempty"`
+	IsActive     bool              `json:"isActive"`
+	Icon         string            `json:"icon,omitempty"`
+	Color        string            `json:"color,omitempty"`
+	Translations map[string]string `json:"translations,omitempty"`
 }
 
 type VenueCheckIn struct {

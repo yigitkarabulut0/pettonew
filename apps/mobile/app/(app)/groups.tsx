@@ -31,19 +31,15 @@ import {
 import * as Location from "expo-location";
 
 import { useTranslation } from "react-i18next";
-import { listGroups, joinGroup, joinGroupByCode } from "@/lib/api";
+import { listGroups, listTaxonomies, joinGroup, joinGroupByCode } from "@/lib/api";
+import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import type { CommunityGroup } from "@petto/contracts";
 
-const PET_TYPE_CONFIG = [
-  { key: "all", icon: PawPrint },
-  { key: "dog", icon: Dog },
-  { key: "cat", icon: Cat },
-  { key: "bird", icon: Bird },
-  { key: "rabbit", icon: Rabbit },
-  { key: "other", icon: PawPrint }
-];
+const SPECIES_ICON_MAP: Record<string, typeof PawPrint> = {
+  dog: Dog, cat: Cat, bird: Bird, rabbit: Rabbit
+};
 
 export default function GroupsPage() {
   const { t } = useTranslation();
@@ -76,6 +72,24 @@ export default function GroupsPage() {
       }
     })();
   }, []);
+
+  const speciesQuery = useQuery({
+    queryKey: ["taxonomy", "species", getCurrentLanguage()],
+    queryFn: () => listTaxonomies(token, "species", getCurrentLanguage()),
+    enabled: Boolean(token)
+  });
+
+  const petTypeChips = useMemo(() => {
+    const speciesList = speciesQuery.data ?? [];
+    return [
+      { key: "all", label: t("groups.all"), icon: PawPrint },
+      ...speciesList.map((s) => ({
+        key: s.slug,
+        label: s.label,
+        icon: SPECIES_ICON_MAP[s.slug] ?? PawPrint
+      }))
+    ];
+  }, [speciesQuery.data, t]);
 
   const groupsQuery = useQuery({
     queryKey: ["groups", debouncedSearch, selectedPetType, userLocation?.latitude],
@@ -127,8 +141,7 @@ export default function GroupsPage() {
   const formatDistance = (d: number) => d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
   const getPetTypeIcon = (petType: string) => {
-    const config = PET_TYPE_CONFIG.find((c) => c.key === petType) ?? PET_TYPE_CONFIG[0];
-    const IconComponent = config.icon;
+    const IconComponent = SPECIES_ICON_MAP[petType] ?? PawPrint;
     return <IconComponent size={12} color={theme.colors.secondary} />;
   };
 
@@ -462,7 +475,7 @@ export default function GroupsPage() {
 
           {/* Pet Type Chips */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {PET_TYPE_CONFIG.map(({ key, icon: Icon }) => {
+            {petTypeChips.map(({ key, label: chipLabel, icon: Icon }) => {
               const active = selectedPetType === key;
               return (
                 <Pressable
@@ -488,7 +501,7 @@ export default function GroupsPage() {
                     fontFamily: "Inter_600SemiBold",
                     textTransform: "capitalize"
                   }}>
-                    {key === "all" ? t("groups.all") : key}
+                    {chipLabel}
                   </Text>
                 </Pressable>
               );

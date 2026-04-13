@@ -538,7 +538,8 @@ func (s *Server) handlePetVisibility(writer http.ResponseWriter, request *http.R
 }
 
 func (s *Server) handleTaxonomyList(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListTaxonomy(chi.URLParam(request, "kind"))})
+	lang := request.URL.Query().Get("lang")
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListTaxonomy(chi.URLParam(request, "kind"), lang)})
 }
 
 func (s *Server) handleDiscoveryFeed(writer http.ResponseWriter, request *http.Request) {
@@ -1146,7 +1147,7 @@ func (s *Server) handleAdminPetUpdate(writer http.ResponseWriter, request *http.
 }
 
 func (s *Server) handleAdminTaxonomyList(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListTaxonomy(chi.URLParam(request, "kind"))})
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListTaxonomy(chi.URLParam(request, "kind"), "")})
 }
 
 func (s *Server) handleAdminTaxonomyUpsert(writer http.ResponseWriter, request *http.Request) {

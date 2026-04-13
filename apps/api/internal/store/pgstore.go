@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -48,6 +49,7 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS code TEXT`)
 	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`)
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_community_groups_code ON community_groups(code) WHERE code IS NOT NULL AND code != ''`)
+	pool.Exec(ctx, `ALTER TABLE taxonomies ADD COLUMN IF NOT EXISTS translations JSONB NOT NULL DEFAULT '{}'`)
 
 	return &PostgresStore{pool: pool}, nil
 }
@@ -632,9 +634,9 @@ func (s *PostgresStore) SetPetVisibility(petID string, hidden bool) error {
 	return nil
 }
 
-func (s *PostgresStore) ListTaxonomy(kind string) []domain.TaxonomyItem {
+func (s *PostgresStore) ListTaxonomy(kind string, lang string) []domain.TaxonomyItem {
 	rows, err := s.pool.Query(s.ctx(),
-		`SELECT id, label, slug, species_id, is_active, COALESCE(icon,''), COALESCE(color,'')
+		`SELECT id, label, slug, species_id, is_active, COALESCE(icon,''), COALESCE(color,''), COALESCE(translations, '{}')
 		 FROM taxonomies WHERE kind = $1 ORDER BY label`, kind)
 	if err != nil {
 		return []domain.TaxonomyItem{}
@@ -644,9 +646,17 @@ func (s *PostgresStore) ListTaxonomy(kind string) []domain.TaxonomyItem {
 	items := make([]domain.TaxonomyItem, 0)
 	for rows.Next() {
 		var item domain.TaxonomyItem
+		var translationsJSON []byte
 		if err := rows.Scan(&item.ID, &item.Label, &item.Slug, &item.SpeciesID,
-			&item.IsActive, &item.Icon, &item.Color); err != nil {
+			&item.IsActive, &item.Icon, &item.Color, &translationsJSON); err != nil {
 			continue
+		}
+		_ = json.Unmarshal(translationsJSON, &item.Translations)
+		// Apply translation if requested
+		if lang != "" && lang != "en" {
+			if translated, ok := item.Translations[lang]; ok && translated != "" {
+				item.Label = translated
+			}
 		}
 		items = append(items, item)
 	}
@@ -657,20 +667,24 @@ func (s *PostgresStore) UpsertTaxonomy(kind string, item domain.TaxonomyItem) do
 	if item.ID == "" {
 		item.ID = newID(kind)
 	}
+	if item.Translations == nil {
+		item.Translations = map[string]string{}
+	}
+	translationsJSON, _ := json.Marshal(item.Translations)
 
 	_, err := s.pool.Exec(s.ctx(),
-		`INSERT INTO taxonomies (id, kind, label, slug, species_id, icon, color, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO taxonomies (id, kind, label, slug, species_id, icon, color, is_active, translations)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (id) DO UPDATE SET
 		   label = EXCLUDED.label, slug = EXCLUDED.slug, species_id = EXCLUDED.species_id,
-		   icon = EXCLUDED.icon, color = EXCLUDED.color, is_active = EXCLUDED.is_active`,
-		item.ID, kind, item.Label, item.Slug, item.SpeciesID, item.Icon, item.Color, item.IsActive)
+		   icon = EXCLUDED.icon, color = EXCLUDED.color, is_active = EXCLUDED.is_active,
+		   translations = EXCLUDED.translations`,
+		item.ID, kind, item.Label, item.Slug, item.SpeciesID, item.Icon, item.Color, item.IsActive, translationsJSON)
 	if err != nil {
-		// fallback: try update by kind+slug
 		_, _ = s.pool.Exec(s.ctx(),
-			`UPDATE taxonomies SET label=$3, species_id=$4, icon=$5, color=$6, is_active=$7
+			`UPDATE taxonomies SET label=$3, species_id=$4, icon=$5, color=$6, is_active=$7, translations=$8
 			 WHERE id=$1 AND kind=$2`,
-			item.ID, kind, item.Label, item.SpeciesID, item.Icon, item.Color, item.IsActive)
+			item.ID, kind, item.Label, item.SpeciesID, item.Icon, item.Color, item.IsActive, translationsJSON)
 	}
 	return item
 }

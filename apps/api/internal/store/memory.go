@@ -1954,13 +1954,21 @@ func (s *MemoryStore) SetPetVisibility(petID string, hidden bool) error {
 	return nil
 }
 
-func (s *MemoryStore) ListTaxonomy(kind string) []domain.TaxonomyItem {
+func (s *MemoryStore) ListTaxonomy(kind string, lang string) []domain.TaxonomyItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	items := append([]domain.TaxonomyItem{}, s.taxonomies[kind]...)
 	if items == nil {
 		items = make([]domain.TaxonomyItem, 0)
+	}
+	// Apply translations
+	if lang != "" && lang != "en" {
+		for i := range items {
+			if t, ok := items[i].Translations[lang]; ok && t != "" {
+				items[i].Label = t
+			}
+		}
 	}
 	slices.SortFunc(items, func(a domain.TaxonomyItem, b domain.TaxonomyItem) int {
 		return strings.Compare(a.Label, b.Label)
