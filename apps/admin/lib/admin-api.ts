@@ -336,7 +336,16 @@ export async function getAdminPlaydates() {
 export async function getAdminGroups() {
   return request<Array<{ id: string; name: string; description: string; petType: string; memberCount: number; createdAt: string }>>("/v1/admin/groups");
 }
-export async function createAdminGroup(group: { name: string; description: string; petType: string }) {
+export async function createAdminGroup(group: {
+  name: string;
+  description: string;
+  petType: string;
+  cityLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  code?: string;
+  isPrivate?: boolean;
+}) {
   return request("/v1/admin/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
 }
 

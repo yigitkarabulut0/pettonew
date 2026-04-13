@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 )
 
@@ -57,15 +59,21 @@ func SendExpoPush(tokens []string, title string, body string, data map[string]st
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
+	log.Printf("[PUSH] sending to %d token(s): title=%q body=%q", len(messages), title, body)
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Printf("[PUSH] ERROR: %v", err)
 		return fmt.Errorf("expo push failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
+		log.Printf("[PUSH] ERROR status=%d body=%s", resp.StatusCode, string(respBody))
 		return fmt.Errorf("expo push returned status %d", resp.StatusCode)
 	}
 
+	log.Printf("[PUSH] OK: %s", string(respBody))
 	return nil
 }

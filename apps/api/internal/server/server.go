@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -579,9 +580,13 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 				likePushTokens = append(likePushTokens, t.Token)
 			}
 			if len(likePushTokens) > 0 {
-				go service.SendExpoPush(likePushTokens, "New Like! ❤️", "Someone liked your pet!", map[string]string{
-					"type": "like",
-				})
+				go func() {
+					if err := service.SendExpoPush(likePushTokens, "New Like! ❤️", "Someone liked your pet!", map[string]string{"type": "like"}); err != nil {
+						log.Printf("[PUSH-LIKE] error: %v", err)
+					}
+				}()
+			} else {
+				log.Printf("[PUSH-LIKE] no tokens for user %s", targetOwnerID)
 			}
 		}
 	}
@@ -605,9 +610,13 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 			pushTokens = append(pushTokens, t.Token)
 		}
 		if len(pushTokens) > 0 {
-			go service.SendExpoPush(pushTokens, "New Match! 🎉", matchBody, map[string]string{
-				"type": "match", "conversationId": match.ConversationID,
-			})
+			go func() {
+				if err := service.SendExpoPush(pushTokens, "New Match! 🎉", matchBody, map[string]string{"type": "match", "conversationId": match.ConversationID}); err != nil {
+					log.Printf("[PUSH-MATCH] error: %v", err)
+				}
+			}()
+		} else {
+			log.Printf("[PUSH-MATCH] no tokens for user %s", match.MatchedPet.OwnerID)
 		}
 	}
 
