@@ -203,6 +203,7 @@ function TaxonomySection({
   addLabel,
   species,
   onSubmit,
+  onUpdate,
   onDelete,
   renderMeta
 }: {
