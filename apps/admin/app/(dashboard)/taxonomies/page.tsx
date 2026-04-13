@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -179,6 +179,7 @@ function AddForm({
   const [trLabel, setTrLabel] = useState("");
   const [speciesId, setSpeciesId] = useState("");
   const isBreeds = kind === "breeds";
+  const labelRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,16 +188,40 @@ function AddForm({
     onAdd(label.trim(), speciesId || undefined, trLabel.trim() || undefined);
     setLabel("");
     setTrLabel("");
-    setSpeciesId("");
+    // Keep speciesId selected so admin can add multiple breeds quickly
+    setTimeout(() => labelRef.current?.focus(), 50);
   };
 
   return (
     <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--petto-border)] bg-white/70 p-4 space-y-3">
+      {isBreeds && (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--petto-muted)]">Select species first, then add breeds quickly</p>
+          <div className="flex flex-wrap gap-2">
+            {species?.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSpeciesId(s.id)}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                  speciesId === s.id
+                    ? "bg-[var(--petto-primary)] text-white shadow-md"
+                    : "bg-white border border-[var(--petto-border)] text-[var(--petto-ink)] hover:border-[var(--petto-primary)]"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Input
-          placeholder={placeholder}
+          ref={labelRef}
+          placeholder={speciesId && isBreeds ? `Add breed for ${species?.find(s => s.id === speciesId)?.label ?? ""}...` : placeholder}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
+          autoFocus
         />
         <Input
           placeholder="Turkish translation (optional)"
@@ -204,18 +229,6 @@ function AddForm({
           onChange={(e) => setTrLabel(e.target.value)}
         />
       </div>
-      {isBreeds && (
-        <select
-          value={speciesId}
-          onChange={(e) => setSpeciesId(e.target.value)}
-          className="flex h-11 w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 text-sm text-[var(--petto-ink)] outline-none"
-        >
-          <option value="">Select parent species</option>
-          {species?.map((s) => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
-      )}
       <div className="flex justify-end">
         <Button type="submit" disabled={!label.trim() || (isBreeds && !speciesId) || isPending}>
           {isPending ? "Adding..." : `Add ${TAB_META[kind].label.replace(/s$/, "")}`}
