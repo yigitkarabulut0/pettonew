@@ -367,6 +367,7 @@ type CommunityGroup struct {
 	Name           string        `json:"name"`
 	Description    string        `json:"description"`
 	PetType        string        `json:"petType"`
+	Category       string        `json:"category,omitempty"`
 	MemberCount    int           `json:"memberCount"`
 	ImageURL       string        `json:"imageUrl,omitempty"`
 	ConversationID string        `json:"conversationId,omitempty"`
@@ -378,6 +379,8 @@ type CommunityGroup struct {
 	Code           string        `json:"code,omitempty"`
 	IsPrivate      bool          `json:"isPrivate"`
 	Distance       float64       `json:"distance,omitempty"`
+	Hashtags       []string      `json:"hashtags"`
+	Rules          []string      `json:"rules"`
 	CreatedAt      string        `json:"createdAt"`
 }
 

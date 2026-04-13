@@ -384,6 +384,7 @@ export interface CommunityGroup {
   name: string;
   description: string;
   petType: string;
+  category?: string;
   memberCount: number;
   imageUrl?: string;
   conversationId?: string;
@@ -395,6 +396,8 @@ export interface CommunityGroup {
   code?: string;
   isPrivate?: boolean;
   distance?: number;
+  hashtags: string[];
+  rules: string[];
   createdAt: string;
 }
 

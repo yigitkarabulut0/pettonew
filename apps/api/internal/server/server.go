@@ -1340,7 +1340,8 @@ func (s *Server) handleAdminCreateGroup(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
-	group := s.store.CreateGroup(payload)
+	// Admin doesn't auto-join the group they create
+	group := s.store.CreateGroup("", payload)
 	writeJSON(w, http.StatusCreated, map[string]any{"data": group})
 }
 
@@ -1544,7 +1545,7 @@ func (s *Server) handleCreateGroup(writer http.ResponseWriter, request *http.Req
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
-	result := s.store.CreateGroup(payload)
+	result := s.store.CreateGroup(currentUserID(request), payload)
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
 }
 

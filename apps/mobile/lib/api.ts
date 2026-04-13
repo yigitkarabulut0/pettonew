@@ -874,6 +874,28 @@ export async function joinGroupByCode(accessToken: string, code: string): Promis
     body: JSON.stringify({ code })
   });
 }
+export async function createGroup(
+  accessToken: string,
+  payload: {
+    name: string;
+    description: string;
+    petType: string;
+    category?: string;
+    cityLabel: string;
+    latitude: number;
+    longitude: number;
+    isPrivate: boolean;
+    imageUrl?: string;
+    hashtags: string[];
+    rules: string[];
+  }
+): Promise<CommunityGroup> {
+  return request<CommunityGroup>("/v1/groups", {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
 export async function getGroupByConversation(accessToken: string, conversationId: string): Promise<CommunityGroup | null> {
   const data = await request<CommunityGroup | null>(`/v1/groups/conversation/${conversationId}`, { headers: authHeaders(accessToken) });
   return data ?? null;

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -50,6 +51,9 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`)
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_community_groups_code ON community_groups(code) WHERE code IS NOT NULL AND code != ''`)
 	pool.Exec(ctx, `ALTER TABLE taxonomies ADD COLUMN IF NOT EXISTS translations JSONB NOT NULL DEFAULT '{}'`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS hashtags TEXT[] NOT NULL DEFAULT '{}'`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS rules TEXT[] NOT NULL DEFAULT '{}'`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`)
 
 	return &PostgresStore{pool: pool}, nil
 }
@@ -2605,6 +2609,7 @@ func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGr
 	query := `SELECT g.id, g.name, g.description, g.pet_type, g.member_count,
 	                  g.image_url, g.conversation_id, g.created_at,
 	                  g.latitude, g.longitude, g.city_label, COALESCE(g.code,''), g.is_private,
+	                  COALESCE(g.category, ''), COALESCE(g.hashtags, '{}'), COALESCE(g.rules, '{}'),
 	                  EXISTS(SELECT 1 FROM conversations c WHERE c.id = g.conversation_id AND $1 = ANY(c.user_ids))
 	           FROM community_groups g
 	           WHERE (g.is_private = FALSE OR EXISTS(SELECT 1 FROM conversations c2 WHERE c2.id = g.conversation_id AND $1 = ANY(c2.user_ids)))`
@@ -2637,8 +2642,15 @@ func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGr
 		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
 			&img, &convID, &createdAt,
 			&g.Latitude, &g.Longitude, &g.CityLabel, &g.Code, &g.IsPrivate,
+			&g.Category, &g.Hashtags, &g.Rules,
 			&g.IsMember); err != nil {
 			continue
+		}
+		if g.Hashtags == nil {
+			g.Hashtags = []string{}
+		}
+		if g.Rules == nil {
+			g.Rules = []string{}
 		}
 		g.CreatedAt = createdAt.Format(time.RFC3339)
 		if img != nil {
@@ -2699,9 +2711,13 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 	var img, convID *string
 	var createdAt time.Time
 	err := s.pool.QueryRow(s.ctx(),
-		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at
+		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at,
+		        latitude, longitude, city_label, COALESCE(code,''), is_private,
+		        COALESCE(category, ''), COALESCE(hashtags, '{}'), COALESCE(rules, '{}')
 		 FROM community_groups WHERE conversation_id = $1`, conversationID).Scan(
-		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &createdAt)
+		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &createdAt,
+		&g.Latitude, &g.Longitude, &g.CityLabel, &g.Code, &g.IsPrivate,
+		&g.Category, &g.Hashtags, &g.Rules)
 	if err != nil {
 		return nil
 	}
@@ -2711,6 +2727,12 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 	}
 	if convID != nil {
 		g.ConversationID = *convID
+	}
+	if g.Hashtags == nil {
+		g.Hashtags = []string{}
+	}
+	if g.Rules == nil {
+		g.Rules = []string{}
 	}
 
 	// Get conversation user_ids for members
@@ -2762,18 +2784,55 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 	return &g
 }
 
-func (s *PostgresStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {
+func (s *PostgresStore) CreateGroup(creatorUserID string, group domain.CommunityGroup) domain.CommunityGroup {
 	group.ID = newID("grp")
 	group.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	convID := newID("conv")
 	group.ConversationID = convID
-	s.pool.Exec(s.ctx(), `INSERT INTO conversations(id,match_id,title,subtitle,user_ids,last_message_at) VALUES($1,'',$2,'',$3,NOW())`, convID, group.Name, []string{})
+
+	// Auto-generate 6-char code for private groups
+	if group.IsPrivate && group.Code == "" {
+		group.Code = generateGroupCode()
+	}
+
+	if group.Hashtags == nil {
+		group.Hashtags = []string{}
+	}
+	if group.Rules == nil {
+		group.Rules = []string{}
+	}
+
+	// Conversation user_ids starts with creator (if provided)
+	convUserIDs := []string{}
+	if creatorUserID != "" {
+		convUserIDs = []string{creatorUserID}
+		group.MemberCount = 1
+	}
+
+	s.pool.Exec(s.ctx(), `INSERT INTO conversations(id,match_id,title,subtitle,user_ids,last_message_at) VALUES($1,'',$2,'',$3,NOW())`, convID, group.Name, convUserIDs)
 	s.pool.Exec(s.ctx(),
-		`INSERT INTO community_groups(id,name,description,pet_type,member_count,image_url,conversation_id,latitude,longitude,city_label,code,is_private,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		group.ID, group.Name, group.Description, group.PetType, group.MemberCount, nilIfEmpty(group.ImageURL), group.ConversationID,
-		group.Latitude, group.Longitude, group.CityLabel, nilIfEmpty(group.Code), group.IsPrivate, group.CreatedAt)
+		`INSERT INTO community_groups(id,name,description,pet_type,category,member_count,image_url,conversation_id,latitude,longitude,city_label,code,is_private,hashtags,rules,created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		group.ID, group.Name, group.Description, group.PetType, group.Category, group.MemberCount, nilIfEmpty(group.ImageURL), group.ConversationID,
+		group.Latitude, group.Longitude, group.CityLabel, nilIfEmpty(group.Code), group.IsPrivate, group.Hashtags, group.Rules, group.CreatedAt)
+
+	// Mark creator as member in returned struct
+	if creatorUserID != "" {
+		group.IsMember = true
+	}
 	return group
+}
+
+// generateGroupCode produces a 6-character random code (A-Z + 0-9, no ambiguous chars)
+func generateGroupCode() string {
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 6)
+	for i := range b {
+		buf := make([]byte, 1)
+		_, _ = cryptorand.Read(buf)
+		b[i] = charset[int(buf[0])%len(charset)]
+	}
+	return string(b)
 }
 
 func (s *PostgresStore) JoinGroup(userID string, groupID string) error {

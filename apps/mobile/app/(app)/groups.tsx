@@ -23,6 +23,7 @@ import {
   MapPin,
   MessageCircle,
   PawPrint,
+  Plus,
   Rabbit,
   Search,
   Users2,
@@ -31,6 +32,7 @@ import {
 import * as Location from "expo-location";
 
 import { useTranslation } from "react-i18next";
+import { CreateGroupModal } from "@/components/groups/create-group-modal";
 import { listGroups, listTaxonomies, joinGroup, joinGroupByCode } from "@/lib/api";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -56,6 +58,7 @@ export default function GroupsPage() {
   const [selectedPetType, setSelectedPetType] = useState("all");
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [codeModalVisible, setCodeModalVisible] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
 
   useEffect(() => {
@@ -342,17 +345,33 @@ export default function GroupsPage() {
         {subtitle}
       </Text>
       <View style={{ gap: mobileTheme.spacing.sm, alignItems: "center" }}>
+        <Pressable
+          onPress={() => setCreateOpen(true)}
+          style={({ pressed }) => ({
+            flexDirection: "row", alignItems: "center", gap: 6,
+            backgroundColor: theme.colors.primary,
+            paddingHorizontal: 24, paddingVertical: 12,
+            borderRadius: mobileTheme.radius.pill, minHeight: 44,
+            opacity: pressed ? 0.85 : 1
+          })}
+        >
+          <Plus size={16} color={theme.colors.white} />
+          <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.white, fontFamily: "Inter_600SemiBold" }}>
+            {t("groups.createGroup")}
+          </Text>
+        </Pressable>
         {showDiscoverCta && (
           <Pressable
             onPress={() => setTab("discover")}
             style={({ pressed }) => ({
-              backgroundColor: theme.colors.primary,
+              backgroundColor: theme.colors.surface,
+              borderWidth: 1, borderColor: theme.colors.border,
               paddingHorizontal: 24, paddingVertical: 12,
               borderRadius: mobileTheme.radius.pill, minHeight: 44,
               opacity: pressed ? 0.85 : 1
             })}
           >
-            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.white, fontFamily: "Inter_600SemiBold" }}>
+            <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
               {t("groups.discover")}
             </Text>
           </Pressable>
@@ -405,10 +424,18 @@ export default function GroupsPage() {
         </Text>
         <Pressable onPress={() => setCodeModalVisible(true)} hitSlop={12} style={{
           width: 44, height: 44, borderRadius: 22,
-          backgroundColor: theme.colors.primaryBg,
+          backgroundColor: theme.colors.background,
           alignItems: "center", justifyContent: "center"
         }}>
-          <Key size={18} color={theme.colors.primary} />
+          <Key size={18} color={theme.colors.ink} />
+        </Pressable>
+        <Pressable onPress={() => setCreateOpen(true)} hitSlop={12} style={{
+          width: 44, height: 44, borderRadius: 22,
+          backgroundColor: theme.colors.primary,
+          alignItems: "center", justifyContent: "center",
+          marginLeft: 8
+        }}>
+          <Plus size={20} color={theme.colors.white} />
         </Pressable>
       </View>
 
@@ -675,6 +702,9 @@ export default function GroupsPage() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── Create Group Modal ────────────────────── */}
+      <CreateGroupModal visible={createOpen} onClose={() => setCreateOpen(false)} />
     </View>
   );
 }

@@ -90,7 +90,7 @@ type Store interface {
 	// Groups
 	ListGroups(params ListGroupsParams) []domain.CommunityGroup
 	GetGroupByConversation(conversationID string) *domain.CommunityGroup
-	CreateGroup(group domain.CommunityGroup) domain.CommunityGroup
+	CreateGroup(creatorUserID string, group domain.CommunityGroup) domain.CommunityGroup
 	JoinGroup(userID string, groupID string) error
 	JoinGroupByCode(userID string, code string) (*domain.CommunityGroup, error)
 	// Lost pets

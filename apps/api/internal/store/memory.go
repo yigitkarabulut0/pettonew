@@ -1282,14 +1282,30 @@ func (s *MemoryStore) GetGroupByConversation(conversationID string) *domain.Comm
 	return nil
 }
 
-func (s *MemoryStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {
+func (s *MemoryStore) CreateGroup(creatorUserID string, group domain.CommunityGroup) domain.CommunityGroup {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	group.ID = newID("grp")
 	group.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 
+	if group.IsPrivate && group.Code == "" {
+		group.Code = generateGroupCode()
+	}
+	if group.Hashtags == nil {
+		group.Hashtags = []string{}
+	}
+	if group.Rules == nil {
+		group.Rules = []string{}
+	}
+
 	// Create a conversation for the group so members can chat
 	convID := newID("conv")
+	userIDs := []string{}
+	if creatorUserID != "" {
+		userIDs = []string{creatorUserID}
+		group.MemberCount = 1
+		group.IsMember = true
+	}
 	conv := &domain.Conversation{
 		ID:            convID,
 		MatchID:       "",
@@ -1298,7 +1314,7 @@ func (s *MemoryStore) CreateGroup(group domain.CommunityGroup) domain.CommunityG
 		UnreadCount:   0,
 		LastMessageAt: group.CreatedAt,
 		Messages:      []domain.Message{},
-		UserIDs:       []string{},
+		UserIDs:       userIDs,
 		MatchPetPairs: []domain.MatchPetPair{},
 	}
 	s.conversations[convID] = conv

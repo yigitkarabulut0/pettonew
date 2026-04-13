@@ -510,8 +510,8 @@ func (s *PersistentStore) JoinPlaydate(userID string, playdateID string) error {
 	return s.persistAfter(s.MemoryStore.JoinPlaydate(userID, playdateID))
 }
 
-func (s *PersistentStore) CreateGroup(group domain.CommunityGroup) domain.CommunityGroup {
-	result := s.MemoryStore.CreateGroup(group)
+func (s *PersistentStore) CreateGroup(creatorUserID string, group domain.CommunityGroup) domain.CommunityGroup {
+	result := s.MemoryStore.CreateGroup(creatorUserID, group)
 	_ = s.persist(context.Background())
 	return result
 }
