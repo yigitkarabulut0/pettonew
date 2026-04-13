@@ -1156,19 +1156,46 @@ func (s *MemoryStore) JoinPlaydate(userID string, playdateID string) error {
 
 // ── Community Groups ────────────────────────────────────────────────
 
-func (s *MemoryStore) ListGroups(userID string) []domain.CommunityGroup {
+func (s *MemoryStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := []domain.CommunityGroup{}
 	for _, g := range s.groups {
+		// Skip private groups (unless member)
+		if g.IsPrivate {
+			isMember := false
+			if g.ConversationID != "" {
+				if conv, ok := s.conversations[g.ConversationID]; ok {
+					for _, uid := range conv.UserIDs {
+						if uid == params.UserID {
+							isMember = true
+						}
+					}
+				}
+			}
+			if !isMember {
+				continue
+			}
+		}
+		// Search filter
+		if params.Search != "" {
+			lower := strings.ToLower(params.Search)
+			if !strings.Contains(strings.ToLower(g.Name), lower) && !strings.Contains(strings.ToLower(g.Description), lower) {
+				continue
+			}
+		}
+		// Pet type filter
+		if params.PetType != "" && params.PetType != "all" && g.PetType != params.PetType {
+			continue
+		}
+
 		group := *g
 		group.Members = []domain.GroupMember{}
 		group.IsMember = false
-
 		if group.ConversationID != "" {
 			if conv, ok := s.conversations[group.ConversationID]; ok {
 				for _, uid := range conv.UserIDs {
-					if uid == userID {
+					if uid == params.UserID {
 						group.IsMember = true
 					}
 					if user, ok := s.users[uid]; ok {
@@ -1188,6 +1215,30 @@ func (s *MemoryStore) ListGroups(userID string) []domain.CommunityGroup {
 		result = append(result, group)
 	}
 	return result
+}
+
+func (s *MemoryStore) JoinGroupByCode(userID string, code string) (*domain.CommunityGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, g := range s.groups {
+		if g.Code == code && code != "" {
+			// Reuse join logic inline
+			if g.ConversationID != "" {
+				if conv, ok := s.conversations[g.ConversationID]; ok {
+					for _, uid := range conv.UserIDs {
+						if uid == userID {
+							return g, nil // already member
+						}
+					}
+					conv.UserIDs = append(conv.UserIDs, userID)
+				}
+			}
+			g.MemberCount++
+			g.IsMember = true
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("invalid group code")
 }
 
 func (s *MemoryStore) GetGroupByConversation(conversationID string) *domain.CommunityGroup {

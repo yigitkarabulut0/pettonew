@@ -127,6 +127,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/groups", s.handleListGroups)
 			router.Post("/groups", s.handleCreateGroup)
 			router.Post("/groups/{groupID}/join", s.handleJoinGroup)
+			router.Post("/groups/join-by-code", s.handleJoinGroupByCode)
 			router.Get("/groups/conversation/{conversationID}", s.handleGetGroupByConversation)
 			// Lost pets
 			router.Get("/lost-pets", s.handleListLostPets)
@@ -1321,7 +1322,7 @@ func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Reques
 // ── Admin Groups ────────────────────────────────────────────────────
 
 func (s *Server) handleAdminGroups(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups("")})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups(store.ListGroupsParams{})})
 }
 
 func (s *Server) handleAdminCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -1511,7 +1512,20 @@ func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Re
 
 func (s *Server) handleListGroups(writer http.ResponseWriter, request *http.Request) {
 	userID := currentUserID(request)
-	groups := s.store.ListGroups(userID)
+	var lat, lng float64
+	if v := request.URL.Query().Get("lat"); v != "" {
+		fmt.Sscanf(v, "%f", &lat)
+	}
+	if v := request.URL.Query().Get("lng"); v != "" {
+		fmt.Sscanf(v, "%f", &lng)
+	}
+	groups := s.store.ListGroups(store.ListGroupsParams{
+		UserID:  userID,
+		Lat:     lat,
+		Lng:     lng,
+		Search:  request.URL.Query().Get("search"),
+		PetType: request.URL.Query().Get("petType"),
+	})
 	writeJSON(writer, http.StatusOK, map[string]any{"data": groups})
 }
 
@@ -1530,6 +1544,21 @@ func (s *Server) handleJoinGroup(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"joined": true}})
+}
+
+func (s *Server) handleJoinGroupByCode(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	group, err := s.store.JoinGroupByCode(currentUserID(request), payload.Code)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
 
 func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, request *http.Request) {

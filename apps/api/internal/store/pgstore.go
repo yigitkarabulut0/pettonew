@@ -41,6 +41,14 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		pool.Close()
 		return nil, fmt.Errorf("pool.Ping: %w", err)
 	}
+	// Auto-migrate: add group discovery columns
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS city_label TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS code TEXT`)
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_community_groups_code ON community_groups(code) WHERE code IS NOT NULL AND code != ''`)
+
 	return &PostgresStore{pool: pool}, nil
 }
 
@@ -2578,24 +2586,44 @@ func (s *PostgresStore) JoinPlaydate(userID string, playdateID string) error {
 	return err
 }
 
-func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
-	rows, err := s.pool.Query(s.ctx(),
-		`SELECT g.id, g.name, g.description, g.pet_type, g.member_count,
-		        g.image_url, g.conversation_id, g.created_at,
-		        EXISTS(SELECT 1 FROM conversations c WHERE c.id = g.conversation_id AND $1 = ANY(c.user_ids))
-		 FROM community_groups g
-		 ORDER BY g.created_at DESC`, userID)
+func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {
+	// Build dynamic query
+	query := `SELECT g.id, g.name, g.description, g.pet_type, g.member_count,
+	                  g.image_url, g.conversation_id, g.created_at,
+	                  g.latitude, g.longitude, g.city_label, COALESCE(g.code,''), g.is_private,
+	                  EXISTS(SELECT 1 FROM conversations c WHERE c.id = g.conversation_id AND $1 = ANY(c.user_ids))
+	           FROM community_groups g
+	           WHERE (g.is_private = FALSE OR EXISTS(SELECT 1 FROM conversations c2 WHERE c2.id = g.conversation_id AND $1 = ANY(c2.user_ids)))`
+	args := []any{params.UserID}
+	argIdx := 2
+
+	if params.Search != "" {
+		query += fmt.Sprintf(` AND (g.name ILIKE '%%' || $%d || '%%' OR g.description ILIKE '%%' || $%d || '%%')`, argIdx, argIdx)
+		args = append(args, params.Search)
+		argIdx++
+	}
+	if params.PetType != "" && params.PetType != "all" {
+		query += fmt.Sprintf(` AND g.pet_type = $%d`, argIdx)
+		args = append(args, params.PetType)
+		argIdx++
+	}
+	query += ` ORDER BY g.created_at DESC`
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
 	if err != nil {
 		return []domain.CommunityGroup{}
 	}
 	defer rows.Close()
+
 	var out []domain.CommunityGroup
 	for rows.Next() {
 		var g domain.CommunityGroup
 		var img, convID *string
 		var createdAt time.Time
 		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount,
-			&img, &convID, &createdAt, &g.IsMember); err != nil {
+			&img, &convID, &createdAt,
+			&g.Latitude, &g.Longitude, &g.CityLabel, &g.Code, &g.IsPrivate,
+			&g.IsMember); err != nil {
 			continue
 		}
 		g.CreatedAt = createdAt.Format(time.RFC3339)
@@ -2606,7 +2634,12 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 			g.ConversationID = *convID
 		}
 
-		// Fetch member profiles via unnest (avoids TEXT[] scan)
+		// Compute distance if user location provided
+		if params.Lat != 0 && params.Lng != 0 && g.Latitude != 0 && g.Longitude != 0 {
+			g.Distance = service.Haversine(params.Lat, params.Lng, g.Latitude, g.Longitude)
+		}
+
+		// Fetch member profiles via unnest
 		g.Members = []domain.GroupMember{}
 		if g.ConversationID != "" {
 			memberRows, err := s.pool.Query(s.ctx(),
@@ -2626,8 +2659,21 @@ func (s *PostgresStore) ListGroups(userID string) []domain.CommunityGroup {
 			}
 		}
 
+		// Strip private code for non-members
+		if !g.IsMember {
+			g.Code = ""
+		}
+
 		out = append(out, g)
 	}
+
+	// Sort by distance if location provided
+	if params.Lat != 0 && params.Lng != 0 {
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].Distance < out[j].Distance
+		})
+	}
+
 	if out == nil {
 		return []domain.CommunityGroup{}
 	}
@@ -2708,8 +2754,11 @@ func (s *PostgresStore) CreateGroup(group domain.CommunityGroup) domain.Communit
 	convID := newID("conv")
 	group.ConversationID = convID
 	s.pool.Exec(s.ctx(), `INSERT INTO conversations(id,match_id,title,subtitle,user_ids,last_message_at) VALUES($1,'',$2,'',$3,NOW())`, convID, group.Name, []string{})
-	s.pool.Exec(s.ctx(), `INSERT INTO community_groups(id,name,description,pet_type,member_count,image_url,conversation_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-		group.ID, group.Name, group.Description, group.PetType, group.MemberCount, nilIfEmpty(group.ImageURL), group.ConversationID, group.CreatedAt)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO community_groups(id,name,description,pet_type,member_count,image_url,conversation_id,latitude,longitude,city_label,code,is_private,created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		group.ID, group.Name, group.Description, group.PetType, group.MemberCount, nilIfEmpty(group.ImageURL), group.ConversationID,
+		group.Latitude, group.Longitude, group.CityLabel, nilIfEmpty(group.Code), group.IsPrivate, group.CreatedAt)
 	return group
 }
 
@@ -2740,6 +2789,36 @@ func (s *PostgresStore) JoinGroup(userID string, groupID string) error {
 			SELECT COALESCE(array_length(user_ids, 1), 0) FROM conversations WHERE id = $2
 		) WHERE id = $1`, groupID, convID)
 	return nil
+}
+
+func (s *PostgresStore) JoinGroupByCode(userID string, code string) (*domain.CommunityGroup, error) {
+	var groupID, convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, conversation_id FROM community_groups WHERE code = $1 AND code != ''`, code).Scan(&groupID, &convID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid group code")
+	}
+
+	// Reuse JoinGroup logic
+	if err := s.JoinGroup(userID, groupID); err != nil {
+		return nil, err
+	}
+
+	// Return the group
+	var g domain.CommunityGroup
+	var img *string
+	var createdAt time.Time
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at
+		 FROM community_groups WHERE id = $1`, groupID).Scan(
+		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &createdAt)
+	g.CreatedAt = createdAt.Format(time.RFC3339)
+	g.ConversationID = convID
+	g.IsMember = true
+	if img != nil {
+		g.ImageURL = *img
+	}
+	return &g, nil
 }
 
 // ================================================================

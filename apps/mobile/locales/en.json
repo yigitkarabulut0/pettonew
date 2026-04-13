@@ -431,7 +431,22 @@
     "noGroups": "No groups yet",
     "noGroupsDescription": "Community groups will appear here as they are created.",
     "members": "{{count}} members",
-    "chat": "Chat"
+    "chat": "Chat",
+    "discover": "Discover",
+    "myGroups": "My Groups",
+    "searchPlaceholder": "Search groups...",
+    "nearby": "Nearby",
+    "global": "Global",
+    "noNearbyGroups": "No groups in your area yet",
+    "noSearchResults": "No groups found",
+    "tryDifferentKeywords": "Try different keywords or filters",
+    "enterGroupCode": "Enter Group Code",
+    "codePlaceholder": "Enter code",
+    "joinByCode": "Join",
+    "invalidCode": "Invalid group code",
+    "noMyGroups": "No groups joined yet",
+    "noMyGroupsDescription": "Join groups to connect with other pet owners.",
+    "all": "All"
   },
   "playdates": {
     "title": "Playdates",

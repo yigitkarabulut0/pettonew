@@ -520,6 +520,15 @@ func (s *PersistentStore) JoinGroup(userID string, groupID string) error {
 	return s.persistAfter(s.MemoryStore.JoinGroup(userID, groupID))
 }
 
+func (s *PersistentStore) JoinGroupByCode(userID string, code string) (*domain.CommunityGroup, error) {
+	result, err := s.MemoryStore.JoinGroupByCode(userID, code)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.persist(context.Background())
+	return result, nil
+}
+
 func (s *PersistentStore) CreateLostPetAlert(alert domain.LostPetAlert) domain.LostPetAlert {
 	result := s.MemoryStore.CreateLostPetAlert(alert)
 	_ = s.persist(context.Background())

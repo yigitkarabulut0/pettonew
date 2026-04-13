@@ -388,6 +388,12 @@ export interface CommunityGroup {
   conversationId?: string;
   isMember: boolean;
   members: GroupMember[];
+  latitude?: number;
+  longitude?: number;
+  cityLabel?: string;
+  code?: string;
+  isPrivate?: boolean;
+  distance?: number;
   createdAt: string;
 }
 

@@ -371,6 +371,12 @@ type CommunityGroup struct {
 	ConversationID string        `json:"conversationId,omitempty"`
 	IsMember       bool          `json:"isMember"`
 	Members        []GroupMember `json:"members"`
+	Latitude       float64       `json:"latitude,omitempty"`
+	Longitude      float64       `json:"longitude,omitempty"`
+	CityLabel      string        `json:"cityLabel,omitempty"`
+	Code           string        `json:"code,omitempty"`
+	IsPrivate      bool          `json:"isPrivate"`
+	Distance       float64       `json:"distance,omitempty"`
 	CreatedAt      string        `json:"createdAt"`
 }
 

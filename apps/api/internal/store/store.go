@@ -2,6 +2,14 @@ package store
 
 import "github.com/yigitkarabulut/petto/apps/api/internal/domain"
 
+type ListGroupsParams struct {
+	UserID  string
+	Lat     float64
+	Lng     float64
+	Search  string
+	PetType string
+}
+
 type Store interface {
 	Register(email string, password string) (*domain.AppUser, string, error)
 	Login(email string, password string) (*domain.AppUser, error)
@@ -80,10 +88,11 @@ type Store interface {
 	CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate
 	JoinPlaydate(userID string, playdateID string) error
 	// Groups
-	ListGroups(userID string) []domain.CommunityGroup
+	ListGroups(params ListGroupsParams) []domain.CommunityGroup
 	GetGroupByConversation(conversationID string) *domain.CommunityGroup
 	CreateGroup(group domain.CommunityGroup) domain.CommunityGroup
 	JoinGroup(userID string, groupID string) error
+	JoinGroupByCode(userID string, code string) (*domain.CommunityGroup, error)
 	// Lost pets
 	ListLostPets() []domain.LostPetAlert
 	CreateLostPetAlert(alert domain.LostPetAlert) domain.LostPetAlert

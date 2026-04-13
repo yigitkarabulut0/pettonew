@@ -849,12 +849,28 @@ export async function joinPlaydate(accessToken: string, playdateId: string): Pro
 }
 
 // Community Groups
-export async function listGroups(accessToken: string): Promise<CommunityGroup[]> {
-  const data = await request<CommunityGroup[] | null>("/v1/groups", { headers: authHeaders(accessToken) });
+export async function listGroups(
+  accessToken: string,
+  params?: { lat?: number; lng?: number; search?: string; petType?: string }
+): Promise<CommunityGroup[]> {
+  const qs = new URLSearchParams();
+  if (params?.lat) qs.set("lat", String(params.lat));
+  if (params?.lng) qs.set("lng", String(params.lng));
+  if (params?.search) qs.set("search", params.search);
+  if (params?.petType && params.petType !== "all") qs.set("petType", params.petType);
+  const query = qs.toString();
+  const data = await request<CommunityGroup[] | null>(`/v1/groups${query ? `?${query}` : ""}`, { headers: authHeaders(accessToken) });
   return data ?? [];
 }
 export async function joinGroup(accessToken: string, groupId: string): Promise<void> {
   await request(`/v1/groups/${groupId}/join`, { method: "POST", headers: authHeaders(accessToken) });
+}
+export async function joinGroupByCode(accessToken: string, code: string): Promise<CommunityGroup> {
+  return request<CommunityGroup>("/v1/groups/join-by-code", {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
 }
 export async function getGroupByConversation(accessToken: string, conversationId: string): Promise<CommunityGroup | null> {
   const data = await request<CommunityGroup | null>(`/v1/groups/conversation/${conversationId}`, { headers: authHeaders(accessToken) });

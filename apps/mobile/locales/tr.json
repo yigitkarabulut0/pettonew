@@ -431,7 +431,22 @@
     "noGroups": "Henüz grup yok",
     "noGroupsDescription": "Topluluk grupları oluşturuldukça burada görünecektir.",
     "members": "{{count}} üye",
-    "chat": "Sohbet"
+    "chat": "Sohbet",
+    "discover": "Keşfet",
+    "myGroups": "Gruplarım",
+    "searchPlaceholder": "Grup ara...",
+    "nearby": "Yakınlarda",
+    "global": "Global",
+    "noNearbyGroups": "Yakınınızda henüz grup yok",
+    "noSearchResults": "Grup bulunamadı",
+    "tryDifferentKeywords": "Farklı anahtar kelimeler veya filtreler deneyin",
+    "enterGroupCode": "Grup Kodu Gir",
+    "codePlaceholder": "Kodu girin",
+    "joinByCode": "Katıl",
+    "invalidCode": "Geçersiz grup kodu",
+    "noMyGroups": "Henüz gruba katılmadınız",
+    "noMyGroupsDescription": "Diğer evcil hayvan sahipleriyle bağlantı kurmak için gruplara katılın.",
+    "all": "Tümü"
   },
   "playdates": {
     "title": "Buluşmalar",
