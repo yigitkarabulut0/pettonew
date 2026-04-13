@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 
@@ -89,6 +89,14 @@ export default function TaxonomiesPage() {
     }
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ kind, item }: { kind: (typeof taxonomyKinds)[number]; item: any }) =>
+      upsertTaxonomy(kind, item),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["taxonomy", variables.kind] });
+    }
+  });
+
   const deleteMutation = useMutation({
     mutationFn: ({ kind, itemId }: { kind: (typeof taxonomyKinds)[number]; itemId: string }) =>
       deleteTaxonomy(kind, itemId),
@@ -120,6 +128,7 @@ export default function TaxonomiesPage() {
           description={sectionMeta.species.description}
           addLabel="Add species"
           onSubmit={(payload) => createMutation.mutate({ kind: "species", ...payload } as any)}
+          onUpdate={(item) => updateMutation.mutate({ kind: "species", item })}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "species", itemId }), label)}
           renderMeta={(item) => `${item.breedCount} linked breed${item.breedCount === 1 ? "" : "s"}`}
         />
@@ -136,6 +145,7 @@ export default function TaxonomiesPage() {
           addLabel="Add breed"
           species={species}
           onSubmit={(payload) => createMutation.mutate({ kind: "breeds", ...payload } as any)}
+          onUpdate={(item) => updateMutation.mutate({ kind: "breeds", item })}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "breeds", itemId }), label)}
           renderMeta={(item) => item.speciesLabel ?? "Unknown species"}
         />
@@ -148,6 +158,7 @@ export default function TaxonomiesPage() {
           description={sectionMeta.hobbies.description}
           addLabel="Add hobby"
           onSubmit={(payload) => createMutation.mutate({ kind: "hobbies", ...payload } as any)}
+          onUpdate={(item) => updateMutation.mutate({ kind: "hobbies", item })}
           onDelete={(itemId, label) => confirmDelete(() => deleteMutation.mutate({ kind: "hobbies", itemId }), label)}
         />
 
@@ -159,6 +170,7 @@ export default function TaxonomiesPage() {
           description={sectionMeta.compatibility.description}
           addLabel="Add compatibility tag"
           onSubmit={(payload) => createMutation.mutate({ kind: "compatibility", ...payload } as any)}
+          onUpdate={(item) => updateMutation.mutate({ kind: "compatibility", item })}
           onDelete={(itemId, label) =>
             confirmDelete(() => deleteMutation.mutate({ kind: "compatibility", itemId }), label)
           }
@@ -172,6 +184,7 @@ export default function TaxonomiesPage() {
           description={sectionMeta.characters.description}
           addLabel="Add character trait"
           onSubmit={(payload) => createMutation.mutate({ kind: "characters", ...payload } as any)}
+          onUpdate={(item) => updateMutation.mutate({ kind: "characters", item })}
           onDelete={(itemId, label) =>
             confirmDelete(() => deleteMutation.mutate({ kind: "characters", itemId }), label)
           }
@@ -201,10 +214,13 @@ function TaxonomySection({
   addLabel: string;
   species?: Array<{ id: string; label: string }>;
   onSubmit: (payload: { label: string; speciesId?: string; translationTr?: string }) => void;
+  onUpdate: (item: any) => void;
   onDelete: (itemId: string, label: string) => void;
   renderMeta?: (item: { id: string; label: string; speciesId?: string; speciesLabel?: string; breedCount?: number; translations?: Record<string, string> }) => string;
 }) {
   const isBreedSection = kind === "breeds";
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTr, setEditTr] = useState("");
   const { register, handleSubmit, reset, watch } = useForm<{ label: string; speciesId: string; translationTr: string }>({
     defaultValues: {
       label: "",
@@ -266,22 +282,60 @@ function TaxonomySection({
           items.map((item) => (
             <div
               key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-[var(--petto-border)] bg-[rgba(255,252,248,0.92)] px-4 py-4"
+              className="rounded-[22px] border border-[var(--petto-border)] bg-[rgba(255,252,248,0.92)] px-4 py-4"
             >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
                   <p className="font-semibold text-[var(--petto-ink)]">{item.label}</p>
-                  {(item as any).translations?.tr && (
-                    <span className="rounded-full bg-[var(--petto-primary-bg)] px-2 py-0.5 text-xs font-medium text-[var(--petto-primary)]">
-                      TR: {(item as any).translations.tr}
-                    </span>
-                  )}
+                  {renderMeta ? <p className="text-sm text-[var(--petto-muted)]">{renderMeta(item)}</p> : null}
                 </div>
-                {renderMeta ? <p className="text-sm text-[var(--petto-muted)]">{renderMeta(item)}</p> : null}
+                <div className="flex items-center gap-2">
+                  {editingId !== item.id && (
+                    <Button
+                      variant="ghost"
+                      className="text-[var(--petto-primary)] hover:text-[var(--petto-primary-dark)]"
+                      onClick={() => {
+                        setEditingId(item.id);
+                        setEditTr((item as any).translations?.tr ?? "");
+                      }}
+                    >
+                      {(item as any).translations?.tr ? `TR: ${(item as any).translations.tr}` : "+ Add Turkish"}
+                    </Button>
+                  )}
+                  <Button variant="ghost" className="text-rose-700 hover:text-rose-800" onClick={() => onDelete(item.id, item.label)}>
+                    Delete
+                  </Button>
+                </div>
               </div>
-              <Button variant="ghost" className="text-rose-700 hover:text-rose-800" onClick={() => onDelete(item.id, item.label)}>
-                Delete
-              </Button>
+              {editingId === item.id && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--petto-border)] bg-white p-2">
+                  <Input
+                    placeholder="Turkish translation"
+                    value={editTr}
+                    onChange={(e) => setEditTr(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={() => {
+                      onUpdate({
+                        id: item.id,
+                        label: item.label,
+                        slug: item.label.toLowerCase().trim().replace(/\s+/g, "-"),
+                        speciesId: item.speciesId || undefined,
+                        isActive: true,
+                        translations: { ...((item as any).translations ?? {}), tr: editTr.trim() }
+                      });
+                      setEditingId(null);
+                      setEditTr("");
+                    }}
+                  >
+                    Save
+                  </Button>
+                  <Button variant="ghost" onClick={() => { setEditingId(null); setEditTr(""); }}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
             </div>
           ))
         ) : (
