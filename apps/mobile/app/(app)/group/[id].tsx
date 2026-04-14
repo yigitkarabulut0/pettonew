@@ -13,6 +13,7 @@ import {
   UIManager,
   View
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,6 +52,7 @@ import {
   unmuteGroupMember
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { formatDurationShort } from "@/lib/time";
 import { useSessionStore } from "@/store/session";
 import type { GroupMember } from "@petto/contracts";
 
@@ -139,8 +141,12 @@ export default function GroupDetailPage() {
           await kickGroupMember(token, group.id, targetUserID);
           break;
       }
-      refetch();
+      // Haptic + data refresh. The visible confirmation is the updated
+      // role / mute badge that appears after refetch lands.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      await refetch();
     } catch (err: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       Alert.alert("Action failed", err?.message || "");
     }
   };
@@ -1022,7 +1028,9 @@ export default function GroupDetailPage() {
                           style={{
                             flexDirection: "row",
                             alignItems: "center",
-                            marginTop: 4
+                            gap: 6,
+                            marginTop: 4,
+                            flexWrap: "wrap"
                           }}
                         >
                           <View
@@ -1049,6 +1057,43 @@ export default function GroupDetailPage() {
                               {roleLabel}
                             </Text>
                           </View>
+
+                          {/* Muted badge — ticks down once per open but
+                              decrements whenever the admin re-opens the
+                              members sheet; refetch after any mod action
+                              reshapes this immediately. */}
+                          {member.isMuted ? (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: mobileTheme.radius.pill,
+                                backgroundColor: theme.colors.dangerBg
+                              }}
+                            >
+                              <MicOff size={10} color={theme.colors.danger} strokeWidth={2.3} />
+                              <Text
+                                style={{
+                                  fontSize: 10,
+                                  color: theme.colors.danger,
+                                  fontFamily: "Inter_700Bold",
+                                  letterSpacing: 0.3,
+                                  textTransform: "uppercase"
+                                }}
+                              >
+                                {member.mutedUntil
+                                  ? (t("groups.mutedBadgeFor", {
+                                      duration: formatDurationShort(
+                                        new Date(member.mutedUntil).getTime() - Date.now()
+                                      )
+                                    }) as string)
+                                  : (t("groups.mutedBadgeIndef") as string)}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
                       </View>
                       {canManage ? (

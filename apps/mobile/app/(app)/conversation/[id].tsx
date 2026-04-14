@@ -12,7 +12,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, Flag, Lock, PawPrint, Send } from "lucide-react-native";
+import { ChevronLeft, Flag, Lock, MicOff, PawPrint, Send } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { MessageBubble } from "@/components/chat/message-bubble";
@@ -37,6 +37,7 @@ import {
   unpinGroupMessage
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { formatDurationShort } from "@/lib/time";
 import { useSessionStore } from "@/store/session";
 import type { Conversation, Message, Pet } from "@petto/contracts";
 
@@ -571,24 +572,7 @@ export default function ConversationPage() {
             }}
           >
             {isMuted ? (
-              <View
-                style={{
-                  flex: 1,
-                  padding: 14,
-                  borderRadius: mobileTheme.radius.pill,
-                  backgroundColor: theme.colors.dangerBg,
-                  alignItems: "center"
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.colors.danger,
-                    fontFamily: "Inter_600SemiBold"
-                  }}
-                >
-                  {t("groups.youAreMuted")}
-                </Text>
-              </View>
+              <MutedPill until={groupInfo?.mutedUntil ?? null} />
             ) : (
               <>
                 {isGroupChat && (
@@ -691,5 +675,56 @@ export default function ConversationPage() {
         onAction={handleModeration}
       />
     </KeyboardAvoidingView>
+  );
+}
+
+// ── Dynamic muted pill ─────────────────────────────────────────────
+// Shows "You are muted — 1h 23m left" that ticks down every 30s, or
+// "You are muted indefinitely" when the until is null.
+function MutedPill({ until }: { until?: string | null }) {
+  const { t } = useTranslation();
+  const theme = useTheme();
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!until) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [until]);
+
+  const label = useMemo(() => {
+    if (!until) return t("groups.mutedIndefinitelyLabel") as string;
+    const msLeft = new Date(until).getTime() - now;
+    if (msLeft <= 0) return t("groups.mutedExpiringLabel") as string;
+    return t("groups.mutedForLabel", {
+      duration: formatDurationShort(msLeft)
+    }) as string;
+  }, [until, now, t]);
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        paddingVertical: 14,
+        paddingHorizontal: mobileTheme.spacing.lg,
+        borderRadius: mobileTheme.radius.pill,
+        backgroundColor: theme.colors.dangerBg
+      }}
+    >
+      <MicOff size={16} color={theme.colors.danger} strokeWidth={2.2} />
+      <Text
+        style={{
+          color: theme.colors.danger,
+          fontFamily: "Inter_700Bold",
+          fontSize: 13
+        }}
+      >
+        {label}
+      </Text>
+    </View>
   );
 }

@@ -395,6 +395,8 @@ export interface GroupMember {
   firstName: string;
   avatarUrl?: string;
   pets: MemberPet[];
+  isMuted?: boolean;
+  mutedUntil?: string | null;
 }
 
 export interface CommunityGroup {

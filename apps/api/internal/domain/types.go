@@ -364,10 +364,12 @@ type MemberPet struct {
 }
 
 type GroupMember struct {
-	UserID    string      `json:"userId"`
-	FirstName string      `json:"firstName"`
-	AvatarURL string      `json:"avatarUrl,omitempty"`
-	Pets      []MemberPet `json:"pets"`
+	UserID     string      `json:"userId"`
+	FirstName  string      `json:"firstName"`
+	AvatarURL  string      `json:"avatarUrl,omitempty"`
+	Pets       []MemberPet `json:"pets"`
+	IsMuted    bool        `json:"isMuted"`
+	MutedUntil *string     `json:"mutedUntil,omitempty"`
 }
 
 type CommunityGroup struct {

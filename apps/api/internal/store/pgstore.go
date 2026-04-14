@@ -1764,6 +1764,35 @@ func (s *PostgresStore) MuteGroupMember(actorUserID string, groupID string, targ
 	_ = s.pool.QueryRow(s.ctx(), `SELECT conversation_id FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
 	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`, targetUserID).Scan(&name)
 	s.insertSystemMessage(convID, "member_muted", map[string]any{"kind": "member_muted", "userId": targetUserID, "firstName": name})
+
+	// Push notification to the muted user.
+	groupName := s.fetchGroupName(groupID)
+	var durationLabel, mutedUntilStr string
+	if until == nil {
+		durationLabel = "indefinitely"
+	} else {
+		mutedUntilStr = until.Format(time.RFC3339)
+		diff := time.Until(*until)
+		if diff <= 75*time.Minute {
+			durationLabel = "for 1 hour"
+		} else if diff <= 26*time.Hour {
+			durationLabel = "for 24 hours"
+		} else {
+			durationLabel = fmt.Sprintf("until %s", until.Format("Jan 2, 15:04"))
+		}
+	}
+	s.sendModPush(
+		targetUserID,
+		"You were muted 🔇",
+		fmt.Sprintf("You were muted in %s %s.", groupName, durationLabel),
+		map[string]string{
+			"type":       "mod",
+			"action":     "muted",
+			"groupId":    groupID,
+			"groupName":  groupName,
+			"mutedUntil": mutedUntilStr,
+		},
+	)
 	return nil
 }
 
@@ -1775,7 +1804,22 @@ func (s *PostgresStore) UnmuteGroupMember(actorUserID string, groupID string, ta
 	}
 	_, err := s.pool.Exec(s.ctx(),
 		`DELETE FROM community_group_mutes WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
-	return err
+	if err != nil {
+		return err
+	}
+	groupName := s.fetchGroupName(groupID)
+	s.sendModPush(
+		targetUserID,
+		"Unmuted 🔊",
+		fmt.Sprintf("You can chat in %s again.", groupName),
+		map[string]string{
+			"type":      "mod",
+			"action":    "unmuted",
+			"groupId":   groupID,
+			"groupName": groupName,
+		},
+	)
+	return nil
 }
 
 // KickGroupMember removes a user from the group's conversation.user_ids array
@@ -1803,6 +1847,19 @@ func (s *PostgresStore) KickGroupMember(actorUserID string, groupID string, targ
 	var name string
 	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`, targetUserID).Scan(&name)
 	s.insertSystemMessage(convID, "member_kicked", map[string]any{"kind": "member_kicked", "userId": targetUserID, "firstName": name})
+
+	groupName := s.fetchGroupName(groupID)
+	s.sendModPush(
+		targetUserID,
+		"Removed from group",
+		fmt.Sprintf("You were removed from %s.", groupName),
+		map[string]string{
+			"type":      "mod",
+			"action":    "kicked",
+			"groupId":   groupID,
+			"groupName": groupName,
+		},
+	)
 	return nil
 }
 
@@ -1820,7 +1877,22 @@ func (s *PostgresStore) PromoteGroupAdmin(actorUserID string, groupID string, ta
 	_, err := s.pool.Exec(s.ctx(),
 		`INSERT INTO community_group_admins (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		groupID, targetUserID)
-	return err
+	if err != nil {
+		return err
+	}
+	groupName := s.fetchGroupName(groupID)
+	s.sendModPush(
+		targetUserID,
+		"You're now an admin 🛡️",
+		fmt.Sprintf("You were promoted to admin of %s.", groupName),
+		map[string]string{
+			"type":      "mod",
+			"action":    "promoted",
+			"groupId":   groupID,
+			"groupName": groupName,
+		},
+	)
+	return nil
 }
 
 // DemoteGroupAdmin revokes admin rights. Any admin may demote another
@@ -1838,7 +1910,22 @@ func (s *PostgresStore) DemoteGroupAdmin(actorUserID string, groupID string, tar
 	}
 	_, err := s.pool.Exec(s.ctx(),
 		`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
-	return err
+	if err != nil {
+		return err
+	}
+	groupName := s.fetchGroupName(groupID)
+	s.sendModPush(
+		targetUserID,
+		"Admin role removed",
+		fmt.Sprintf("You are no longer an admin of %s.", groupName),
+		map[string]string{
+			"type":      "mod",
+			"action":    "demoted",
+			"groupId":   groupID,
+			"groupName": groupName,
+		},
+	)
+	return nil
 }
 
 // LeaveGroup removes the caller from a group. If the caller is the last
@@ -2018,6 +2105,42 @@ func nullableText(v string) any {
 		return nil
 	}
 	return v
+}
+
+// sendModPush fires an Expo push to a single user about a moderation
+// action. Fire-and-forget — failures are swallowed so they never block
+// the originating mutation.
+func (s *PostgresStore) sendModPush(targetUserID string, title string, body string, data map[string]string) {
+	if targetUserID == "" {
+		return
+	}
+	userTokens := s.GetUserPushTokens(targetUserID)
+	if len(userTokens) == 0 {
+		return
+	}
+	tokens := make([]string, 0, len(userTokens))
+	for _, t := range userTokens {
+		if t.Token != "" {
+			tokens = append(tokens, t.Token)
+		}
+	}
+	if len(tokens) == 0 {
+		return
+	}
+	go func() {
+		_ = service.SendExpoPush(tokens, title, body, data)
+	}()
+}
+
+// fetchGroupName is a cheap lookup used to enrich moderation push bodies.
+func (s *PostgresStore) fetchGroupName(groupID string) string {
+	var name string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(name, '') FROM community_groups WHERE id = $1`, groupID).Scan(&name)
+	if name == "" {
+		return "the group"
+	}
+	return name
 }
 
 // ============================================================
@@ -3327,15 +3450,34 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 
 	g.Members = []domain.GroupMember{}
 	if len(userIDs) > 0 {
-		// Fetch member profiles
+		// Fetch member profiles + per-member mute state in a single query.
+		// LEFT JOIN community_group_mutes so non-muted users still appear.
 		memberRows, err := s.pool.Query(s.ctx(),
-			`SELECT user_id, first_name, COALESCE(avatar_url,'')
-			 FROM user_profiles WHERE user_id = ANY($1)`, userIDs)
+			`SELECT up.user_id, up.first_name, COALESCE(up.avatar_url,''),
+			        cgm.user_id IS NOT NULL AS is_muted_row,
+			        cgm.muted_until
+			 FROM user_profiles up
+			 LEFT JOIN community_group_mutes cgm
+			   ON cgm.group_id = $2 AND cgm.user_id = up.user_id
+			 WHERE up.user_id = ANY($1)`, userIDs, g.ID)
 		if err == nil {
+			nowUTC := time.Now().UTC()
 			for memberRows.Next() {
 				var m domain.GroupMember
-				memberRows.Scan(&m.UserID, &m.FirstName, &m.AvatarURL)
+				var hasMuteRow bool
+				var mutedUntil *time.Time
+				if err := memberRows.Scan(&m.UserID, &m.FirstName, &m.AvatarURL, &hasMuteRow, &mutedUntil); err != nil {
+					continue
+				}
 				m.Pets = []domain.MemberPet{}
+				// Treat expired rows as unmuted — GetGroupMute cleans them lazily.
+				if hasMuteRow && (mutedUntil == nil || mutedUntil.After(nowUTC)) {
+					m.IsMuted = true
+					if mutedUntil != nil {
+						s := mutedUntil.Format(time.RFC3339)
+						m.MutedUntil = &s
+					}
+				}
 				g.Members = append(g.Members, m)
 			}
 			memberRows.Close()
