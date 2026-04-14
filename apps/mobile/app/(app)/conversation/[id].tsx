@@ -16,6 +16,7 @@ import { ChevronLeft, Flag, Lock, MicOff, PawPrint, Send } from "lucide-react-na
 
 import { Avatar } from "@/components/avatar";
 import { MessageBubble } from "@/components/chat/message-bubble";
+import { PetDetailModal } from "@/components/pet-card";
 import { ModerationSheet, type ModerationAction } from "@/components/chat/moderation-sheet";
 import { PetSharePicker } from "@/components/chat/pet-share-picker";
 import { PinnedBanner } from "@/components/chat/pinned-banner";
@@ -25,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import {
   deleteGroupMessage,
   getGroupByConversation,
+  getPet,
   joinGroup,
   listConversations,
   listGroupPinned,
@@ -44,7 +46,11 @@ import type { Conversation, Message, Pet } from "@petto/contracts";
 export default function ConversationPage() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, initialTitle, initialImage } = useLocalSearchParams<{
+    id: string;
+    initialTitle?: string;
+    initialImage?: string;
+  }>();
   const router = useRouter();
   const session = useSessionStore((state) => state.session);
   const queryClient = useQueryClient();
@@ -55,6 +61,7 @@ export default function ConversationPage() {
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const [petPickerOpen, setPetPickerOpen] = useState(false);
   const [modMessage, setModMessage] = useState<Message | null>(null);
+  const [sharedPetId, setSharedPetId] = useState<string | null>(null);
   const setActiveConversationId = useSessionStore((s) => s.setActiveConversationId);
 
   useEffect(() => {
@@ -69,8 +76,12 @@ export default function ConversationPage() {
   });
   const conversation = conversations.find((c) => c.id === id) ?? null;
 
-  const otherUserName = conversation?.title || t("chat.conversation");
-  const otherUserAvatar = conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl;
+  // Fallback chain: real query data → router-param seed (instant) →
+  // localized "Conversation" as last resort. The seed is passed from
+  // groups.tsx / group/[id].tsx / conversations.tsx so the header shows
+  // the real name & image immediately on navigation.
+  const otherUserName = conversation?.title || initialTitle || t("chat.conversation");
+  const otherUserAvatar = conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl || initialImage;
   const petPairLabel = conversation?.matchPetPairs?.length
     ? conversation.matchPetPairs.map((p) => `${p.myPetName} & ${p.matchedPetName}`).join(", ")
     : "";
@@ -154,10 +165,48 @@ export default function ConversationPage() {
       if (!session) return null;
       return sendConversationMessage(session.tokens.accessToken, id, payload);
     },
+    // Optimistic insert — the pet/image bubble appears in the list the
+    // instant the user taps send, before the network round-trip.
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: ["messages", id] });
+      const prev = queryClient.getQueryData<Message[]>(["messages", id]);
+      const optimistic: Message = {
+        id: `temp-${Date.now()}`,
+        conversationId: id,
+        senderProfileId: session?.user.id ?? "",
+        senderName: session?.user.firstName ?? "",
+        senderAvatarUrl: session?.user.avatarUrl ?? undefined,
+        type: input.type,
+        body: input.body ?? "",
+        imageUrl: input.imageUrl,
+        metadata: input.metadata,
+        createdAt: new Date().toISOString(),
+        isMine: true
+      };
+      queryClient.setQueryData<Message[]>(
+        ["messages", id],
+        (old) => [...(old ?? []), optimistic]
+      );
+      // Jump to bottom so the user sees the new bubble.
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+      return { prev };
+    },
+    onError: (_err, _input, context: any) => {
+      if (context?.prev) {
+        queryClient.setQueryData(["messages", id], context.prev);
+      }
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["messages", id] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     }
+  });
+
+  // Fetch the pet that was shared when the user taps a pet_share card.
+  const { data: sharedPet = null } = useQuery({
+    queryKey: ["pet-detail", sharedPetId],
+    queryFn: () => getPet(session!.tokens.accessToken, sharedPetId!),
+    enabled: Boolean(session && sharedPetId)
   });
 
   // ── Composer actions ─────────────────────────────────────────────
@@ -337,8 +386,8 @@ export default function ConversationPage() {
           <ChevronLeft size={20} color={theme.colors.ink} />
         </Pressable>
         <Avatar
-          uri={isGroupChat ? groupInfo?.imageUrl : otherUserAvatar}
-          name={isGroupChat ? groupInfo?.name ?? otherUserName : otherUserName}
+          uri={isGroupChat ? (groupInfo?.imageUrl ?? initialImage) : otherUserAvatar}
+          name={isGroupChat ? (groupInfo?.name ?? initialTitle ?? otherUserName) : otherUserName}
           size="sm"
         />
         <Pressable
@@ -357,7 +406,7 @@ export default function ConversationPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            {isGroupChat ? groupInfo?.name ?? otherUserName : otherUserName}
+            {isGroupChat ? (groupInfo?.name ?? initialTitle ?? otherUserName) : otherUserName}
           </Text>
           {isGroupChat ? (
             <Text
@@ -550,6 +599,7 @@ export default function ConversationPage() {
                           ? undefined
                           : () => setModMessage(msg)
                       }
+                      onPressPetShare={setSharedPetId}
                     />
                   );
                 })}
@@ -673,6 +723,12 @@ export default function ConversationPage() {
         isOwnMessage={modMessage?.isMine ?? false}
         onClose={() => setModMessage(null)}
         onAction={handleModeration}
+      />
+
+      <PetDetailModal
+        pet={sharedPet}
+        visible={Boolean(sharedPetId && sharedPet)}
+        onClose={() => setSharedPetId(null)}
       />
     </KeyboardAvoidingView>
   );

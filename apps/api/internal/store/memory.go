@@ -527,6 +527,16 @@ func (s *MemoryStore) GetPetOwnerID(petID string) string {
 	return ""
 }
 
+func (s *MemoryStore) GetPet(petID string) (*domain.Pet, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if pet, ok := s.pets[petID]; ok {
+		cp := *pet
+		return &cp, nil
+	}
+	return nil, fmt.Errorf("pet not found")
+}
+
 func (s *MemoryStore) CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

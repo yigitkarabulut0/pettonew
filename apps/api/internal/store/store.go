@@ -35,6 +35,7 @@ type Store interface {
 	DiscoveryFeedForPet(userID string, actorPetID string) []domain.DiscoveryCard
 	CreateSwipe(userID string, actorPetID string, targetPetID string, direction string) (*domain.MatchPreview, error)
 	GetPetOwnerID(petID string) string
+	GetPet(petID string) (*domain.Pet, error)
 	GetConversationUserIDs(conversationID string) []string
 	ListMatches(userID string) []domain.MatchPreview
 	ListMatchesByPet(userID string, petID string) []domain.MatchPreview

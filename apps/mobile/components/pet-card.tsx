@@ -1,8 +1,6 @@
 import type { Pet } from "@petto/contracts";
-import * as Sharing from "expo-sharing";
 import { useRouter } from "expo-router";
 import {
-  Alert,
   Dimensions,
   Modal,
   Pressable,
@@ -15,6 +13,7 @@ import { Image } from "expo-image";
 import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   Activity,
   BookOpen,
@@ -23,16 +22,15 @@ import {
   Flag,
   Heart,
   MapPin,
+  PawPrint,
+  Pencil,
   QrCode,
-  Scale,
-  Share2,
   ShieldCheck,
+  Share2,
   Sparkles,
-  UtensilsCrossed,
   X
 } from "lucide-react-native";
 
-import { AgeCalculator } from "@/components/age-calculator";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { QRCodeModal } from "@/components/qr-code-modal";
 import { ReportModal } from "@/components/report-modal";
@@ -44,14 +42,6 @@ const ACTIVITY_KEYS: Record<1 | 2 | 3 | 4 | 5, string> = {
   3: "onboarding.pets.activityBalanced",
   4: "onboarding.pets.activityActive",
   5: "onboarding.pets.activityVeryActive"
-};
-
-const ACTIVITY_COLORS: Record<number, string> = {
-  1: "#5B9BD5",
-  2: "#7EB87A",
-  3: "#F7B267",
-  4: "#E6694A",
-  5: "#C95438"
 };
 
 function formatAge(value: number | undefined | null): string {
@@ -167,68 +157,87 @@ export function CompactPetCard({
         borderRadius: mobileTheme.radius.lg,
         backgroundColor: theme.colors.white,
         borderWidth: 1,
-        borderColor: isActive
-          ? theme.colors.primary
-          : theme.colors.border,
+        borderColor: isActive ? theme.colors.primary : theme.colors.border,
         overflow: "hidden",
         ...mobileTheme.shadow.sm
       }}
     >
       {pet.photos[0]?.url && pet.photos[0].url.length > 0 ? (
-        <Image
-          source={{ uri: pet.photos[0].url }}
-          style={{ height: 180, width: "100%" }}
-          contentFit="cover"
-          transition={200}
-        />
-      ) : (
-        <View
-          style={{
-            height: 180,
-            width: "100%",
-            backgroundColor: theme.colors.background,
-            justifyContent: "center",
-            alignItems: "center"
-          }}
-        >
-          <Sparkles size={32} color={theme.colors.muted} />
-        </View>
-      )}
-      <View
-        style={{ padding: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: mobileTheme.spacing.md
-          }}
-        >
-          <Text
+        <View style={{ position: "relative" }}>
+          <Image
+            source={{ uri: pet.photos[0].url }}
             style={{
-              fontSize: mobileTheme.typography.subheading.fontSize,
-              fontWeight: mobileTheme.typography.subheading.fontWeight,
-              color: theme.colors.ink,
-              fontFamily: "Inter_600SemiBold"
+              height: 160,
+              width: "100%",
+              backgroundColor: theme.colors.primaryBg
+            }}
+            contentFit="cover"
+            transition={250}
+            cachePolicy="memory-disk"
+            recyclingKey={pet.id}
+          />
+          <LinearGradient
+            colors={["transparent", "rgba(22,21,20,0.55)"]}
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 80
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              left: 14,
+              bottom: 12,
+              right: 14
             }}
           >
-            {pet.name}
-          </Text>
+            <Text
+              numberOfLines={1}
+              style={{
+                color: "#FFFFFF",
+                fontSize: 20,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {pet.name}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{
+                color: "rgba(255,255,255,0.85)",
+                fontSize: 11,
+                marginTop: 1,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {[pet.speciesLabel, pet.breedLabel, `${pet.ageYears}y`]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+          </View>
           {isActive ? (
             <View
               style={{
-                borderRadius: mobileTheme.radius.pill,
-                backgroundColor: theme.colors.primaryBg,
+                position: "absolute",
+                top: 12,
+                right: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                backgroundColor: theme.colors.primary,
                 paddingHorizontal: 10,
-                paddingVertical: 4
+                paddingVertical: 4,
+                borderRadius: mobileTheme.radius.pill
               }}
             >
+              <Sparkles size={11} color={theme.colors.white} />
               <Text
                 style={{
-                  color: theme.colors.primary,
-                  fontWeight: "700",
-                  fontSize: mobileTheme.typography.micro.fontSize,
+                  color: theme.colors.white,
+                  fontSize: 10,
                   fontFamily: "Inter_700Bold"
                 }}
               >
@@ -237,16 +246,21 @@ export function CompactPetCard({
             </View>
           ) : null}
         </View>
-        <Text
+      ) : (
+        <View
           style={{
-            color: theme.colors.muted,
-            fontSize: mobileTheme.typography.caption.fontSize,
-            fontFamily: "Inter_500Medium"
+            height: 160,
+            width: "100%",
+            backgroundColor: theme.colors.primaryBg,
+            justifyContent: "center",
+            alignItems: "center"
           }}
         >
-          {pet.speciesLabel} &middot; {pet.breedLabel} &middot; {pet.ageYears}y
-        </Text>
-        {pet.bio ? (
+          <PawPrint size={40} color={theme.colors.primary} />
+        </View>
+      )}
+      {pet.bio ? (
+        <View style={{ padding: mobileTheme.spacing.lg }}>
           <Text
             numberOfLines={2}
             style={{
@@ -258,8 +272,8 @@ export function CompactPetCard({
           >
             {pet.bio}
           </Text>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -267,9 +281,19 @@ export function CompactPetCard({
     return content;
   }
 
-  return <Pressable onPress={onPress}>{content}</Pressable>;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}>
+      {content}
+    </Pressable>
+  );
 }
 
+// ──────────────────────────────────────────────────────────────────
+// PetDetailModal — professional rewrite.
+// Sections: immersive hero with floating glass action bar, title block
+// overlaid on gradient, scrollable body with About / Vitals / Personality
+// / Loves, sticky bottom action bar for View profile or Edit pet.
+// ──────────────────────────────────────────────────────────────────
 export function PetDetailModal({
   pet,
   visible,
@@ -283,189 +307,165 @@ export function PetDetailModal({
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const photos = (pet?.photos ?? []).filter((p) => p.url && p.url.length > 0);
-  const hobbies = pet?.hobbies ?? [];
-  const goodWith = pet?.goodWith ?? [];
-  const screenWidth = Dimensions.get("window").width;
+  const session = useSessionStore((s) => s.session);
+
   const [activePhoto, setActivePhoto] = useState(0);
   const [reportOpen, setReportOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const galleryRef = useRef<ScrollView>(null);
-  const session = useSessionStore((s) => s.session);
-  const isOwnPet = pet?.ownerId === session?.user.id;
+
+  const screenWidth = Dimensions.get("window").width;
+  const HERO_HEIGHT = 440;
 
   if (!pet) return null;
 
-  const activityLevel = pet.activityLevel as 1 | 2 | 3 | 4 | 5;
-  const activityColor =
-    ACTIVITY_COLORS[activityLevel] ?? theme.colors.primary;
+  const photos = (pet.photos ?? []).filter((p) => p.url && p.url.length > 0);
+  const isOwnPet = pet.ownerId === session?.user.id;
+  const activityLevel = (pet.activityLevel as 1 | 2 | 3 | 4 | 5) || 3;
 
-  const hasDetails =
-    pet.bio ||
-    hobbies.length > 0 ||
-    goodWith.length > 0 ||
-    pet.cityLabel ||
-    pet.isNeutered ||
-    activityLevel;
+  const hobbies = pet.hobbies ?? [];
+  const goodWith = pet.goodWith ?? [];
+  const characters = pet.characters ?? [];
+  const personality = Array.from(new Set([...characters, ...goodWith]));
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: t("petDetail.shareMessage", {
+          name: pet.name,
+          breed: pet.breedLabel || pet.speciesLabel || "pet",
+          defaultValue: `Meet ${pet.name} on Petto 🐾`
+        }) as string
+      });
+    } catch {
+      // user cancelled
+    }
+  };
+
+  const handleScroll = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+    if (idx !== activePhoto) setActivePhoto(idx);
+  };
+
+  const glassBtn = {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center" as const,
+    justifyContent: "center" as const
+  };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 10,
-            flexDirection: "row",
-            alignItems: "center",
-            paddingTop: insets.top + mobileTheme.spacing.md,
-            paddingBottom: mobileTheme.spacing.md,
-            paddingHorizontal: mobileTheme.spacing.xl,
-            gap: 10
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Pressable
-              onPress={onClose}
-              hitSlop={12}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: "rgba(0,0,0,0.35)",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-            >
-              <X size={18} color={theme.colors.white} />
-            </Pressable>
-            {!isOwnPet && (
-              <Pressable
-                onPress={() => setReportOpen(true)}
-                hitSlop={12}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: "rgba(0,0,0,0.35)",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                <Flag size={16} color={theme.colors.white} />
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => setQrOpen(true)}
-              hitSlop={12}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: "rgba(0,0,0,0.35)",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-            >
-              <QrCode size={16} color={theme.colors.white} />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                Share.share({
-                  message: t("petCard.shareMessage", { name: pet.name, species: pet.speciesLabel, breed: pet.breedLabel }),
-                  title: t("petCard.shareTitle", { name: pet.name })
-                });
-              }}
-              hitSlop={12}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: "rgba(0,0,0,0.35)",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-            >
-              <Share2 size={16} color={theme.colors.white} />
-            </Pressable>
-          </View>
-          <View style={{ flex: 1 }} />
-
-          {photos.length > 1 && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: "rgba(0,0,0,0.35)",
-                borderRadius: mobileTheme.radius.pill,
-                paddingHorizontal: 12,
-                paddingVertical: 6
-              }}
-            >
-              <Text
-                style={{
-                  color: theme.colors.white,
-                  fontSize: 12,
-                  fontWeight: "600",
-                  fontFamily: "Inter_600SemiBold",
-                  letterSpacing: 0.3
-                }}
-              >
-                {activePhoto + 1} / {photos.length}
-              </Text>
-            </View>
-          )}
-        </View>
-
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          stickyHeaderIndices={[]}
         >
-          <View style={{ position: "relative" }}>
+          {/* ── Immersive hero ───────────────────────── */}
+          <View
+            style={{
+              width: "100%",
+              height: HERO_HEIGHT,
+              backgroundColor: theme.colors.primaryBg
+            }}
+          >
             {photos.length > 0 ? (
               <ScrollView
                 ref={galleryRef}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                onScroll={(e) => {
-                  const offset = e.nativeEvent.contentOffset.x;
-                  const index = Math.round(offset / screenWidth);
-                  setActivePhoto(index);
-                }}
+                onScroll={handleScroll}
                 scrollEventThrottle={16}
+                style={{ width: "100%", height: "100%" }}
               >
                 {photos.map((photo) => (
                   <Image
-                    key={photo.id}
+                    key={photo.id || photo.url}
                     source={{ uri: photo.url }}
-                    style={{ width: screenWidth, height: 420 }}
+                    style={{ width: screenWidth, height: HERO_HEIGHT }}
                     contentFit="cover"
-                    transition={200}
+                    cachePolicy="memory-disk"
+                    transition={250}
+                    recyclingKey={photo.id || photo.url}
                   />
                 ))}
               </ScrollView>
             ) : (
               <View
                 style={{
-                  width: "100%",
-                  height: 420,
-                  backgroundColor: theme.colors.surface,
-                  justifyContent: "center",
-                  alignItems: "center"
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center"
                 }}
               >
-                <Sparkles size={48} color={theme.colors.muted} />
+                <PawPrint size={72} color={theme.colors.primary} />
               </View>
             )}
 
-            {photos.length > 1 && (
+            {/* Bottom gradient for text legibility */}
+            <LinearGradient
+              colors={[
+                "rgba(22,21,20,0)",
+                "rgba(22,21,20,0.25)",
+                "rgba(22,21,20,0.85)"
+              ]}
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 240
+              }}
+            />
+
+            {/* Floating action bar (top) */}
+            <View
+              style={{
+                position: "absolute",
+                top: insets.top + 12,
+                left: 16,
+                right: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}
+            >
+              <Pressable onPress={onClose} hitSlop={10} style={glassBtn}>
+                <X size={20} color="#FFFFFF" strokeWidth={2.3} />
+              </Pressable>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {!isOwnPet ? (
+                  <Pressable
+                    onPress={() => setReportOpen(true)}
+                    hitSlop={10}
+                    style={glassBtn}
+                  >
+                    <Flag size={18} color="#FFFFFF" strokeWidth={2.3} />
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={() => setQrOpen(true)}
+                  hitSlop={10}
+                  style={glassBtn}
+                >
+                  <QrCode size={18} color="#FFFFFF" strokeWidth={2.3} />
+                </Pressable>
+                <Pressable onPress={handleShare} hitSlop={10} style={glassBtn}>
+                  <Share2 size={18} color="#FFFFFF" strokeWidth={2.3} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Photo dot indicators */}
+            {photos.length > 1 ? (
               <View
                 style={{
                   position: "absolute",
-                  bottom: mobileTheme.spacing.lg,
+                  top: insets.top + 64,
                   left: 0,
                   right: 0,
                   flexDirection: "row",
@@ -477,244 +477,286 @@ export function PetDetailModal({
                   <View
                     key={i}
                     style={{
-                      width: i === activePhoto ? 24 : 6,
+                      width: i === activePhoto ? 18 : 6,
                       height: 6,
                       borderRadius: 3,
                       backgroundColor:
                         i === activePhoto
-                          ? theme.colors.white
-                          : "rgba(255,255,255,0.35)"
+                          ? "#FFFFFF"
+                          : "rgba(255,255,255,0.45)"
                     }}
                   />
                 ))}
               </View>
-            )}
-          </View>
+            ) : null}
 
-          <View
-            style={{
-              paddingHorizontal: mobileTheme.spacing.xl,
-              paddingTop: mobileTheme.spacing["2xl"],
-              gap: mobileTheme.spacing.xl
-            }}
-          >
-            <View>
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.heading.fontSize,
-                  fontWeight: mobileTheme.typography.heading.fontWeight,
-                  color: theme.colors.ink,
-                  fontFamily: "Inter_700Bold",
-                  lineHeight: mobileTheme.typography.heading.lineHeight
-                }}
-              >
-                {pet.name}
-              </Text>
-              <Text
-                style={{
-                  color: theme.colors.muted,
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  fontFamily: "Inter_500Medium",
-                  marginTop: mobileTheme.spacing.xs
-                }}
-              >
-                {pet.breedLabel} &middot; {pet.speciesLabel}
-                {pet.ageYears != null
-                  ? ` \u00B7 ${formatAge(pet.ageYears)}`
-                  : ""}
-              </Text>
-            </View>
-
-            {hasDetails && (
+            {/* Title block overlay */}
+            <View
+              style={{
+                position: "absolute",
+                left: 22,
+                right: 22,
+                bottom: 22
+              }}
+            >
               <View
                 style={{
-                  backgroundColor: theme.colors.white,
-                  borderRadius: mobileTheme.radius.lg,
-                  padding: mobileTheme.spacing.xl,
-                  gap: mobileTheme.spacing.lg,
-                  ...mobileTheme.shadow.sm
+                  flexDirection: "row",
+                  alignItems: "flex-end",
+                  gap: 10
                 }}
               >
-                <View
+                <Text
+                  numberOfLines={1}
                   style={{
-                    flexDirection: "row",
-                    gap: mobileTheme.spacing.sm,
-                    flexWrap: "wrap"
+                    color: "#FFFFFF",
+                    fontSize: 34,
+                    lineHeight: 38,
+                    fontFamily: "Inter_700Bold",
+                    flexShrink: 1
                   }}
                 >
-                  <StatChip
-                    icon={ShieldCheck}
-                    label={t(ACTIVITY_KEYS[activityLevel])}
-                    accentColor={activityColor}
-                  />
-                  <StatChip
-                    icon={pet.isNeutered ? CheckCircle2 : Calendar}
-                    label={pet.isNeutered ? t("petCard.neutered") : t("petCard.notNeutered")}
-                  />
-                  {pet.cityLabel ? (
-                    <StatChip icon={MapPin} label={pet.cityLabel} />
-                  ) : null}
-                </View>
-
-                {pet.bio ? (
-                  <View style={{ gap: mobileTheme.spacing.sm }}>
-                    <Text
-                      style={{
-                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                        fontWeight: "700",
-                        color: theme.colors.ink,
-                        fontFamily: "Inter_700Bold"
-                      }}
-                    >
-                      {t("petCard.about")}
-                    </Text>
-                    <Text
-                      style={{
-                        color: theme.colors.ink,
-                        lineHeight: mobileTheme.typography.body.lineHeight,
-                        fontSize: mobileTheme.typography.body.fontSize,
-                        fontFamily: "Inter_400Regular"
-                      }}
-                    >
-                      {pet.bio}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {hobbies.length > 0 ? (
-                  <View style={{ gap: mobileTheme.spacing.sm }}>
-                    <Text
-                      style={{
-                        color: theme.colors.ink,
-                        fontWeight: "700",
-                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                        fontFamily: "Inter_700Bold"
-                      }}
-                    >
-                      {t("petCard.hobbies")}
-                    </Text>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                        gap: mobileTheme.spacing.sm
-                      }}
-                    >
-                      {hobbies.map((item) => (
-                        <TagChip key={item} label={item} />
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                {goodWith.length > 0 ? (
-                  <View style={{ gap: mobileTheme.spacing.sm }}>
-                    <Text
-                      style={{
-                        color: theme.colors.ink,
-                        fontWeight: "700",
-                        fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                        fontFamily: "Inter_700Bold"
-                      }}
-                    >
-                      {t("petCard.goodWith")}
-                    </Text>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                        gap: mobileTheme.spacing.sm
-                      }}
-                    >
-                      {goodWith.map((item) => (
-                        <TagChip key={item} label={item} />
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
+                  {pet.name}
+                </Text>
+                <Text
+                  style={{
+                    color: "rgba(255,255,255,0.9)",
+                    fontSize: 22,
+                    fontFamily: "Inter_700Bold",
+                    marginBottom: 4
+                  }}
+                >
+                  {formatAge(pet.ageYears)}
+                </Text>
               </View>
-            )}
+              <Text
+                style={{
+                  color: "rgba(255,255,255,0.88)",
+                  fontSize: 14,
+                  marginTop: 4,
+                  fontFamily: "Inter_500Medium"
+                }}
+              >
+                {[pet.speciesLabel, pet.breedLabel].filter(Boolean).join(" · ")}
+              </Text>
 
-            <AgeCalculator
-              petName={pet.name}
-              ageYears={pet.ageYears}
-              speciesLabel={pet.speciesLabel}
-            />
+              {/* Glass chip row */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 8,
+                  marginTop: 14,
+                  flexWrap: "wrap"
+                }}
+              >
+                {pet.cityLabel ? (
+                  <HeroChip icon={<MapPin size={12} color="#FFFFFF" />}>
+                    {pet.cityLabel}
+                  </HeroChip>
+                ) : null}
+                {pet.isNeutered ? (
+                  <HeroChip icon={<CheckCircle2 size={12} color="#FFFFFF" />}>
+                    {t("petCard.neutered") as string}
+                  </HeroChip>
+                ) : null}
+                <HeroChip icon={<Activity size={12} color="#FFFFFF" />}>
+                  {t(ACTIVITY_KEYS[activityLevel]) as string}
+                </HeroChip>
+              </View>
+            </View>
+          </View>
 
-            {isOwnPet && (
-              <>
-                <View style={{ flexDirection: "row", gap: mobileTheme.spacing.sm }}>
-                  {[
-                    { label: t("profile.health"), icon: Activity, route: `/(app)/pet-health/${pet.id}` },
-                    { label: t("profile.weight"), icon: Scale, route: `/(app)/pet-weight/${pet.id}` },
-                    { label: t("profile.feeding"), icon: UtensilsCrossed, route: `/(app)/feeding/${pet.id}` }
-                  ].map((action) => (
-                    <Pressable
-                      key={action.label}
-                      onPress={() => {
-                        onClose();
-                        router.push(action.route as any);
-                      }}
+          {/* ── Body ─────────────────────────────────── */}
+          <View style={{ paddingHorizontal: 20, paddingTop: 24, gap: 18 }}>
+            {/* About */}
+            {pet.bio ? (
+              <Section
+                title={t("petDetail.about", { defaultValue: "About" }) as string}
+                icon={<BookOpen size={14} color={theme.colors.muted} />}
+              >
+                <Text
+                  style={{
+                    color: theme.colors.ink,
+                    fontSize: 15,
+                    lineHeight: 22,
+                    fontFamily: "Inter_500Medium"
+                  }}
+                >
+                  {pet.bio}
+                </Text>
+              </Section>
+            ) : null}
+
+            {/* Vitals grid */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <VitalCard
+                icon={<Calendar size={16} color={theme.colors.primary} />}
+                label={t("petDetail.age", { defaultValue: "Age" }) as string}
+                value={`${pet.ageYears}y`}
+              />
+              <VitalCard
+                icon={<Activity size={16} color={theme.colors.accent} />}
+                label={t("petDetail.activity", { defaultValue: "Activity" }) as string}
+                value={<ActivityDots level={activityLevel} />}
+              />
+              <VitalCard
+                icon={<ShieldCheck size={16} color={theme.colors.secondary} />}
+                label={t("petDetail.neutered", { defaultValue: "Neutered" }) as string}
+                value={
+                  pet.isNeutered
+                    ? (t("common.yes") as string)
+                    : (t("common.no") as string)
+                }
+              />
+              <VitalCard
+                icon={<MapPin size={16} color={theme.colors.muted} />}
+                label={t("petDetail.location", { defaultValue: "City" }) as string}
+                value={pet.cityLabel || "—"}
+              />
+            </View>
+
+            {/* Personality */}
+            {personality.length > 0 ? (
+              <Section
+                title={
+                  t("petDetail.personality", { defaultValue: "Personality" }) as string
+                }
+                icon={<Sparkles size={14} color={theme.colors.muted} />}
+              >
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {personality.map((item) => (
+                    <View
+                      key={item}
                       style={{
-                        flex: 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: mobileTheme.spacing.xs,
-                        paddingVertical: mobileTheme.spacing.md,
-                        borderRadius: mobileTheme.radius.md,
-                        backgroundColor: theme.colors.surface,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor: theme.colors.secondarySoft
                       }}
                     >
-                      <action.icon size={14} color={theme.colors.primary} />
                       <Text
                         style={{
-                          fontSize: mobileTheme.typography.micro.fontSize,
-                          fontFamily: "Inter_600SemiBold",
-                          color: theme.colors.primary
+                          color: theme.colors.secondary,
+                          fontSize: 12,
+                          fontFamily: "Inter_600SemiBold"
                         }}
                       >
-                        {action.label}
+                        {item}
                       </Text>
-                    </Pressable>
+                    </View>
                   ))}
                 </View>
+              </Section>
+            ) : null}
 
-                {/* Diary Button */}
-                <Pressable
-                  onPress={() => {
-                    onClose();
-                    router.push(`/(app)/diary/${pet.id}`);
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: mobileTheme.spacing.sm,
-                    backgroundColor: theme.colors.primaryBg,
-                    borderRadius: mobileTheme.radius.lg,
-                    paddingVertical: mobileTheme.spacing.lg,
-                    ...mobileTheme.shadow.sm
-                  }}
-                >
-                  <BookOpen size={18} color={theme.colors.primary} />
-                  <Text
-                    style={{
-                      fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                      fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
-                      color: theme.colors.primary,
-                      fontFamily: "Inter_600SemiBold"
-                    }}
-                  >
-                    {t("petCard.viewDiary")}
-                  </Text>
-                </Pressable>
-              </>
-            )}
+            {/* Loves */}
+            {hobbies.length > 0 ? (
+              <Section
+                title={t("petDetail.loves", { defaultValue: "Loves" }) as string}
+                icon={<Heart size={14} color={theme.colors.muted} />}
+              >
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {hobbies.map((h) => (
+                    <View
+                      key={h}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor: theme.colors.primaryBg
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: theme.colors.primary,
+                          fontSize: 12,
+                          fontFamily: "Inter_600SemiBold"
+                        }}
+                      >
+                        {h}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </Section>
+            ) : null}
           </View>
         </ScrollView>
+
+        {/* ── Sticky bottom action bar ──────────────── */}
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: 20,
+            paddingTop: 12,
+            paddingBottom: insets.bottom + 14,
+            backgroundColor: theme.colors.surface,
+            borderTopWidth: 0.5,
+            borderTopColor: theme.colors.border
+          }}
+        >
+          {isOwnPet ? (
+            <Pressable
+              onPress={() => {
+                onClose();
+                router.push(`/(app)/edit-pet/${pet.id}` as any);
+              }}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                paddingVertical: 15,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: theme.colors.primary,
+                opacity: pressed ? 0.88 : 1
+              })}
+            >
+              <Pencil size={16} color="#FFFFFF" strokeWidth={2.3} />
+              <Text
+                style={{
+                  color: "#FFFFFF",
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 15
+                }}
+              >
+                {t("petDetail.editPet", { defaultValue: "Edit pet" }) as string}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => {
+                if (!pet.ownerId) return;
+                onClose();
+                router.push(`/(app)/user/${pet.ownerId}` as any);
+              }}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                paddingVertical: 15,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: theme.colors.primary,
+                opacity: pressed ? 0.88 : 1
+              })}
+            >
+              <Heart size={16} color="#FFFFFF" strokeWidth={2.3} />
+              <Text
+                style={{
+                  color: "#FFFFFF",
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 15
+                }}
+              >
+                {t("petDetail.viewOwner", { defaultValue: "View owner profile" }) as string}
+              </Text>
+            </Pressable>
+          )}
+        </View>
 
         <ReportModal
           visible={reportOpen}
@@ -723,7 +765,6 @@ export function PetDetailModal({
           targetID={pet.id}
           targetLabel={pet.name}
         />
-
         <QRCodeModal
           visible={qrOpen}
           petId={pet.id}
@@ -735,72 +776,162 @@ export function PetDetailModal({
   );
 }
 
-function StatChip({
-  label,
-  icon: Icon,
-  accentColor
-}: {
-  label: string;
-  icon?: React.ComponentType<{ size: number; color: string }>;
-  accentColor?: string;
-}) {
-  const theme = useTheme();
-  const color = accentColor ?? theme.colors.secondary;
+// ── Internal helpers ──────────────────────────────────────────────
 
+function HeroChip({
+  icon,
+  children
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <View
       style={{
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
-        borderRadius: mobileTheme.radius.pill,
-        backgroundColor: accentColor
-          ? `${color}10`
-          : theme.colors.background,
-        borderWidth: 1,
-        borderColor: accentColor ? `${color}20` : theme.colors.border,
         paddingHorizontal: 10,
-        paddingVertical: 6
+        paddingVertical: 5,
+        borderRadius: mobileTheme.radius.pill,
+        backgroundColor: "rgba(255,255,255,0.22)",
+        borderWidth: 0.5,
+        borderColor: "rgba(255,255,255,0.35)"
       }}
     >
-      {Icon ? <Icon size={13} color={color} /> : null}
+      {icon}
       <Text
         style={{
-          color,
-          fontWeight: "600",
-          fontSize: 12,
+          color: "#FFFFFF",
+          fontSize: 11,
           fontFamily: "Inter_600SemiBold"
         }}
       >
-        {label}
+        {children}
       </Text>
     </View>
   );
 }
 
-function TagChip({ label }: { label: string }) {
+function Section({
+  title,
+  icon,
+  children
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const theme = useTheme();
+  return (
+    <View>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 10
+        }}
+      >
+        {icon}
+        <Text
+          style={{
+            fontSize: 11,
+            letterSpacing: 1,
+            color: theme.colors.muted,
+            fontFamily: "Inter_700Bold",
+            textTransform: "uppercase"
+          }}
+        >
+          {title}
+        </Text>
+      </View>
+      <View
+        style={{
+          padding: 16,
+          borderRadius: mobileTheme.radius.lg,
+          backgroundColor: theme.colors.surface,
+          borderWidth: 1,
+          borderColor: theme.colors.border
+        }}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function VitalCard({
+  icon,
+  label,
+  value
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
   const theme = useTheme();
   return (
     <View
       style={{
-        borderRadius: mobileTheme.radius.pill,
-        backgroundColor: theme.colors.background,
+        flexBasis: "48%",
+        flexGrow: 1,
+        padding: 14,
+        borderRadius: mobileTheme.radius.lg,
+        backgroundColor: theme.colors.surface,
         borderWidth: 1,
         borderColor: theme.colors.border,
-        paddingHorizontal: 12,
-        paddingVertical: 6
+        gap: 6
       }}
     >
-      <Text
-        style={{
-          color: theme.colors.ink,
-          fontWeight: "500",
-          fontSize: 13,
-          fontFamily: "Inter_500Medium"
-        }}
-      >
-        {label}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {icon}
+        <Text
+          style={{
+            fontSize: 11,
+            color: theme.colors.muted,
+            fontFamily: "Inter_600SemiBold",
+            letterSpacing: 0.3,
+            textTransform: "uppercase"
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+      {typeof value === "string" ? (
+        <Text
+          numberOfLines={1}
+          style={{
+            fontSize: 16,
+            color: theme.colors.ink,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          {value}
+        </Text>
+      ) : (
+        <View style={{ marginTop: 2 }}>{value}</View>
+      )}
+    </View>
+  );
+}
+
+function ActivityDots({ level }: { level: 1 | 2 | 3 | 4 | 5 }) {
+  const theme = useTheme();
+  return (
+    <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View
+          key={i}
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 5,
+            backgroundColor:
+              i <= level ? theme.colors.primary : theme.colors.border
+          }}
+        />
+      ))}
     </View>
   );
 }

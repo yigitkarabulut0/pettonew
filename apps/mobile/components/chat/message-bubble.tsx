@@ -14,6 +14,7 @@ type MessageBubbleProps = {
   showName: boolean;
   showTimestamp: boolean;
   onLongPress?: () => void;
+  onPressPetShare?: (petId: string) => void;
 };
 
 /**
@@ -26,7 +27,8 @@ function MessageBubbleBase({
   showAvatar,
   showName,
   showTimestamp,
-  onLongPress
+  onLongPress,
+  onPressPetShare
 }: MessageBubbleProps) {
   const theme = useTheme();
   const [imageOpen, setImageOpen] = useState(false);
@@ -203,13 +205,19 @@ function MessageBubbleBase({
                 ) : null}
               </Pressable>
             ) : message.type === "pet_share" && petShareMeta ? (
-              <View
-                style={{
+              <Pressable
+                onPress={() => {
+                  if (petShareMeta.petId && onPressPetShare) {
+                    onPressPetShare(petShareMeta.petId);
+                  }
+                }}
+                style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 10,
-                  minWidth: 200
-                }}
+                  minWidth: 200,
+                  opacity: pressed ? 0.7 : 1
+                })}
               >
                 <View
                   style={{
@@ -266,7 +274,7 @@ function MessageBubbleBase({
                     </Text>
                   )}
                 </View>
-              </View>
+              </Pressable>
             ) : (
               <HashtagText
                 body={message.body}
@@ -357,6 +365,7 @@ export const MessageBubble = memo(MessageBubbleBase, (prev, next) => {
   if (prev.showName !== next.showName) return false;
   if (prev.showTimestamp !== next.showTimestamp) return false;
   if (prev.onLongPress !== next.onLongPress) return false;
+  if (prev.onPressPetShare !== next.onPressPetShare) return false;
   const a = prev.message;
   const b = next.message;
   if (a === b) return true;

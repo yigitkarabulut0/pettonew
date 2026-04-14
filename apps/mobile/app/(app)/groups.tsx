@@ -195,7 +195,16 @@ export default function GroupsPage() {
       // else (discover/preview) gets sent to the full detail page where a
       // non-member preview + "Join to chat" CTA lives.
       if (group.isMember && group.conversationId) {
-        router.push(`/(app)/conversation/${group.conversationId}` as any);
+        // Pass initialTitle + initialImage so the chat header shows the
+        // real name immediately — no "Conversation" flash while queries load.
+        router.push({
+          pathname: "/(app)/conversation/[id]",
+          params: {
+            id: group.conversationId,
+            initialTitle: group.name,
+            initialImage: group.imageUrl ?? ""
+          }
+        } as any);
       } else {
         router.push(`/(app)/group/${group.id}` as any);
       }
@@ -459,7 +468,17 @@ export default function GroupsPage() {
 
             {group.isMember ? (
               <Pressable
-                onPress={() => group.conversationId && router.push(`/(app)/conversation/${group.conversationId}` as any)}
+                onPress={() =>
+                  group.conversationId &&
+                  router.push({
+                    pathname: "/(app)/conversation/[id]",
+                    params: {
+                      id: group.conversationId,
+                      initialTitle: group.name,
+                      initialImage: group.imageUrl ?? ""
+                    }
+                  } as any)
+                }
                 style={({ pressed }) => ({
                   backgroundColor: theme.colors.primary,
                   paddingHorizontal: 16, paddingVertical: 10,
@@ -610,14 +629,22 @@ export default function GroupsPage() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      {/* ── Header ──────────────────────────────────── */}
+      {/* ── Unified header surface — wraps title bar + tabs + filters
+           so the chip row breathes on a continuous white shelf with a
+           soft drop shadow instead of a hard edge. ───────────────── */}
+      <View
+        style={{
+          backgroundColor: theme.colors.white,
+          paddingBottom: mobileTheme.spacing.lg,
+          ...mobileTheme.shadow.sm
+        }}
+      >
+      {/* ── Title bar ───────────────────────────────── */}
       <View style={{
         paddingTop: insets.top + mobileTheme.spacing.md,
-        paddingBottom: mobileTheme.spacing.lg,
+        paddingBottom: mobileTheme.spacing.md,
         paddingHorizontal: mobileTheme.spacing.xl,
-        backgroundColor: theme.colors.white,
-        flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.md,
-        borderBottomWidth: 1, borderBottomColor: theme.colors.border
+        flexDirection: "row", alignItems: "center", gap: mobileTheme.spacing.md
       }}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={{
           width: 44, height: 44, borderRadius: 22,
@@ -746,6 +773,8 @@ export default function GroupsPage() {
           </ScrollView>
         </View>
       )}
+      </View>
+      {/* ── End unified header surface ──────────────── */}
 
       {/* ── Content ─────────────────────────────────── */}
       <ScrollView

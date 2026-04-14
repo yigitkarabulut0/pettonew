@@ -386,6 +386,17 @@ export async function listMyPets(accessToken: string): Promise<Pet[]> {
   return Array.isArray(pets) ? pets.map((pet) => normalizePet(pet)) : [];
 }
 
+export async function getPet(accessToken: string, petId: string): Promise<Pet | null> {
+  try {
+    const pet = await request<Pet>(`/v1/pets/${petId}`, {
+      headers: authHeaders(accessToken)
+    });
+    return pet ? normalizePet(pet) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function savePet(
   accessToken: string,
   pet: Partial<Pet> & Pick<Pet, "name" | "ageYears">

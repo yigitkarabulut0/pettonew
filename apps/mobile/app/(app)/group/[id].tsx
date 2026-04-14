@@ -107,7 +107,14 @@ export default function GroupDetailPage() {
 
   const openChat = () => {
     if (group?.conversationId) {
-      router.push(`/(app)/conversation/${group.conversationId}` as any);
+      router.push({
+        pathname: "/(app)/conversation/[id]",
+        params: {
+          id: group.conversationId,
+          initialTitle: group.name,
+          initialImage: group.imageUrl ?? ""
+        }
+      } as any);
     }
   };
 
@@ -869,7 +876,9 @@ export default function GroupDetailPage() {
           onPress={closeMembers}
           style={{
             flex: 1,
-            backgroundColor: theme.colors.overlay,
+            // Fully transparent backdrop — tap still dismisses, but no
+            // dimming of the screen behind the sheet.
+            backgroundColor: "transparent",
             justifyContent: "flex-end"
           }}
         >

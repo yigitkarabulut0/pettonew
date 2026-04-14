@@ -75,6 +75,7 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/me/pets", s.handleCreatePet)
 			router.Put("/me/pets/{petID}", s.handleUpdatePet)
 			router.Patch("/me/pets/{petID}/visibility", s.handlePetVisibility)
+			router.Get("/pets/{petID}", s.handleGetPet)
 			router.Get("/taxonomies/{kind}", s.handleTaxonomyList)
 			router.Get("/discovery/feed", s.handleDiscoveryFeed)
 			router.Post("/swipes", s.handleSwipe)
@@ -489,6 +490,16 @@ func (s *Server) handleListPets(writer http.ResponseWriter, request *http.Reques
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListPets(currentUserID(request))})
 }
 
+func (s *Server) handleGetPet(writer http.ResponseWriter, request *http.Request) {
+	petID := chi.URLParam(request, "petID")
+	pet, err := s.store.GetPet(petID)
+	if err != nil || pet == nil {
+		writeError(writer, http.StatusNotFound, "pet not found")
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": pet})
+}
+
 func (s *Server) handleCreatePet(writer http.ResponseWriter, request *http.Request) {
 	var payload store.PetInput
 	if !decodeJSON(writer, request, &payload) {
@@ -723,13 +734,29 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 				tokens = append(tokens, t.Token)
 			}
 			if len(tokens) > 0 {
+				// Type-aware body fallback: pet_share + image messages have
+				// empty Body, so fall back to metadata/type so the push isn't
+				// just "SenderName:" on its own.
+				msgText := message.Body
+				if msgText == "" {
+					switch message.Type {
+					case "pet_share":
+						if pn, ok := message.Metadata["petName"].(string); ok && pn != "" {
+							msgText = "🐾 Shared " + pn
+						} else {
+							msgText = "🐾 Shared a pet"
+						}
+					case "image":
+						msgText = "📷 Photo"
+					}
+				}
 				var title, body string
 				if isGroup {
 					title = groupInfo.Name
-					body = message.SenderName + ": " + message.Body
+					body = message.SenderName + ": " + msgText
 				} else {
 					title = message.SenderName
-					body = message.Body
+					body = msgText
 				}
 				service.SendExpoPush(tokens, title, body, map[string]string{
 					"type": "message", "conversationId": payload.ConversationID,

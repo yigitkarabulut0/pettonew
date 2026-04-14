@@ -651,6 +651,28 @@ func (s *PostgresStore) ListAllPets() []domain.Pet {
 	return pets
 }
 
+// GetPet returns a single pet by ID, including photos. Used by the chat
+// pet-share card tap → detail modal flow.
+func (s *PostgresStore) GetPet(petID string) (*domain.Pet, error) {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, owner_id, name, age_years, gender, birth_date,
+		        species_id, species_label, breed_id, breed_label,
+		        activity_level, hobbies, good_with, characters,
+		        is_neutered, bio, city_label, is_hidden, theme_color
+		 FROM pets WHERE id = $1`, petID)
+	if err != nil {
+		return nil, fmt.Errorf("pet not found")
+	}
+	defer rows.Close()
+	pets := s.scanPetRows(rows)
+	if len(pets) == 0 {
+		return nil, fmt.Errorf("pet not found")
+	}
+	s.attachPhotos(pets)
+	pet := pets[0]
+	return &pet, nil
+}
+
 func (s *PostgresStore) PetDetail(petID string) (domain.AdminPetDetail, error) {
 	rows, err := s.pool.Query(s.ctx(),
 		`SELECT id, owner_id, name, age_years, gender, birth_date,

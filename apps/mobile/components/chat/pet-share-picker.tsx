@@ -33,7 +33,7 @@ export function PetSharePicker({
         onPress={onClose}
         style={{
           flex: 1,
-          backgroundColor: theme.colors.overlay,
+          backgroundColor: "transparent",
           justifyContent: "flex-end"
         }}
       >

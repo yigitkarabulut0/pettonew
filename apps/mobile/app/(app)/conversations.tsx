@@ -106,7 +106,16 @@ export default function ConversationsPage() {
           renderItem={({ item }) => (
             <ConversationItem
               conversation={item}
-              onPress={() => router.push(`/(app)/conversation/${item.id}`)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/conversation/[id]",
+                  params: {
+                    id: item.id,
+                    initialTitle: item.title ?? "",
+                    initialImage: item.matchPetPairs?.[0]?.matchedPetPhotoUrl ?? ""
+                  }
+                } as any)
+              }
             />
           )}
           ListEmptyComponent={<EmptyChatState />}
