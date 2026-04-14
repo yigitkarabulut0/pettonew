@@ -3,11 +3,14 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  LayoutAnimation,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
   Text,
+  UIManager,
   View
 } from "react-native";
 import { Image } from "expo-image";
@@ -15,7 +18,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import {
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Crown,
   Hash,
   Info,
@@ -24,11 +29,12 @@ import {
   Lock,
   MapPin,
   MessageCircle,
+  Mic,
   MicOff,
-  MoreVertical,
   PawPrint,
   Share2,
   ShieldCheck,
+  User as UserIcon,
   UserMinus,
   X
 } from "lucide-react-native";
@@ -58,7 +64,22 @@ export default function GroupDetailPage() {
   const queryClient = useQueryClient();
 
   const [membersOpen, setMembersOpen] = useState(false);
-  const [actionTarget, setActionTarget] = useState<GroupMember | null>(null);
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+
+  // Android needs an opt-in flag for LayoutAnimation; iOS is on by default.
+  if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+
+  const toggleExpanded = (userId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedMemberId((prev) => (prev === userId ? null : userId));
+  };
+
+  const closeMembers = () => {
+    setExpandedMemberId(null);
+    setMembersOpen(false);
+  };
 
   const { data: group, refetch } = useQuery({
     queryKey: ["group-detail", id],
@@ -130,16 +151,15 @@ export default function GroupDetailPage() {
     targetName?: string
   ) => {
     const name = targetName || "this member";
-    // Destructive actions require a two-button confirm.
     const confirmed = (onConfirm: () => void, title: string, body: string, destructiveLabel: string) => {
       Alert.alert(title, body, [
-        { text: t("common.cancel") as string, style: "cancel", onPress: () => setActionTarget(null) },
+        { text: t("common.cancel") as string, style: "cancel" },
         {
           text: destructiveLabel,
           style: "destructive",
           onPress: async () => {
             await onConfirm();
-            setActionTarget(null);
+            setExpandedMemberId(null);
           }
         }
       ]);
@@ -171,7 +191,7 @@ export default function GroupDetailPage() {
         );
         return;
       default:
-        performMemberAction(action, targetUserID).finally(() => setActionTarget(null));
+        performMemberAction(action, targetUserID).finally(() => setExpandedMemberId(null));
     }
   };
 
@@ -832,15 +852,15 @@ export default function GroupDetailPage() {
         ) : null}
       </ScrollView>
 
-      {/* ── Members Manager Modal ──────────────────────── */}
+      {/* ── Members Manager — single modal with inline expandable actions ── */}
       <Modal
         visible={membersOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setMembersOpen(false)}
+        onRequestClose={closeMembers}
       >
         <Pressable
-          onPress={() => setMembersOpen(false)}
+          onPress={closeMembers}
           style={{
             flex: 1,
             backgroundColor: theme.colors.overlay,
@@ -855,130 +875,324 @@ export default function GroupDetailPage() {
               borderTopRightRadius: 28,
               paddingTop: 12,
               paddingBottom: 32,
-              maxHeight: "80%"
+              maxHeight: "86%",
+              ...mobileTheme.shadow.lg
             }}
           >
+            {/* Grabber */}
             <View
               style={{
-                width: 40,
-                height: 4,
-                borderRadius: 2,
+                width: 44,
+                height: 5,
+                borderRadius: 3,
                 backgroundColor: theme.colors.border,
                 alignSelf: "center",
-                marginBottom: 14
+                marginBottom: 16
               }}
             />
+
+            {/* Header */}
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                paddingHorizontal: 20,
-                marginBottom: 12
+                paddingHorizontal: 22,
+                marginBottom: 6
               }}
             >
-              <Text
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 20,
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {isAdmin
+                    ? (t("groups.manageMembers") as string)
+                    : (t("groups.members", { count: group.memberCount }) as string)}
+                </Text>
+                {isAdmin ? (
+                  <Text
+                    style={{
+                      marginTop: 2,
+                      fontSize: 12,
+                      color: theme.colors.muted,
+                      fontFamily: "Inter_500Medium"
+                    }}
+                  >
+                    {t("groups.tapToManage")}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                onPress={closeMembers}
+                hitSlop={12}
                 style={{
-                  flex: 1,
-                  fontSize: 18,
-                  color: theme.colors.ink,
-                  fontFamily: "Inter_700Bold"
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: theme.colors.background,
+                  alignItems: "center",
+                  justifyContent: "center"
                 }}
               >
-                {isAdmin ? t("groups.manageMembers") : t("groups.members", { count: group.memberCount })}
-              </Text>
-              <Pressable onPress={() => setMembersOpen(false)} hitSlop={12}>
-                <X size={22} color={theme.colors.muted} />
+                <X size={18} color={theme.colors.muted} />
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}>
+            <ScrollView
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingTop: 14,
+                paddingBottom: 12,
+                gap: 10
+              }}
+              showsVerticalScrollIndicator={false}
+            >
               {group.members.map((member) => {
                 const memberIsOwner = group.ownerUserId === member.userId;
                 const memberIsAdmin =
                   memberIsOwner || (group.adminUserIds ?? []).includes(member.userId);
+                const isSelf = member.userId === currentUserId;
+                const canManage = isAdmin && !isSelf && !memberIsOwner;
+                const isExpanded = expandedMemberId === member.userId;
+
+                // Role badge visuals
+                const roleIcon = memberIsOwner ? (
+                  <Crown size={11} color={theme.colors.accent} strokeWidth={2.3} />
+                ) : memberIsAdmin ? (
+                  <ShieldCheck size={11} color={theme.colors.secondary} strokeWidth={2.3} />
+                ) : (
+                  <UserIcon size={11} color={theme.colors.muted} strokeWidth={2.3} />
+                );
+                const roleLabel = memberIsOwner
+                  ? (t("groups.owner") as string)
+                  : memberIsAdmin
+                    ? (t("groups.adminBadge") as string)
+                    : (t("groups.memberBadge") as string);
+                const roleBgColor = memberIsOwner
+                  ? "rgba(247, 178, 103, 0.15)"
+                  : memberIsAdmin
+                    ? theme.colors.secondarySoft
+                    : theme.colors.background;
+                const roleFgColor = memberIsOwner
+                  ? theme.colors.accent
+                  : memberIsAdmin
+                    ? theme.colors.secondary
+                    : theme.colors.muted;
+
                 return (
                   <View
                     key={member.userId}
                     style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: 10,
-                      borderRadius: mobileTheme.radius.md,
-                      backgroundColor: theme.colors.background
+                      borderRadius: mobileTheme.radius.lg,
+                      backgroundColor: isExpanded
+                        ? theme.colors.primaryBg
+                        : theme.colors.background,
+                      borderWidth: 1,
+                      borderColor: isExpanded ? theme.colors.primary : "transparent",
+                      overflow: "hidden"
                     }}
                   >
-                    <Avatar uri={member.avatarUrl} name={member.firstName} size="md" />
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          color: theme.colors.ink,
-                          fontFamily: "Inter_700Bold"
-                        }}
-                      >
-                        {member.firstName}
-                        {member.userId === currentUserId ? " (You)" : ""}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        {memberIsOwner && (
+                    <Pressable
+                      onPress={canManage ? () => toggleExpanded(member.userId) : undefined}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: 12,
+                        opacity: pressed && canManage ? 0.7 : 1
+                      })}
+                    >
+                      <Avatar uri={member.avatarUrl} name={member.firstName} size="md" />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            fontSize: 15,
+                            color: theme.colors.ink,
+                            fontFamily: "Inter_700Bold"
+                          }}
+                        >
+                          {member.firstName || "Member"}
+                          {isSelf ? ` · ${t("common.you")}` : ""}
+                        </Text>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            marginTop: 4
+                          }}
+                        >
                           <View
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
-                              gap: 3
+                              gap: 4,
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: mobileTheme.radius.pill,
+                              backgroundColor: roleBgColor
                             }}
                           >
-                            <Crown size={11} color={theme.colors.accent} />
+                            {roleIcon}
                             <Text
                               style={{
                                 fontSize: 10,
-                                color: theme.colors.accent,
-                                fontFamily: "Inter_600SemiBold"
+                                color: roleFgColor,
+                                fontFamily: "Inter_700Bold",
+                                letterSpacing: 0.3,
+                                textTransform: "uppercase"
                               }}
                             >
-                              {t("groups.owner")}
+                              {roleLabel}
                             </Text>
                           </View>
-                        )}
-                        {!memberIsOwner && memberIsAdmin && (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 3
-                            }}
-                          >
-                            <ShieldCheck size={11} color={theme.colors.secondary} />
-                            <Text
-                              style={{
-                                fontSize: 10,
-                                color: theme.colors.secondary,
-                                fontFamily: "Inter_600SemiBold"
-                              }}
-                            >
-                              {t("groups.adminBadge")}
-                            </Text>
-                          </View>
-                        )}
+                        </View>
                       </View>
-                    </View>
-                    {isAdmin && member.userId !== currentUserId && !memberIsOwner && (
-                      <Pressable
-                        onPress={() => setActionTarget(member)}
-                        hitSlop={10}
+                      {canManage ? (
+                        <View
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            backgroundColor: isExpanded
+                              ? theme.colors.primary
+                              : theme.colors.white,
+                            alignItems: "center",
+                            justifyContent: "center"
+                          }}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp size={16} color={theme.colors.white} />
+                          ) : (
+                            <ChevronDown size={16} color={theme.colors.muted} />
+                          )}
+                        </View>
+                      ) : null}
+                    </Pressable>
+
+                    {/* Inline expanded action panel */}
+                    {canManage && isExpanded ? (
+                      <View
                         style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          backgroundColor: theme.colors.white,
-                          alignItems: "center",
-                          justifyContent: "center"
+                          paddingHorizontal: 12,
+                          paddingBottom: 14,
+                          paddingTop: 4,
+                          gap: 10
                         }}
                       >
-                        <MoreVertical size={18} color={theme.colors.muted} />
-                      </Pressable>
-                    )}
+                        <View
+                          style={{
+                            height: 1,
+                            backgroundColor: theme.colors.border,
+                            marginBottom: 4,
+                            opacity: 0.6
+                          }}
+                        />
+
+                        {/* Primary row: role + kick */}
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {!memberIsAdmin ? (
+                            <ActionChip
+                              theme={theme}
+                              icon={<ShieldCheck size={14} color={theme.colors.white} />}
+                              label={t("groups.promoteAdmin") as string}
+                              bg={theme.colors.secondary}
+                              fg={theme.colors.white}
+                              onPress={() =>
+                                runMemberAction("promote", member.userId, member.firstName)
+                              }
+                              flex
+                            />
+                          ) : (
+                            <ActionChip
+                              theme={theme}
+                              icon={<ShieldCheck size={14} color={theme.colors.ink} />}
+                              label={t("groups.demoteAdmin") as string}
+                              bg={theme.colors.white}
+                              fg={theme.colors.ink}
+                              onPress={() =>
+                                runMemberAction("demote", member.userId, member.firstName)
+                              }
+                              flex
+                            />
+                          )}
+                          <ActionChip
+                            theme={theme}
+                            icon={<UserMinus size={14} color={theme.colors.white} />}
+                            label={t("groups.kickMember") as string}
+                            bg={theme.colors.danger}
+                            fg={theme.colors.white}
+                            onPress={() =>
+                              runMemberAction("kick", member.userId, member.firstName)
+                            }
+                            flex
+                          />
+                        </View>
+
+                        {/* Mute row: small chips */}
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            color: theme.colors.muted,
+                            fontFamily: "Inter_700Bold",
+                            letterSpacing: 0.5,
+                            textTransform: "uppercase",
+                            marginTop: 2
+                          }}
+                        >
+                          {t("groups.muteSection")}
+                        </Text>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            gap: 6,
+                            flexWrap: "wrap"
+                          }}
+                        >
+                          <ActionChip
+                            theme={theme}
+                            compact
+                            icon={<MicOff size={12} color={theme.colors.ink} />}
+                            label="1h"
+                            bg={theme.colors.white}
+                            fg={theme.colors.ink}
+                            onPress={() => runMemberAction("mute-1h", member.userId)}
+                          />
+                          <ActionChip
+                            theme={theme}
+                            compact
+                            icon={<MicOff size={12} color={theme.colors.ink} />}
+                            label="24h"
+                            bg={theme.colors.white}
+                            fg={theme.colors.ink}
+                            onPress={() => runMemberAction("mute-24h", member.userId)}
+                          />
+                          <ActionChip
+                            theme={theme}
+                            compact
+                            icon={<MicOff size={12} color={theme.colors.danger} />}
+                            label={t("groups.muteIndefShort") as string}
+                            bg={theme.colors.dangerBg}
+                            fg={theme.colors.danger}
+                            onPress={() =>
+                              runMemberAction("mute-indef", member.userId, member.firstName)
+                            }
+                          />
+                          <ActionChip
+                            theme={theme}
+                            compact
+                            icon={<Mic size={12} color={theme.colors.secondary} />}
+                            label={t("groups.unmute") as string}
+                            bg={theme.colors.secondarySoft}
+                            fg={theme.colors.secondary}
+                            onPress={() => runMemberAction("unmute", member.userId)}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
@@ -986,127 +1200,50 @@ export default function GroupDetailPage() {
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* ── Member Action Sheet ────────────────────────── */}
-      <Modal
-        visible={Boolean(actionTarget)}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setActionTarget(null)}
-      >
-        <Pressable
-          onPress={() => setActionTarget(null)}
-          style={{
-            flex: 1,
-            backgroundColor: theme.colors.overlay,
-            justifyContent: "flex-end"
-          }}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              paddingTop: 12,
-              paddingBottom: 32
-            }}
-          >
-            <View
-              style={{
-                width: 40,
-                height: 4,
-                borderRadius: 2,
-                backgroundColor: theme.colors.border,
-                alignSelf: "center",
-                marginBottom: 8
-              }}
-            />
-            <Text
-              style={{
-                paddingHorizontal: 20,
-                paddingBottom: 8,
-                fontSize: 15,
-                color: theme.colors.ink,
-                fontFamily: "Inter_700Bold"
-              }}
-            >
-              {actionTarget?.firstName}
-            </Text>
-            {/* Any admin can promote/demote. Promote is hidden if the
-                target is already an admin; demote is hidden unless the
-                target is an admin AND is not the owner (server also
-                enforces this as a safety net). */}
-            {isAdmin && actionTarget && !(group.adminUserIds ?? []).includes(actionTarget.userId) && actionTarget.userId !== group.ownerUserId && (
-              <Pressable
-                onPress={() => runMemberAction("promote", actionTarget.userId)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-              >
-                <ShieldCheck size={18} color={theme.colors.secondary} />
-                <Text style={{ fontSize: 15, color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                  {t("groups.promoteAdmin")}
-                </Text>
-              </Pressable>
-            )}
-            {isAdmin && actionTarget && (group.adminUserIds ?? []).includes(actionTarget.userId) && actionTarget.userId !== group.ownerUserId && (
-              <Pressable
-                onPress={() => runMemberAction("demote", actionTarget.userId, actionTarget.firstName)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-              >
-                <ShieldCheck size={18} color={theme.colors.muted} />
-                <Text style={{ fontSize: 15, color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                  {t("groups.demoteAdmin")}
-                </Text>
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => actionTarget && runMemberAction("mute-1h", actionTarget.userId)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-            >
-              <MicOff size={18} color={theme.colors.ink} />
-              <Text style={{ fontSize: 15, color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                {t("groups.mute1h")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => actionTarget && runMemberAction("mute-24h", actionTarget.userId)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-            >
-              <MicOff size={18} color={theme.colors.ink} />
-              <Text style={{ fontSize: 15, color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                {t("groups.mute24h")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => actionTarget && runMemberAction("mute-indef", actionTarget.userId, actionTarget.firstName)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-            >
-              <MicOff size={18} color={theme.colors.danger} />
-              <Text style={{ fontSize: 15, color: theme.colors.danger, fontFamily: "Inter_600SemiBold" }}>
-                {t("groups.muteIndef")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => actionTarget && runMemberAction("unmute", actionTarget.userId)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-            >
-              <MicOff size={18} color={theme.colors.secondary} />
-              <Text style={{ fontSize: 15, color: theme.colors.ink, fontFamily: "Inter_600SemiBold" }}>
-                {t("groups.unmute")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => actionTarget && runMemberAction("kick", actionTarget.userId, actionTarget.firstName)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
-            >
-              <UserMinus size={18} color={theme.colors.danger} />
-              <Text style={{ fontSize: 15, color: theme.colors.danger, fontFamily: "Inter_600SemiBold" }}>
-                {t("groups.kickMember")}
-              </Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </View>
+  );
+}
+
+// ── Inline action chip for the members manager ────────────────
+type ActionChipProps = {
+  theme: ReturnType<typeof useTheme>;
+  icon?: React.ReactNode;
+  label: string;
+  bg: string;
+  fg: string;
+  onPress: () => void;
+  flex?: boolean;
+  compact?: boolean;
+};
+
+function ActionChip({ theme: _theme, icon, label, bg, fg, onPress, flex, compact }: ActionChipProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flex: flex ? 1 : undefined,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingHorizontal: compact ? 10 : 14,
+        paddingVertical: compact ? 8 : 12,
+        borderRadius: mobileTheme.radius.pill,
+        backgroundColor: bg,
+        opacity: pressed ? 0.7 : 1
+      })}
+      hitSlop={4}
+    >
+      {icon}
+      <Text
+        style={{
+          fontSize: compact ? 11 : 13,
+          color: fg,
+          fontFamily: "Inter_700Bold"
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }

@@ -29,7 +29,8 @@
     "selection": "Selection",
     "tagged": "tagged",
     "noSessionFound": "No session found.",
-    "share": "Share"
+    "share": "Share",
+    "you": "You"
   },
   "tabs": {
     "home": "Home",
@@ -524,6 +525,10 @@
     "manageMembers": "Manage members",
     "owner": "Owner",
     "adminBadge": "Admin",
+    "memberBadge": "Member",
+    "tapToManage": "Tap a member to manage permissions.",
+    "muteSection": "Mute",
+    "muteIndefShort": "∞",
     "promoteAdmin": "Promote to admin",
     "demoteAdmin": "Remove admin",
     "mute1h": "Mute · 1 hour",

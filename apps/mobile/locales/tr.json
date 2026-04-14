@@ -29,7 +29,8 @@
     "selection": "Seçim",
     "tagged": "etiketlendi",
     "noSessionFound": "Oturum bulunamadı.",
-    "share": "Paylaş"
+    "share": "Paylaş",
+    "you": "Sen"
   },
   "tabs": {
     "home": "Ana Sayfa",
@@ -524,6 +525,10 @@
     "manageMembers": "Üyeleri yönet",
     "owner": "Kurucu",
     "adminBadge": "Yönetici",
+    "memberBadge": "Üye",
+    "tapToManage": "Bir üyeye dokunarak yetkileri yönet.",
+    "muteSection": "Sustur",
+    "muteIndefShort": "∞",
     "promoteAdmin": "Yönetici yap",
     "demoteAdmin": "Yöneticilikten al",
     "mute1h": "Sustur · 1 saat",
