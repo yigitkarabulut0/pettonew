@@ -487,7 +487,11 @@
     "openGroup": "Grubu Aç",
     "createError": "Grup oluşturulamadı. Tekrar deneyin.",
     "addPhoto": "Fotoğraf ekle",
-    "changePhoto": "Fotoğrafı değiştir"
+    "changePhoto": "Fotoğrafı değiştir",
+    "hashtagsLabel": "Etiketler",
+    "rulesLabel": "Kurallar",
+    "membersLabel": "Üyeler",
+    "shareGroupMessage": "\"{{name}}\" grubuna Fetcht'te katıl!"
   },
   "playdates": {
     "title": "Buluşmalar",

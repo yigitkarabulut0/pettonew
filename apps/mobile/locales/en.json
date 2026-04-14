@@ -487,7 +487,11 @@
     "openGroup": "Open Group",
     "createError": "Could not create group. Please try again.",
     "addPhoto": "Add photo",
-    "changePhoto": "Change photo"
+    "changePhoto": "Change photo",
+    "hashtagsLabel": "Hashtags",
+    "rulesLabel": "Rules",
+    "membersLabel": "Members",
+    "shareGroupMessage": "Join \"{{name}}\" on Fetcht!"
   },
   "playdates": {
     "title": "Playdates",
