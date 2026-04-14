@@ -289,10 +289,21 @@ export function CompactPetCard({
 }
 
 // ──────────────────────────────────────────────────────────────────
-// PetDetailModal — professional rewrite.
-// Sections: immersive hero with floating glass action bar, title block
-// overlaid on gradient, scrollable body with About / Vitals / Personality
-// / Loves, sticky bottom action bar for View profile or Edit pet.
+// PetDetailModal — clean carousel + lifted body card.
+//
+// Design rules that fix the previous version's problems:
+// 1. The photo carousel is the ONLY thing in the hero area. No title,
+//    no chips, no captions overlapping it — so horizontal swipe gestures
+//    are never intercepted by absolutely-positioned text.
+// 2. The body card sits BELOW the hero and lifts up with a negative
+//    margin, creating a layered Dribbble-style "card on photo" look
+//    without any of its content sitting on the photo.
+// 3. The top floating action bar (close / report / QR / share) is the
+//    only absolute element in the hero, positioned in the true safe
+//    area (insets.top), out of the swipe zone entirely.
+// 4. Photo dots sit just below the action bar, also in the safe area,
+//    with pointerEvents="none" so they never touch the gesture stream.
+// 5. Every color comes from the theme — dark mode works out of the box.
 // ──────────────────────────────────────────────────────────────────
 export function PetDetailModal({
   pet,
@@ -315,7 +326,11 @@ export function PetDetailModal({
   const galleryRef = useRef<ScrollView>(null);
 
   const screenWidth = Dimensions.get("window").width;
-  const HERO_HEIGHT = 440;
+  // Hero fills from the true top of the screen down to ~56% of screen
+  // height. This gives the photo plenty of breathing room without
+  // crowding out the body on small devices.
+  const HERO_HEIGHT = Math.round(Dimensions.get("window").height * 0.56);
+  const BODY_LIFT = 28;
 
   if (!pet) return null;
 
@@ -342,29 +357,38 @@ export function PetDetailModal({
     }
   };
 
-  const handleScroll = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+  const handleScroll = (e: {
+    nativeEvent: { contentOffset: { x: number } };
+  }) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
     if (idx !== activePhoto) setActivePhoto(idx);
   };
 
-  const glassBtn = {
+  const glassBtnStyle = {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.38)",
     alignItems: "center" as const,
-    justifyContent: "center" as const
+    justifyContent: "center" as const,
+    borderWidth: 0.5,
+    borderColor: "rgba(255,255,255,0.18)"
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
       <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 120 }}
-          stickyHeaderIndices={[]}
+          contentContainerStyle={{ paddingBottom: 140 }}
+          bounces={false}
         >
-          {/* ── Immersive hero ───────────────────────── */}
+          {/* ── Hero: clean, unobstructed photo carousel ─────── */}
           <View
             style={{
               width: "100%",
@@ -402,31 +426,31 @@ export function PetDetailModal({
                   justifyContent: "center"
                 }}
               >
-                <PawPrint size={72} color={theme.colors.primary} />
+                <PawPrint size={80} color={theme.colors.primary} />
               </View>
             )}
 
-            {/* Bottom gradient for text legibility */}
+            {/* Bottom gradient blending hero into the body card. */}
             <LinearGradient
-              colors={[
-                "rgba(22,21,20,0)",
-                "rgba(22,21,20,0.25)",
-                "rgba(22,21,20,0.85)"
-              ]}
+              colors={["transparent", theme.colors.background]}
               style={{
                 position: "absolute",
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 240
+                height: 80
               }}
+              pointerEvents="none"
             />
 
-            {/* Floating action bar (top) */}
+            {/* Floating action bar — absolute in safe area, doesn't
+                touch the swipe gesture surface because it sits above
+                the active photo region on the Y axis. */}
             <View
+              pointerEvents="box-none"
               style={{
                 position: "absolute",
-                top: insets.top + 12,
+                top: insets.top + 10,
                 left: 16,
                 right: 16,
                 flexDirection: "row",
@@ -434,7 +458,7 @@ export function PetDetailModal({
                 justifyContent: "space-between"
               }}
             >
-              <Pressable onPress={onClose} hitSlop={10} style={glassBtn}>
+              <Pressable onPress={onClose} hitSlop={10} style={glassBtnStyle}>
                 <X size={20} color="#FFFFFF" strokeWidth={2.3} />
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -442,7 +466,7 @@ export function PetDetailModal({
                   <Pressable
                     onPress={() => setReportOpen(true)}
                     hitSlop={10}
-                    style={glassBtn}
+                    style={glassBtnStyle}
                   >
                     <Flag size={18} color="#FFFFFF" strokeWidth={2.3} />
                   </Pressable>
@@ -450,35 +474,41 @@ export function PetDetailModal({
                 <Pressable
                   onPress={() => setQrOpen(true)}
                   hitSlop={10}
-                  style={glassBtn}
+                  style={glassBtnStyle}
                 >
                   <QrCode size={18} color="#FFFFFF" strokeWidth={2.3} />
                 </Pressable>
-                <Pressable onPress={handleShare} hitSlop={10} style={glassBtn}>
+                <Pressable
+                  onPress={handleShare}
+                  hitSlop={10}
+                  style={glassBtnStyle}
+                >
                   <Share2 size={18} color="#FFFFFF" strokeWidth={2.3} />
                 </Pressable>
               </View>
             </View>
 
-            {/* Photo dot indicators */}
+            {/* Photo dot indicators — pointerEvents none so the
+                swipeable carousel below them stays fully reactive. */}
             {photos.length > 1 ? (
               <View
+                pointerEvents="none"
                 style={{
                   position: "absolute",
-                  top: insets.top + 64,
+                  top: insets.top + 62,
                   left: 0,
                   right: 0,
                   flexDirection: "row",
                   justifyContent: "center",
-                  gap: 6
+                  gap: 5
                 }}
               >
                 {photos.map((_, i) => (
                   <View
                     key={i}
                     style={{
-                      width: i === activePhoto ? 18 : 6,
-                      height: 6,
+                      width: i === activePhoto ? 18 : 5,
+                      height: 5,
                       borderRadius: 3,
                       backgroundColor:
                         i === activePhoto
@@ -489,16 +519,22 @@ export function PetDetailModal({
                 ))}
               </View>
             ) : null}
+          </View>
 
-            {/* Title block overlay */}
-            <View
-              style={{
-                position: "absolute",
-                left: 22,
-                right: 22,
-                bottom: 22
-              }}
-            >
+          {/* ── Body card (lifts up to overlap hero bottom) ─── */}
+          <View
+            style={{
+              marginTop: -BODY_LIFT,
+              backgroundColor: theme.colors.background,
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              paddingTop: 24,
+              paddingHorizontal: 20,
+              gap: 20
+            }}
+          >
+            {/* Title block — name + age inline, then species, then chips. */}
+            <View>
               <View
                 style={{
                   flexDirection: "row",
@@ -509,9 +545,9 @@ export function PetDetailModal({
                 <Text
                   numberOfLines={1}
                   style={{
-                    color: "#FFFFFF",
-                    fontSize: 34,
-                    lineHeight: 38,
+                    color: theme.colors.ink,
+                    fontSize: 32,
+                    lineHeight: 36,
                     fontFamily: "Inter_700Bold",
                     flexShrink: 1
                   }}
@@ -520,10 +556,10 @@ export function PetDetailModal({
                 </Text>
                 <Text
                   style={{
-                    color: "rgba(255,255,255,0.9)",
-                    fontSize: 22,
+                    color: theme.colors.primary,
+                    fontSize: 20,
                     fontFamily: "Inter_700Bold",
-                    marginBottom: 4
+                    marginBottom: 3
                   }}
                 >
                   {formatAge(pet.ageYears)}
@@ -531,7 +567,7 @@ export function PetDetailModal({
               </View>
               <Text
                 style={{
-                  color: "rgba(255,255,255,0.88)",
+                  color: theme.colors.muted,
                   fontSize: 14,
                   marginTop: 4,
                   fontFamily: "Inter_500Medium"
@@ -540,7 +576,6 @@ export function PetDetailModal({
                 {[pet.speciesLabel, pet.breedLabel].filter(Boolean).join(" · ")}
               </Text>
 
-              {/* Glass chip row */}
               <View
                 style={{
                   flexDirection: "row",
@@ -550,28 +585,38 @@ export function PetDetailModal({
                 }}
               >
                 {pet.cityLabel ? (
-                  <HeroChip icon={<MapPin size={12} color="#FFFFFF" />}>
-                    {pet.cityLabel}
-                  </HeroChip>
+                  <MetaChip
+                    icon={<MapPin size={12} color={theme.colors.secondary} />}
+                    label={pet.cityLabel}
+                    bg={theme.colors.secondarySoft}
+                    fg={theme.colors.secondary}
+                  />
                 ) : null}
                 {pet.isNeutered ? (
-                  <HeroChip icon={<CheckCircle2 size={12} color="#FFFFFF" />}>
-                    {t("petCard.neutered") as string}
-                  </HeroChip>
+                  <MetaChip
+                    icon={
+                      <CheckCircle2 size={12} color={theme.colors.success} />
+                    }
+                    label={t("petCard.neutered") as string}
+                    bg={theme.colors.successBg}
+                    fg={theme.colors.success}
+                  />
                 ) : null}
-                <HeroChip icon={<Activity size={12} color="#FFFFFF" />}>
-                  {t(ACTIVITY_KEYS[activityLevel]) as string}
-                </HeroChip>
+                <MetaChip
+                  icon={<Activity size={12} color={theme.colors.primary} />}
+                  label={t(ACTIVITY_KEYS[activityLevel]) as string}
+                  bg={theme.colors.primaryBg}
+                  fg={theme.colors.primary}
+                />
               </View>
             </View>
-          </View>
 
-          {/* ── Body ─────────────────────────────────── */}
-          <View style={{ paddingHorizontal: 20, paddingTop: 24, gap: 18 }}>
             {/* About */}
             {pet.bio ? (
               <Section
-                title={t("petDetail.about", { defaultValue: "About" }) as string}
+                title={
+                  t("petDetail.about", { defaultValue: "About" }) as string
+                }
                 icon={<BookOpen size={14} color={theme.colors.muted} />}
               >
                 <Text
@@ -588,48 +633,83 @@ export function PetDetailModal({
             ) : null}
 
             {/* Vitals grid */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-              <VitalCard
-                icon={<Calendar size={16} color={theme.colors.primary} />}
-                label={t("petDetail.age", { defaultValue: "Age" }) as string}
-                value={`${pet.ageYears}y`}
-              />
-              <VitalCard
-                icon={<Activity size={16} color={theme.colors.accent} />}
-                label={t("petDetail.activity", { defaultValue: "Activity" }) as string}
-                value={<ActivityDots level={activityLevel} />}
-              />
-              <VitalCard
-                icon={<ShieldCheck size={16} color={theme.colors.secondary} />}
-                label={t("petDetail.neutered", { defaultValue: "Neutered" }) as string}
-                value={
-                  pet.isNeutered
-                    ? (t("common.yes") as string)
-                    : (t("common.no") as string)
+            <View>
+              <SectionLabel
+                icon={<Sparkles size={14} color={theme.colors.muted} />}
+                text={
+                  t("petDetail.vitals", { defaultValue: "Vitals" }) as string
                 }
               />
-              <VitalCard
-                icon={<MapPin size={16} color={theme.colors.muted} />}
-                label={t("petDetail.location", { defaultValue: "City" }) as string}
-                value={pet.cityLabel || "—"}
-              />
+              <View
+                style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}
+              >
+                <VitalCard
+                  icon={<Calendar size={16} color={theme.colors.primary} />}
+                  label={
+                    t("petDetail.age", { defaultValue: "Age" }) as string
+                  }
+                  value={`${pet.ageYears}y`}
+                />
+                <VitalCard
+                  icon={<Activity size={16} color={theme.colors.accent} />}
+                  label={
+                    t("petDetail.activity", {
+                      defaultValue: "Activity"
+                    }) as string
+                  }
+                  value={<ActivityDots level={activityLevel} />}
+                />
+                <VitalCard
+                  icon={
+                    <ShieldCheck size={16} color={theme.colors.secondary} />
+                  }
+                  label={
+                    t("petDetail.neutered", {
+                      defaultValue: "Neutered"
+                    }) as string
+                  }
+                  value={
+                    pet.isNeutered
+                      ? (t("common.yes") as string)
+                      : (t("common.no") as string)
+                  }
+                />
+                <VitalCard
+                  icon={<MapPin size={16} color={theme.colors.muted} />}
+                  label={
+                    t("petDetail.location", {
+                      defaultValue: "City"
+                    }) as string
+                  }
+                  value={pet.cityLabel || "—"}
+                />
+              </View>
             </View>
 
             {/* Personality */}
             {personality.length > 0 ? (
-              <Section
-                title={
-                  t("petDetail.personality", { defaultValue: "Personality" }) as string
-                }
-                icon={<Sparkles size={14} color={theme.colors.muted} />}
-              >
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <View>
+                <SectionLabel
+                  icon={<Sparkles size={14} color={theme.colors.muted} />}
+                  text={
+                    t("petDetail.personality", {
+                      defaultValue: "Personality"
+                    }) as string
+                  }
+                />
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8
+                  }}
+                >
                   {personality.map((item) => (
                     <View
                       key={item}
                       style={{
                         paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        paddingVertical: 7,
                         borderRadius: mobileTheme.radius.pill,
                         backgroundColor: theme.colors.secondarySoft
                       }}
@@ -637,7 +717,7 @@ export function PetDetailModal({
                       <Text
                         style={{
                           color: theme.colors.secondary,
-                          fontSize: 12,
+                          fontSize: 13,
                           fontFamily: "Inter_600SemiBold"
                         }}
                       >
@@ -646,22 +726,31 @@ export function PetDetailModal({
                     </View>
                   ))}
                 </View>
-              </Section>
+              </View>
             ) : null}
 
             {/* Loves */}
             {hobbies.length > 0 ? (
-              <Section
-                title={t("petDetail.loves", { defaultValue: "Loves" }) as string}
-                icon={<Heart size={14} color={theme.colors.muted} />}
-              >
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <View>
+                <SectionLabel
+                  icon={<Heart size={14} color={theme.colors.muted} />}
+                  text={
+                    t("petDetail.loves", { defaultValue: "Loves" }) as string
+                  }
+                />
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8
+                  }}
+                >
                   {hobbies.map((h) => (
                     <View
                       key={h}
                       style={{
                         paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        paddingVertical: 7,
                         borderRadius: mobileTheme.radius.pill,
                         backgroundColor: theme.colors.primaryBg
                       }}
@@ -669,7 +758,7 @@ export function PetDetailModal({
                       <Text
                         style={{
                           color: theme.colors.primary,
-                          fontSize: 12,
+                          fontSize: 13,
                           fontFamily: "Inter_600SemiBold"
                         }}
                       >
@@ -678,12 +767,12 @@ export function PetDetailModal({
                     </View>
                   ))}
                 </View>
-              </Section>
+              </View>
             ) : null}
           </View>
         </ScrollView>
 
-        {/* ── Sticky bottom action bar ──────────────── */}
+        {/* ── Sticky bottom action bar ──────────────────────── */}
         <View
           style={{
             position: "absolute",
@@ -691,7 +780,7 @@ export function PetDetailModal({
             right: 0,
             bottom: 0,
             paddingHorizontal: 20,
-            paddingTop: 12,
+            paddingTop: 14,
             paddingBottom: insets.bottom + 14,
             backgroundColor: theme.colors.surface,
             borderTopWidth: 0.5,
@@ -709,10 +798,11 @@ export function PetDetailModal({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
-                paddingVertical: 15,
+                paddingVertical: 16,
                 borderRadius: mobileTheme.radius.pill,
                 backgroundColor: theme.colors.primary,
-                opacity: pressed ? 0.88 : 1
+                opacity: pressed ? 0.88 : 1,
+                ...mobileTheme.shadow.sm
               })}
             >
               <Pencil size={16} color="#FFFFFF" strokeWidth={2.3} />
@@ -723,7 +813,11 @@ export function PetDetailModal({
                   fontSize: 15
                 }}
               >
-                {t("petDetail.editPet", { defaultValue: "Edit pet" }) as string}
+                {
+                  t("petDetail.editPet", {
+                    defaultValue: "Edit pet"
+                  }) as string
+                }
               </Text>
             </Pressable>
           ) : (
@@ -738,10 +832,11 @@ export function PetDetailModal({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
-                paddingVertical: 15,
+                paddingVertical: 16,
                 borderRadius: mobileTheme.radius.pill,
                 backgroundColor: theme.colors.primary,
-                opacity: pressed ? 0.88 : 1
+                opacity: pressed ? 0.88 : 1,
+                ...mobileTheme.shadow.sm
               })}
             >
               <Heart size={16} color="#FFFFFF" strokeWidth={2.3} />
@@ -752,7 +847,11 @@ export function PetDetailModal({
                   fontSize: 15
                 }}
               >
-                {t("petDetail.viewOwner", { defaultValue: "View owner profile" }) as string}
+                {
+                  t("petDetail.viewOwner", {
+                    defaultValue: "View owner profile"
+                  }) as string
+                }
               </Text>
             </Pressable>
           )}
@@ -778,12 +877,16 @@ export function PetDetailModal({
 
 // ── Internal helpers ──────────────────────────────────────────────
 
-function HeroChip({
+function MetaChip({
   icon,
-  children
+  label,
+  bg,
+  fg
 }: {
   icon: React.ReactNode;
-  children: React.ReactNode;
+  label: string;
+  bg: string;
+  fg: string;
 }) {
   return (
     <View
@@ -791,23 +894,54 @@ function HeroChip({
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
+        paddingHorizontal: 11,
+        paddingVertical: 6,
         borderRadius: mobileTheme.radius.pill,
-        backgroundColor: "rgba(255,255,255,0.22)",
-        borderWidth: 0.5,
-        borderColor: "rgba(255,255,255,0.35)"
+        backgroundColor: bg
       }}
     >
       {icon}
       <Text
         style={{
-          color: "#FFFFFF",
-          fontSize: 11,
-          fontFamily: "Inter_600SemiBold"
+          color: fg,
+          fontSize: 12,
+          fontFamily: "Inter_700Bold"
         }}
       >
-        {children}
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function SectionLabel({
+  icon,
+  text
+}: {
+  icon: React.ReactNode;
+  text: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 10
+      }}
+    >
+      {icon}
+      <Text
+        style={{
+          fontSize: 11,
+          letterSpacing: 1,
+          color: theme.colors.muted,
+          fontFamily: "Inter_700Bold",
+          textTransform: "uppercase"
+        }}
+      >
+        {text}
       </Text>
     </View>
   );
@@ -825,27 +959,7 @@ function Section({
   const theme = useTheme();
   return (
     <View>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 10
-        }}
-      >
-        {icon}
-        <Text
-          style={{
-            fontSize: 11,
-            letterSpacing: 1,
-            color: theme.colors.muted,
-            fontFamily: "Inter_700Bold",
-            textTransform: "uppercase"
-          }}
-        >
-          {title}
-        </Text>
-      </View>
+      <SectionLabel icon={icon} text={title} />
       <View
         style={{
           padding: 16,
@@ -874,7 +988,7 @@ function VitalCard({
   return (
     <View
       style={{
-        flexBasis: "48%",
+        flexBasis: "47%",
         flexGrow: 1,
         padding: 14,
         borderRadius: mobileTheme.radius.lg,
