@@ -207,9 +207,11 @@ function SwipeableCard({ card, onSwipe, onPetPress }: SwipeableCardProps) {
           {photos.length > 0 ? (
             <Image
               source={{ uri: photos[0]?.url ?? "" }}
-              style={{ width: "100%", height: "100%" }}
+              style={{ width: "100%", height: "100%", backgroundColor: theme.colors.primaryBg }}
               contentFit="cover"
-              transition={200}
+              transition={250}
+              cachePolicy="memory-disk"
+              recyclingKey={photos[0]?.id}
             />
           ) : (
             <View

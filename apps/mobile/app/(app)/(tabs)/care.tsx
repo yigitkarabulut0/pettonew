@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -56,13 +56,28 @@ export default function CarePage() {
   const activePetId = useSessionStore((s) => s.activePetId);
   const insets = useSafeAreaInsets();
 
-  const { data: pets = [], refetch, isRefetching } = useQuery({
-    queryKey: ["my-pets", session?.tokens.accessToken],
+  // Unique query key so pulling-to-refresh on Profile doesn't leak its
+  // `isFetching` state into this screen's RefreshControl.
+  const { data: pets = [], refetch } = useQuery({
+    queryKey: ["care-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
     enabled: Boolean(session)
   });
 
   const [selectedPetId, setSelectedPetId] = useState<string | null>(activePetId);
+
+  // Local refresh state — decoupled from TanStack's `isRefetching` so a
+  // stuck or slow refetch can't pin the spinner after the user leaves
+  // the screen and comes back.
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   const selectedPet = useMemo(
     () => pets.find((p) => p.id === selectedPetId) ?? pets[0] ?? null,
@@ -103,7 +118,7 @@ export default function CarePage() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={theme.colors.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
         }
         contentContainerStyle={{
           paddingHorizontal: mobileTheme.spacing.xl,

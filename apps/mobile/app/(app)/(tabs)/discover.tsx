@@ -5,7 +5,6 @@ import * as Location from "expo-location";
 import {
   Animated,
   Dimensions,
-  Image,
   Modal,
   PanResponder,
   Pressable,
@@ -14,6 +13,7 @@ import {
   Text,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import MapView, { Marker, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -933,7 +933,7 @@ export default function DiscoverPage() {
         <View style={{ position: "absolute", left: 12, right: 12, bottom: tabBarOffset + COLLAPSED_SHEET + 8, borderRadius: 20, backgroundColor: theme.colors.white, shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 20, overflow: "hidden" }}>
           {/* Hero Image */}
           {selectedVenue.imageUrl ? (
-            <Image source={{ uri: selectedVenue.imageUrl }} style={{ width: "100%", height: 140, backgroundColor: theme.colors.border }} resizeMode="cover" />
+            <Image source={{ uri: selectedVenue.imageUrl }} style={{ width: "100%", height: 140, backgroundColor: theme.colors.border }} contentFit="cover" transition={250} cachePolicy="memory-disk" />
           ) : (
             <LinearGradient colors={[catColor + "30", catColor + "10"]} style={{ width: "100%", height: 100, alignItems: "center", justifyContent: "center" }}>
               <CatIcon size={36} color={catColor} />
@@ -997,7 +997,7 @@ export default function DiscoverPage() {
             {allPhotos.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                 {allPhotos.map((url: string, idx: number) => (
-                  <Image key={idx} source={{ uri: url }} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: theme.colors.border }} resizeMode="cover" />
+                  <Image key={idx} source={{ uri: url }} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: theme.colors.border }} contentFit="cover" transition={250} cachePolicy="memory-disk" />
                 ))}
               </ScrollView>
             )}
@@ -1432,7 +1432,9 @@ function VenuesTab({
                   <Image
                     source={{ uri: venue.imageUrl }}
                     style={{ width: "100%", height: 120, borderRadius: mobileTheme.radius.md, backgroundColor: theme.colors.border }}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    transition={250}
+                    cachePolicy="memory-disk"
                   />
                 ) : null}
               </View>
@@ -1485,6 +1487,9 @@ function VenuesTab({
                           borderRadius: 12,
                           backgroundColor: theme.colors.border
                         }}
+                        contentFit="cover"
+                        transition={250}
+                        cachePolicy="memory-disk"
                       />
                     ) : (
                       <View

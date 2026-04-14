@@ -1,4 +1,5 @@
-import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { Check, X } from "lucide-react-native";
@@ -109,8 +110,11 @@ export function PetSelectModal({
                   {pet.photos[0]?.url ? (
                     <Image
                       source={{ uri: pet.photos[0].url }}
-                      style={{ width: "100%", height: "100%" }}
-                      resizeMode="cover"
+                      style={{ width: "100%", height: "100%", backgroundColor: theme.colors.primaryBg }}
+                      contentFit="cover"
+                      transition={250}
+                      cachePolicy="memory-disk"
+                      recyclingKey={pet.id}
                     />
                   ) : (
                     <View

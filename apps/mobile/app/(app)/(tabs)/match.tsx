@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -100,6 +101,32 @@ export default function MatchesPage() {
     }
     return myPets.length > 0 ? myPets[0] : null;
   }, [myPets, activePetId]);
+
+  // Proactively warm expo-image's memory-disk cache for the next few pet
+  // cards so swipes feel instant even on slow connections.
+  useEffect(() => {
+    if (!feed || feed.length === 0) return;
+    const urls = feed
+      .slice(0, 5)
+      .flatMap((card: any) => card?.pet?.photos?.map((p: any) => p.url) ?? [])
+      .filter((u: unknown): u is string => typeof u === "string" && u.length > 0);
+    if (urls.length > 0) {
+      Image.prefetch(urls, "memory-disk");
+    }
+  }, [feed]);
+
+  // Prefetch matched pet thumbnails too (matches list).
+  useEffect(() => {
+    if (!matches || matches.length === 0) return;
+    const urls: string[] = [];
+    for (const m of matches) {
+      const first = (m as any)?.matchedPet?.photos?.[0]?.url;
+      if (typeof first === "string" && first) urls.push(first);
+    }
+    if (urls.length > 0) {
+      Image.prefetch(urls, "memory-disk");
+    }
+  }, [matches]);
 
   const speciesList = useMemo(() => {
     const set = new Set(feed.map((c) => c.pet.speciesLabel).filter(Boolean));
@@ -245,8 +272,10 @@ export default function MatchesPage() {
                 {activePet.photos[0]?.url ? (
                   <Image
                     source={{ uri: activePet.photos[0].url }}
-                    style={{ width: "100%", height: "100%" }}
-                    resizeMode="cover"
+                    style={{ width: "100%", height: "100%", backgroundColor: theme.colors.primaryBg }}
+                    contentFit="cover"
+                    transition={250}
+                    cachePolicy="memory-disk"
                   />
                 ) : (
                   <View

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Haptics from "expo-haptics";
 import {
   Activity,
@@ -22,13 +22,13 @@ import {
 } from "lucide-react-native";
 import {
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View
 } from "react-native";
+import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -56,13 +56,36 @@ export default function ProfilePage() {
   const {
     data: pets = [],
     isLoading,
-    refetch,
-    isRefetching
+    refetch
   } = useQuery({
     queryKey: ["my-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
     enabled: Boolean(session)
   });
+
+  // Local refresh state, decoupled from TanStack's shared `isRefetching`.
+  // Prevents the spinner from leaking into other tabs that read the same query.
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
+  // Warm expo-image's disk cache for every pet photo so the next render is
+  // instantaneous on slow networks.
+  useEffect(() => {
+    if (!pets || pets.length === 0) return;
+    const urls = pets
+      .flatMap((p) => p.photos?.map((photo) => photo.url) ?? [])
+      .filter((u): u is string => typeof u === "string" && u.length > 0);
+    if (urls.length > 0) {
+      Image.prefetch(urls, "memory-disk");
+    }
+  }, [pets]);
 
   const { data: badges = [] } = useQuery({
     queryKey: ["badges", session?.tokens.accessToken],
@@ -163,8 +186,8 @@ export default function ProfilePage() {
         keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }
@@ -347,8 +370,13 @@ export default function ProfilePage() {
                 style={{
                   width: 48,
                   height: 48,
-                  borderRadius: 24
+                  borderRadius: 24,
+                  backgroundColor: theme.colors.primaryBg
                 }}
+                contentFit="cover"
+                transition={250}
+                cachePolicy="memory-disk"
+                recyclingKey={activePet.id}
               />
             ) : (
               <View
@@ -501,8 +529,13 @@ export default function ProfilePage() {
                           style={{
                             width: 64,
                             height: 64,
-                            borderRadius: mobileTheme.radius.md
+                            borderRadius: mobileTheme.radius.md,
+                            backgroundColor: theme.colors.primaryBg
                           }}
+                          contentFit="cover"
+                          transition={250}
+                          cachePolicy="memory-disk"
+                          recyclingKey={pet.id}
                         />
                       ) : (
                         <View

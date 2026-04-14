@@ -51,6 +51,7 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         lazy: true,
+        freezeOnBlur: true,
         tabBarShowLabel: true,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.muted,
