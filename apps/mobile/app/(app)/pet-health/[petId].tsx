@@ -20,6 +20,7 @@ import { ArrowLeft, CalendarDays, HeartPulse, Plus, Trash2 } from "lucide-react-
 import { useTranslation } from "react-i18next";
 import { listHealthRecords, createHealthRecord } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 const RECORD_TYPES = ["vaccine", "checkup", "surgery", "other"] as const;
@@ -83,9 +84,9 @@ export default function PetHealthPage() {
     }
   });
 
-  const onRefresh = useCallback(() => {
-    healthQuery.refetch();
-  }, [healthQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => healthQuery.refetch(), [healthQuery])
+  );
 
   const records = healthQuery.data ?? [];
 
@@ -157,8 +158,8 @@ export default function PetHealthPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={healthQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

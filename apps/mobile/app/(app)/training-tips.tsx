@@ -15,6 +15,7 @@ import { ArrowLeft, BookOpen, Check, GraduationCap } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { listTrainingTips } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 const DIFFICULTY_COLORS: Record<string, { bg: string; text: string }> = {
@@ -35,8 +36,7 @@ export default function TrainingTipsPage() {
   const {
     data: tips = [],
     isLoading,
-    refetch,
-    isRefetching
+    refetch
   } = useQuery({
     queryKey: ["training-tips", session?.tokens.accessToken, petTypeFilter],
     queryFn: () =>
@@ -46,6 +46,7 @@ export default function TrainingTipsPage() {
       ),
     enabled: Boolean(session)
   });
+  const { refreshing, handleRefresh } = useLocalRefresh(refetch);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -143,8 +144,8 @@ export default function TrainingTipsPage() {
           }}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
               tintColor={theme.colors.primary}
             />
           }

@@ -51,6 +51,7 @@ import {
   uploadMedia
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 import type { Pet } from "@petto/contracts";
 
@@ -82,11 +83,12 @@ export default function HomePage() {
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
 
-  const { data: posts = [], isLoading: postsLoading, refetch: refetchPosts, isRefetching: postsRefetching } = useQuery({
+  const { data: posts = [], isLoading: postsLoading, refetch: refetchPosts } = useQuery({
     queryKey: ["home-feed", session?.tokens.accessToken],
     queryFn: () => listHomeFeed(session!.tokens.accessToken),
     enabled: Boolean(session)
   });
+  const { refreshing: postsRefreshing, handleRefresh: handleRefreshPosts } = useLocalRefresh(refetchPosts);
   const { data: pets = [] } = useQuery({
     queryKey: ["home-my-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
@@ -299,8 +301,8 @@ export default function HomePage() {
         )}
         refreshControl={
           <RefreshControl
-            refreshing={postsRefetching}
-            onRefresh={refetchPosts}
+            refreshing={postsRefreshing}
+            onRefresh={handleRefreshPosts}
             tintColor="transparent"
           />
         }

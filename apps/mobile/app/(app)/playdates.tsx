@@ -20,6 +20,7 @@ import { ArrowLeft, CalendarDays, MapPin, Minus, Plus, Users } from "lucide-reac
 import { useTranslation } from "react-i18next";
 import { listPlaydates, createPlaydate, joinPlaydate, listExploreVenues } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 export default function PlaydatesPage() {
@@ -80,9 +81,9 @@ export default function PlaydatesPage() {
     }
   });
 
-  const onRefresh = useCallback(() => {
-    playdatesQuery.refetch();
-  }, [playdatesQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => playdatesQuery.refetch(), [playdatesQuery])
+  );
 
   const playdates = playdatesQuery.data ?? [];
 
@@ -154,8 +155,8 @@ export default function PlaydatesPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={playdatesQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

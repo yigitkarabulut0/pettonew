@@ -18,6 +18,7 @@ import { AlertTriangle, ArrowLeft, Globe, MapPin, Navigation, Phone, Stethoscope
 import { useTranslation } from "react-i18next";
 import { listVetClinics } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 export default function VetContactsPage() {
@@ -53,9 +54,9 @@ export default function VetContactsPage() {
     enabled: Boolean(token && location)
   });
 
-  const onRefresh = useCallback(() => {
-    clinicsQuery.refetch();
-  }, [clinicsQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => clinicsQuery.refetch(), [clinicsQuery])
+  );
 
   const clinics = clinicsQuery.data ?? [];
 
@@ -122,8 +123,8 @@ export default function VetContactsPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={clinicsQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

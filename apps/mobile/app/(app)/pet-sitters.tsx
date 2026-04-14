@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/avatar";
 import { listPetSitters } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 export default function PetSittersPage() {
@@ -44,13 +45,13 @@ export default function PetSittersPage() {
   const {
     data: sitters = [],
     isLoading,
-    refetch,
-    isRefetching
+    refetch
   } = useQuery({
     queryKey: ["pet-sitters", session?.tokens.accessToken, userLocation?.latitude],
     queryFn: () => listPetSitters(session!.tokens.accessToken, userLocation?.latitude, userLocation?.longitude),
     enabled: Boolean(session)
   });
+  const { refreshing, handleRefresh } = useLocalRefresh(refetch);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -105,8 +106,8 @@ export default function PetSittersPage() {
           }}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
               tintColor={theme.colors.primary}
             />
           }

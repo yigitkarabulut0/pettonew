@@ -20,6 +20,7 @@ import { ArrowLeft, Clock, Plus, UtensilsCrossed } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { listFeedingSchedules, createFeedingSchedule } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 export default function FeedingPage() {
@@ -68,9 +69,9 @@ export default function FeedingPage() {
     }
   });
 
-  const onRefresh = useCallback(() => {
-    feedingQuery.refetch();
-  }, [feedingQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => feedingQuery.refetch(), [feedingQuery])
+  );
 
   const schedules = feedingQuery.data ?? [];
 
@@ -142,8 +143,8 @@ export default function FeedingPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={feedingQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

@@ -19,6 +19,7 @@ import { ArrowLeft, Plus, TrendingUp } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { listWeightEntries, createWeightEntry } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 export default function PetWeightPage() {
@@ -51,9 +52,9 @@ export default function PetWeightPage() {
     }
   });
 
-  const onRefresh = useCallback(() => {
-    weightQuery.refetch();
-  }, [weightQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => weightQuery.refetch(), [weightQuery])
+  );
 
   const entries = weightQuery.data ?? [];
 
@@ -129,8 +130,8 @@ export default function PetWeightPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={weightQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

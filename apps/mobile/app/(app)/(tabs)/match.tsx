@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 
 import { getDiscoveryFeed, listMatches, listMyPets } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 import type { Pet } from "@petto/contracts";
 
@@ -89,11 +90,12 @@ export default function MatchesPage() {
     enabled: Boolean(session)
   });
 
-  const { data: matches = [], refetch: refetchMatches, isRefetching: matchesRefetching } = useQuery({
+  const { data: matches = [], refetch: refetchMatches } = useQuery({
     queryKey: ["matches", session?.tokens.accessToken],
     queryFn: () => listMatches(session!.tokens.accessToken),
     enabled: Boolean(session)
   });
+  const { refreshing: matchesRefreshing, handleRefresh: handleRefreshMatches } = useLocalRefresh(refetchMatches);
 
   const activePet = useMemo(() => {
     if (activePetId) {
@@ -507,8 +509,8 @@ export default function MatchesPage() {
           insets={insets}
           onStartDiscovering={() => setTab("discover")}
           onMatchPress={handleMatchPress}
-          onRefresh={refetchMatches}
-          isRefreshing={matchesRefetching}
+          onRefresh={handleRefreshMatches}
+          isRefreshing={matchesRefreshing}
         />
       )}
 

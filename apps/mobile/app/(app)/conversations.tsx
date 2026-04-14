@@ -10,6 +10,7 @@ import { ArrowLeft, MessageCircle, Search } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { listConversations } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 function formatRelativeTime(dateStr: string): string {
@@ -31,12 +32,13 @@ export default function ConversationsPage() {
   const theme = useTheme();
   const session = useSessionStore((state) => state.session);
   const insets = useSafeAreaInsets();
-  const { data: conversations = [], isLoading, refetch: refetchConversations, isRefetching: conversationsRefetching } = useQuery({
+  const { data: conversations = [], isLoading, refetch: refetchConversations } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
     queryFn: () => listConversations(session!.tokens.accessToken),
     enabled: Boolean(session),
     refetchInterval: 5000
   });
+  const { refreshing, handleRefresh } = useLocalRefresh(refetchConversations);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -95,8 +97,8 @@ export default function ConversationsPage() {
           estimatedItemSize={90}
           refreshControl={
             <RefreshControl
-              refreshing={conversationsRefetching}
-              onRefresh={refetchConversations}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
               tintColor={theme.colors.primary}
             />
           }

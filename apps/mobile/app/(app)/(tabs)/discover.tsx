@@ -51,6 +51,7 @@ import {
   rsvpEvent
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 /* ------------------------------------------------------------------ */
@@ -263,7 +264,6 @@ export default function DiscoverPage() {
   const {
     data: venues = [],
     refetch: refetchVenues,
-    isRefetching: venuesRefetching,
     isLoading: venuesLoading
   } = useQuery({
     queryKey: ["explore-venues", session?.tokens.accessToken, userLocation?.latitude, userLocation?.longitude],
@@ -274,7 +274,6 @@ export default function DiscoverPage() {
   const {
     data: events = [],
     refetch: refetchEvents,
-    isRefetching: eventsRefetching,
     isLoading: eventsLoading
   } = useQuery({
     queryKey: ["explore-events", session?.tokens.accessToken],
@@ -293,6 +292,17 @@ export default function DiscoverPage() {
     queryFn: () => listVetClinics(session!.tokens.accessToken, userLocation?.latitude ?? 0, userLocation?.longitude ?? 0),
     enabled: Boolean(session) && Boolean(userLocation)
   });
+
+  const refetchActiveTab = useCallback(async () => {
+    if (activeTab === "venues") {
+      await refetchVenues();
+    } else if (activeTab === "events") {
+      await refetchEvents();
+    } else {
+      await refetchVenues();
+    }
+  }, [activeTab, refetchVenues, refetchEvents]);
+  const { refreshing, handleRefresh } = useLocalRefresh(refetchActiveTab);
 
   /* ---- Location ---- */
 
@@ -1164,12 +1174,8 @@ export default function DiscoverPage() {
             scrollEnabled={sheetExpanded}
             refreshControl={
               <RefreshControl
-                refreshing={
-                  activeTab === "venues" ? venuesRefetching : eventsRefetching
-                }
-                onRefresh={
-                  activeTab === "venues" ? refetchVenues : activeTab === "events" ? refetchEvents : refetchVenues
-                }
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
                 tintColor={theme.colors.primary}
               />
             }

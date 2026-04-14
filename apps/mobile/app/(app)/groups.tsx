@@ -44,6 +44,7 @@ import { CreateGroupModal } from "@/components/groups/create-group-modal";
 import { listGroups, listTaxonomies, joinGroup, joinGroupByCode } from "@/lib/api";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 import type { CommunityGroup } from "@petto/contracts";
 
@@ -154,7 +155,9 @@ export default function GroupsPage() {
     }
   });
 
-  const onRefresh = useCallback(() => { groupsQuery.refetch(); }, [groupsQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => groupsQuery.refetch(), [groupsQuery])
+  );
 
   const allGroups = groupsQuery.data ?? [];
   const myGroups = useMemo(() => allGroups.filter((g) => g.isMember), [allGroups]);
@@ -752,7 +755,7 @@ export default function GroupsPage() {
           paddingBottom: insets.bottom + 32
         }}
         refreshControl={
-          <RefreshControl refreshing={groupsQuery.isRefetching} onRefresh={onRefresh} tintColor={theme.colors.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
         }
       >
         {groupsQuery.isLoading && (

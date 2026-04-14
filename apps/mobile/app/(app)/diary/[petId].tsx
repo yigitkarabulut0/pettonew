@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { listDiary, createDiaryEntry } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 const MOOD_OPTIONS: { key: string; emoji: string; labelKey: string }[] = [
@@ -81,9 +82,9 @@ export default function DiaryPage() {
     }
   });
 
-  const onRefresh = useCallback(() => {
-    diaryQuery.refetch();
-  }, [diaryQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => diaryQuery.refetch(), [diaryQuery])
+  );
 
   const entries = diaryQuery.data ?? [];
 
@@ -156,8 +157,8 @@ export default function DiaryPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={diaryQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }

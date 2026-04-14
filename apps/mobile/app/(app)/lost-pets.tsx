@@ -47,6 +47,7 @@ import {
 import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -992,9 +993,9 @@ export default function AdoptionPage() {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const onRefresh = useCallback(() => {
-    adoptionsQuery.refetch();
-  }, [adoptionsQuery]);
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(() => adoptionsQuery.refetch(), [adoptionsQuery])
+  );
 
   const allListings = (adoptionsQuery.data ?? []) as AdoptionItem[];
   const listings = allListings.filter((l) => l.status === "active");
@@ -1090,8 +1091,8 @@ export default function AdoptionPage() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={adoptionsQuery.isRefetching}
-            onRefresh={onRefresh}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
             tintColor={theme.colors.primary}
           />
         }
