@@ -2055,10 +2055,14 @@ func (s *Server) handleGetGroup(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	// Enrich with members + admin/owner state via conversation lookup.
+	// NOTE: GetGroupByConversation doesn't populate IsMember for the caller —
+	// it has no concept of "viewer". We compute it explicitly below.
 	detail := s.store.GetGroupByConversation(found.ConversationID)
 	if detail != nil {
 		found = detail
 	}
+	isMember, _ := s.store.IsGroupMember(userID, groupID)
+	found.IsMember = isMember
 	isAdmin, _ := s.store.IsGroupAdmin(userID, groupID)
 	found.IsAdmin = isAdmin
 	found.IsOwner = found.OwnerUserID == userID
