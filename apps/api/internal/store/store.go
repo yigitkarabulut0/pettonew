@@ -167,6 +167,8 @@ type Store interface {
 	KickGroupMember(actorUserID string, groupID string, targetUserID string) error
 	PromoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error
 	DemoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error
+	LeaveGroup(userID string, groupID string) (bool, error)
+	DeleteGroup(groupID string) error
 	IsGroupMember(userID string, groupID string) (bool, error)
 	IsGroupAdmin(userID string, groupID string) (bool, error)
 	GetGroupMute(userID string, groupID string) (muted bool, until *time.Time)

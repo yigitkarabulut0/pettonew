@@ -20,6 +20,7 @@ import {
   Hash,
   Info,
   Key,
+  LogOut,
   Lock,
   MapPin,
   MessageCircle,
@@ -38,6 +39,7 @@ import {
   getGroupDetail,
   joinGroup,
   kickGroupMember,
+  leaveGroup,
   muteGroupMember,
   promoteGroupAdmin,
   unmuteGroupMember
@@ -86,7 +88,7 @@ export default function GroupDetailPage() {
     }
   };
 
-  const runMemberAction = async (
+  const performMemberAction = async (
     action: "mute-1h" | "mute-24h" | "mute-indef" | "unmute" | "promote" | "demote" | "kick",
     targetUserID: string
   ) => {
@@ -119,8 +121,114 @@ export default function GroupDetailPage() {
       refetch();
     } catch (err: any) {
       Alert.alert("Action failed", err?.message || "");
-    } finally {
-      setActionTarget(null);
+    }
+  };
+
+  const runMemberAction = (
+    action: "mute-1h" | "mute-24h" | "mute-indef" | "unmute" | "promote" | "demote" | "kick",
+    targetUserID: string,
+    targetName?: string
+  ) => {
+    const name = targetName || "this member";
+    // Destructive actions require a two-button confirm.
+    const confirmed = (onConfirm: () => void, title: string, body: string, destructiveLabel: string) => {
+      Alert.alert(title, body, [
+        { text: t("common.cancel") as string, style: "cancel", onPress: () => setActionTarget(null) },
+        {
+          text: destructiveLabel,
+          style: "destructive",
+          onPress: async () => {
+            await onConfirm();
+            setActionTarget(null);
+          }
+        }
+      ]);
+    };
+
+    switch (action) {
+      case "demote":
+        confirmed(
+          () => performMemberAction("demote", targetUserID),
+          t("groups.confirmDemoteTitle") as string,
+          t("groups.confirmDemoteBody", { name }) as string,
+          t("groups.demoteAdmin") as string
+        );
+        return;
+      case "kick":
+        confirmed(
+          () => performMemberAction("kick", targetUserID),
+          t("groups.confirmKickTitle") as string,
+          t("groups.confirmKickBody", { name }) as string,
+          t("groups.kickMember") as string
+        );
+        return;
+      case "mute-indef":
+        confirmed(
+          () => performMemberAction("mute-indef", targetUserID),
+          t("groups.confirmMuteTitle") as string,
+          t("groups.confirmMuteBody", { name }) as string,
+          t("groups.muteIndef") as string
+        );
+        return;
+      default:
+        performMemberAction(action, targetUserID).finally(() => setActionTarget(null));
+    }
+  };
+
+  // Leave / delete group — derived from admin count.
+  const adminCount =
+    (group?.ownerUserId ? 1 : 0) + (group?.adminUserIds?.length ?? 0);
+  const isLastAdmin = Boolean(group?.isAdmin) && adminCount <= 1;
+
+  const leaveMutation = useMutation({
+    mutationFn: async () => {
+      if (!session || !group?.id) throw new Error("no session");
+      return leaveGroup(session.tokens.accessToken, group.id);
+    },
+    onSuccess: (result) => {
+      // Invalidate any query that surfaces this group so the UI updates.
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["group-detail", group?.id] });
+      queryClient.invalidateQueries({ queryKey: ["group-by-conv"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      if (result?.deleted) {
+        Alert.alert(t("groups.groupDeletedTitle") as string, t("groups.groupDeletedBody") as string);
+      }
+      router.replace("/(app)/groups" as any);
+    },
+    onError: (err: any) => {
+      Alert.alert(t("groups.leaveGroup") as string, err?.message || "Failed");
+    }
+  });
+
+  const handleLeavePress = () => {
+    if (isLastAdmin) {
+      Alert.alert(
+        t("groups.confirmDeleteTitle") as string,
+        t("groups.confirmDeleteBody") as string,
+        [
+          { text: t("common.cancel") as string, style: "cancel" },
+          {
+            text: t("groups.leaveAndDelete") as string,
+            style: "destructive",
+            onPress: () => leaveMutation.mutate()
+          }
+        ]
+      );
+    } else {
+      Alert.alert(
+        t("groups.confirmLeaveTitle") as string,
+        t("groups.confirmLeaveBody") as string,
+        [
+          { text: t("common.cancel") as string, style: "cancel" },
+          {
+            text: t("groups.leaveGroup") as string,
+            style: "destructive",
+            onPress: () => leaveMutation.mutate()
+          }
+        ]
+      );
     }
   };
 
@@ -674,6 +782,54 @@ export default function GroupDetailPage() {
             ))}
           </View>
         )}
+
+        {/* ── Leave group ─────────────────────────────────── */}
+        {isMember ? (
+          <View style={{ paddingHorizontal: 20, paddingTop: 32 }}>
+            <Pressable
+              onPress={handleLeavePress}
+              disabled={leaveMutation.isPending}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.pill,
+                borderWidth: 1,
+                borderColor: theme.colors.danger,
+                backgroundColor: theme.colors.dangerBg,
+                opacity: leaveMutation.isPending ? 0.6 : 1
+              }}
+            >
+              <LogOut size={16} color={theme.colors.danger} />
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: theme.colors.danger,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {isLastAdmin
+                  ? (t("groups.leaveAndDelete") as string)
+                  : (t("groups.leaveGroup") as string)}
+              </Text>
+            </Pressable>
+            {isLastAdmin && (
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 11,
+                  color: theme.colors.muted,
+                  fontFamily: "Inter_500Medium",
+                  textAlign: "center"
+                }}
+              >
+                {t("groups.lastAdminWarning")}
+              </Text>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* ── Members Manager Modal ──────────────────────── */}
@@ -877,7 +1033,11 @@ export default function GroupDetailPage() {
             >
               {actionTarget?.firstName}
             </Text>
-            {isOwner && actionTarget && (
+            {/* Any admin can promote/demote. Promote is hidden if the
+                target is already an admin; demote is hidden unless the
+                target is an admin AND is not the owner (server also
+                enforces this as a safety net). */}
+            {isAdmin && actionTarget && !(group.adminUserIds ?? []).includes(actionTarget.userId) && actionTarget.userId !== group.ownerUserId && (
               <Pressable
                 onPress={() => runMemberAction("promote", actionTarget.userId)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
@@ -888,9 +1048,9 @@ export default function GroupDetailPage() {
                 </Text>
               </Pressable>
             )}
-            {isOwner && actionTarget && (group.adminUserIds ?? []).includes(actionTarget.userId) && (
+            {isAdmin && actionTarget && (group.adminUserIds ?? []).includes(actionTarget.userId) && actionTarget.userId !== group.ownerUserId && (
               <Pressable
-                onPress={() => runMemberAction("demote", actionTarget.userId)}
+                onPress={() => runMemberAction("demote", actionTarget.userId, actionTarget.firstName)}
                 style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
               >
                 <ShieldCheck size={18} color={theme.colors.muted} />
@@ -918,7 +1078,7 @@ export default function GroupDetailPage() {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => actionTarget && runMemberAction("mute-indef", actionTarget.userId)}
+              onPress={() => actionTarget && runMemberAction("mute-indef", actionTarget.userId, actionTarget.firstName)}
               style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
             >
               <MicOff size={18} color={theme.colors.danger} />
@@ -936,7 +1096,7 @@ export default function GroupDetailPage() {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => actionTarget && runMemberAction("kick", actionTarget.userId)}
+              onPress={() => actionTarget && runMemberAction("kick", actionTarget.userId, actionTarget.firstName)}
               style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14 }}
             >
               <UserMinus size={18} color={theme.colors.danger} />

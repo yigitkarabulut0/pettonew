@@ -2414,6 +2414,12 @@ func (s *MemoryStore) PromoteGroupAdmin(_ string, _ string, _ string) error {
 func (s *MemoryStore) DemoteGroupAdmin(_ string, _ string, _ string) error {
 	return fmt.Errorf("unsupported in memory store")
 }
+func (s *MemoryStore) LeaveGroup(_ string, _ string) (bool, error) {
+	return false, fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) DeleteGroup(_ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
 func (s *MemoryStore) IsGroupMember(userID string, groupID string) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

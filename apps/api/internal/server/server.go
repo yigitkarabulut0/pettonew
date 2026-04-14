@@ -128,6 +128,7 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/groups", s.handleListGroups)
 			router.Post("/groups", s.handleCreateGroup)
 			router.Post("/groups/{groupID}/join", s.handleJoinGroup)
+			router.Post("/groups/{groupID}/leave", s.handleLeaveGroup)
 			router.Post("/groups/join-by-code", s.handleJoinGroupByCode)
 			router.Get("/groups/conversation/{conversationID}", s.handleGetGroupByConversation)
 			// Lost pets
@@ -2185,6 +2186,15 @@ func (s *Server) handleDemoteGroupAdmin(writer http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"admin": false}})
+}
+
+func (s *Server) handleLeaveGroup(writer http.ResponseWriter, request *http.Request) {
+	deleted, err := s.store.LeaveGroup(currentUserID(request), chi.URLParam(request, "groupID"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"left": true, "deleted": deleted}})
 }
 
 // ── Admin Create Pet Sitter ─────────────────────────────────────────

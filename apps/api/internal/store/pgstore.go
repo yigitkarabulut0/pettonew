@@ -1806,11 +1806,11 @@ func (s *PostgresStore) KickGroupMember(actorUserID string, groupID string, targ
 	return nil
 }
 
-// PromoteGroupAdmin grants admin rights. Owner only.
+// PromoteGroupAdmin grants admin rights. Any admin may promote another
+// member — per the spec, multiple admins share full control.
 func (s *PostgresStore) PromoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error {
-	var owner string
-	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&owner)
-	if owner == "" || owner != actorUserID {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
 		return fmt.Errorf("forbidden")
 	}
 	isMember, _ := s.IsGroupMember(targetUserID, groupID)
@@ -1823,16 +1823,149 @@ func (s *PostgresStore) PromoteGroupAdmin(actorUserID string, groupID string, ta
 	return err
 }
 
-// DemoteGroupAdmin revokes admin rights. Owner only.
+// DemoteGroupAdmin revokes admin rights. Any admin may demote another
+// admin, but the owner is protected — to lose ownership the owner must
+// leave, which transfers ownership to the next admin (see LeaveGroup).
 func (s *PostgresStore) DemoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
+		return fmt.Errorf("forbidden")
+	}
 	var owner string
 	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&owner)
-	if owner == "" || owner != actorUserID {
-		return fmt.Errorf("forbidden")
+	if owner != "" && owner == targetUserID {
+		return fmt.Errorf("cannot demote owner")
 	}
 	_, err := s.pool.Exec(s.ctx(),
 		`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
 	return err
+}
+
+// LeaveGroup removes the caller from a group. If the caller is the last
+// admin, the group and all its data are deleted. Otherwise, if the caller
+// was the owner, ownership is transferred to the oldest remaining admin.
+// Returns deletedGroup=true when the "last admin" branch fires.
+func (s *PostgresStore) LeaveGroup(userID string, groupID string) (bool, error) {
+	var convID, ownerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,''), COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`,
+		groupID).Scan(&convID, &ownerID)
+	if err != nil || convID == "" {
+		return false, fmt.Errorf("group not found")
+	}
+
+	isMember, _ := s.IsGroupMember(userID, groupID)
+	if !isMember {
+		return false, fmt.Errorf("not a member")
+	}
+
+	// Count admins: owner + community_group_admins rows (deduped).
+	var adminRowCount int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM community_group_admins WHERE group_id = $1 AND user_id <> $2`,
+		groupID, ownerID).Scan(&adminRowCount)
+	isOwner := ownerID == userID
+	isCallerAdmin, _ := s.IsGroupAdmin(userID, groupID)
+	adminCount := adminRowCount
+	if ownerID != "" {
+		adminCount++
+	}
+
+	// Last admin leaving → delete the whole group.
+	if isCallerAdmin && adminCount <= 1 {
+		if err := s.DeleteGroup(groupID); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	// Remove caller from conversation membership + any admin/mute rows.
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET user_ids = array_remove(user_ids, $1) WHERE id = $2`,
+		userID, convID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`,
+		groupID, userID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`DELETE FROM community_group_mutes WHERE group_id = $1 AND user_id = $2`,
+		groupID, userID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE community_groups SET member_count = (
+			SELECT COALESCE(array_length(user_ids,1),0) FROM conversations WHERE id = $2
+		) WHERE id = $1`,
+		groupID, convID)
+
+	// If the owner is leaving, transfer ownership to the oldest remaining admin.
+	if isOwner {
+		var nextOwner string
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT user_id FROM community_group_admins
+			 WHERE group_id = $1
+			 ORDER BY granted_at ASC
+			 LIMIT 1`, groupID).Scan(&nextOwner)
+		if nextOwner != "" {
+			_, _ = s.pool.Exec(s.ctx(),
+				`UPDATE community_groups SET owner_user_id = $2 WHERE id = $1`, groupID, nextOwner)
+			// The new owner is implicitly an admin — drop the explicit row.
+			_, _ = s.pool.Exec(s.ctx(),
+				`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`,
+				groupID, nextOwner)
+		}
+	}
+
+	// System message: {firstName} left the group
+	var firstName string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`,
+		userID).Scan(&firstName)
+	s.insertSystemMessage(convID, "member_left", map[string]any{
+		"kind":      "member_left",
+		"userId":    userID,
+		"firstName": firstName,
+	})
+
+	return false, nil
+}
+
+// DeleteGroup removes every row tied to a community group. Called from
+// LeaveGroup when the last admin leaves; can be invoked directly by an
+// admin-only handler later if needed.
+func (s *PostgresStore) DeleteGroup(groupID string) error {
+	var convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
+	if err != nil {
+		return fmt.Errorf("group not found")
+	}
+
+	tx, err := s.pool.Begin(s.ctx())
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(s.ctx())
+
+	// Order matters due to FKs: messages → conversations, so messages first.
+	if convID != "" {
+		if _, err := tx.Exec(s.ctx(), `DELETE FROM messages WHERE conversation_id = $1`, convID); err != nil {
+			return fmt.Errorf("delete messages: %w", err)
+		}
+	}
+	if _, err := tx.Exec(s.ctx(), `DELETE FROM community_group_admins WHERE group_id = $1`, groupID); err != nil {
+		return fmt.Errorf("delete admins: %w", err)
+	}
+	if _, err := tx.Exec(s.ctx(), `DELETE FROM community_group_mutes WHERE group_id = $1`, groupID); err != nil {
+		return fmt.Errorf("delete mutes: %w", err)
+	}
+	if _, err := tx.Exec(s.ctx(), `DELETE FROM community_groups WHERE id = $1`, groupID); err != nil {
+		return fmt.Errorf("delete group: %w", err)
+	}
+	if convID != "" {
+		if _, err := tx.Exec(s.ctx(), `DELETE FROM conversations WHERE id = $1`, convID); err != nil {
+			return fmt.Errorf("delete conversation: %w", err)
+		}
+	}
+
+	return tx.Commit(s.ctx())
 }
 
 // IsGroupMember checks whether a user is part of a group's conversation.

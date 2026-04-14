@@ -1017,6 +1017,16 @@ export async function listGroups(
 export async function joinGroup(accessToken: string, groupId: string): Promise<void> {
   await request(`/v1/groups/${groupId}/join`, { method: "POST", headers: authHeaders(accessToken) });
 }
+export async function leaveGroup(
+  accessToken: string,
+  groupId: string
+): Promise<{ left: boolean; deleted: boolean }> {
+  const res = await request<{ left?: boolean; deleted?: boolean } | null>(
+    `/v1/groups/${groupId}/leave`,
+    { method: "POST", headers: authHeaders(accessToken) }
+  );
+  return { left: Boolean(res?.left), deleted: Boolean(res?.deleted) };
+}
 export async function joinGroupByCode(accessToken: string, code: string): Promise<CommunityGroup> {
   return request<CommunityGroup>("/v1/groups/join-by-code", {
     method: "POST",
