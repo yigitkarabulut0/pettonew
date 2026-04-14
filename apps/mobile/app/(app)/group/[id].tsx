@@ -6,6 +6,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   Text,
   View
 } from "react-native";
@@ -18,23 +19,23 @@ import {
   Crown,
   Hash,
   Info,
+  Key,
   Lock,
   MapPin,
   MessageCircle,
   MicOff,
   MoreVertical,
   PawPrint,
+  Share2,
   ShieldCheck,
   UserMinus,
   X
 } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
-import { MessageBubble } from "@/components/chat/message-bubble";
 import {
   demoteGroupAdmin,
   getGroupDetail,
-  getGroupPreview,
   joinGroup,
   kickGroupMember,
   muteGroupMember,
@@ -43,7 +44,7 @@ import {
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
-import type { GroupMember, Message } from "@petto/contracts";
+import type { GroupMember } from "@petto/contracts";
 
 export default function GroupDetailPage() {
   const { t } = useTranslation();
@@ -60,12 +61,6 @@ export default function GroupDetailPage() {
   const { data: group, refetch } = useQuery({
     queryKey: ["group-detail", id],
     queryFn: () => getGroupDetail(session!.tokens.accessToken, id),
-    enabled: Boolean(session && id)
-  });
-
-  const { data: previewMessages = [] } = useQuery({
-    queryKey: ["group-preview", id],
-    queryFn: () => getGroupPreview(session!.tokens.accessToken, id),
     enabled: Boolean(session && id)
   });
 
@@ -413,125 +408,212 @@ export default function GroupDetailPage() {
           </View>
         )}
 
-        {/* ── Chat preview / gate ─────────────────────────── */}
-        <View
-          style={{
-            marginTop: 24,
-            marginHorizontal: 20,
-            padding: 16,
-            borderRadius: mobileTheme.radius.lg,
-            backgroundColor: theme.colors.white,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            ...mobileTheme.shadow.sm
-          }}
-        >
+        {/* ── Invite code (members only) / Join CTA (non-members) ─── */}
+        {isMember && group.code ? (
           <View
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 12,
-              gap: 8
+              marginTop: 24,
+              marginHorizontal: 20,
+              padding: 20,
+              borderRadius: mobileTheme.radius.lg,
+              backgroundColor: theme.colors.white,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              ...mobileTheme.shadow.sm
             }}
           >
-            <MessageCircle size={18} color={theme.colors.primary} />
-            <Text
+            <View
               style={{
-                fontSize: 14,
-                fontFamily: "Inter_700Bold",
-                color: theme.colors.ink,
-                flex: 1
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 6,
+                gap: 8
               }}
             >
-              {t("groups.chat")}
-            </Text>
-          </View>
-
-          <View style={{ position: "relative" }}>
-            {previewMessages.length === 0 ? (
-              <View
+              <Key size={16} color={theme.colors.primary} />
+              <Text
                 style={{
-                  paddingVertical: 24,
-                  alignItems: "center"
+                  fontSize: 13,
+                  fontFamily: "Inter_700Bold",
+                  color: theme.colors.primary,
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase"
                 }}
               >
+                {t("groups.inviteCodeLabel")}
+              </Text>
+            </View>
+            <Text
+              style={{
+                fontSize: 13,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium",
+                marginBottom: 14,
+                lineHeight: 18
+              }}
+            >
+              {t("groups.inviteCodeHint")}
+            </Text>
+
+            <View
+              style={{
+                paddingVertical: 18,
+                paddingHorizontal: 20,
+                borderRadius: mobileTheme.radius.md,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center",
+                marginBottom: 14
+              }}
+            >
+              <Text
+                selectable
+                style={{
+                  fontSize: 32,
+                  letterSpacing: 6,
+                  color: theme.colors.primary,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {group.code}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    await Share.share({
+                      message: t("groups.shareCodeMessage", {
+                        name: group.name,
+                        code: group.code
+                      })
+                    });
+                  } catch (err: any) {
+                    Alert.alert("Share failed", err?.message || "");
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  paddingVertical: 14,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: theme.colors.primary
+                }}
+              >
+                <Share2 size={16} color={theme.colors.white} />
                 <Text
                   style={{
-                    color: theme.colors.muted,
-                    fontFamily: "Inter_500Medium",
-                    fontSize: 13
+                    color: theme.colors.white,
+                    fontFamily: "Inter_700Bold",
+                    fontSize: 14
                   }}
                 >
-                  {t("chat.noMessagesYet")}
+                  {t("groups.shareInvite")}
                 </Text>
-              </View>
-            ) : (
-              <View style={{ gap: 2 }}>
-                {previewMessages.map((msg: Message) => (
-                  <MessageBubble
-                    key={msg.id}
-                    message={{ ...msg, isMine: false }}
-                    showAvatar={false}
-                    showName
-                    showTimestamp={false}
-                  />
-                ))}
-              </View>
-            )}
-
-            {!isMember && previewMessages.length > 0 && (
-              <View
-                pointerEvents="none"
+              </Pressable>
+              <Pressable
+                onPress={openChat}
                 style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  backgroundColor: "rgba(255,255,255,0.72)",
+                  flex: 1,
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
+                  gap: 8,
+                  paddingVertical: 14,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: theme.colors.secondarySoft
                 }}
               >
-                <View
+                <MessageCircle size={16} color={theme.colors.secondary} />
+                <Text
                   style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: theme.colors.primary,
-                    alignItems: "center",
-                    justifyContent: "center"
+                    color: theme.colors.secondary,
+                    fontFamily: "Inter_700Bold",
+                    fontSize: 14
                   }}
                 >
-                  <Lock size={20} color="#FFFFFF" />
-                </View>
-              </View>
-            )}
+                  {t("groups.openChat")}
+                </Text>
+              </Pressable>
+            </View>
           </View>
-
-          <Pressable
-            onPress={isMember ? openChat : () => joinMutation.mutate()}
-            disabled={joinMutation.isPending}
+        ) : !isMember ? (
+          <View
             style={{
-              marginTop: 14,
-              paddingVertical: 14,
-              borderRadius: mobileTheme.radius.pill,
-              backgroundColor: theme.colors.primary,
+              marginTop: 24,
+              marginHorizontal: 20,
+              padding: 24,
+              borderRadius: mobileTheme.radius.lg,
+              backgroundColor: theme.colors.white,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
               alignItems: "center",
-              opacity: joinMutation.isPending ? 0.6 : 1
+              ...mobileTheme.shadow.sm
             }}
           >
-            <Text
+            <View
               style={{
-                color: theme.colors.white,
-                fontFamily: "Inter_700Bold",
-                fontSize: 15
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 12
               }}
             >
-              {isMember ? t("groups.openChat") : t("groups.joinToChat")}
+              <Lock size={22} color={theme.colors.primary} />
+            </View>
+            <Text
+              style={{
+                fontSize: 16,
+                color: theme.colors.ink,
+                fontFamily: "Inter_700Bold",
+                marginBottom: 6
+              }}
+            >
+              {t("groups.joinToChatTitle")}
             </Text>
-          </Pressable>
-        </View>
+            <Text
+              style={{
+                fontSize: 13,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium",
+                textAlign: "center",
+                lineHeight: 19,
+                marginBottom: 16,
+                maxWidth: 260
+              }}
+            >
+              {t("groups.joinToChatBody")}
+            </Text>
+            <Pressable
+              onPress={() => joinMutation.mutate()}
+              disabled={joinMutation.isPending}
+              style={{
+                alignSelf: "stretch",
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: theme.colors.primary,
+                alignItems: "center",
+                opacity: joinMutation.isPending ? 0.6 : 1
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.colors.white,
+                  fontFamily: "Inter_700Bold",
+                  fontSize: 15
+                }}
+              >
+                {t("groups.joinToChat")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* ── Rules ───────────────────────────────────────── */}
         {group.rules && group.rules.length > 0 && (

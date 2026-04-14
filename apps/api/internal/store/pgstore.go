@@ -96,6 +96,24 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		  AND array_length(c.user_ids, 1) >= 1
 	`)
 
+	// Backfill invite codes for groups missing one. We can't do this in pure
+	// SQL because we want Go-side code generation for collision safety.
+	backfillRows, _ := pool.Query(ctx,
+		`SELECT id FROM community_groups WHERE code IS NULL OR code = ''`)
+	if backfillRows != nil {
+		var pendingIDs []string
+		for backfillRows.Next() {
+			var id string
+			if err := backfillRows.Scan(&id); err == nil {
+				pendingIDs = append(pendingIDs, id)
+			}
+		}
+		backfillRows.Close()
+		for _, id := range pendingIDs {
+			pool.Exec(ctx, `UPDATE community_groups SET code = $2 WHERE id = $1`, id, generateGroupCode())
+		}
+	}
+
 	return &PostgresStore{pool: pool}, nil
 }
 
@@ -3238,8 +3256,9 @@ func (s *PostgresStore) CreateGroup(creatorUserID string, group domain.Community
 	convID := newID("conv")
 	group.ConversationID = convID
 
-	// Auto-generate 6-char code for private groups
-	if group.IsPrivate && group.Code == "" {
+	// Auto-generate 6-char invite code for EVERY group. Members share this
+	// code to invite others; public groups use it for convenience too.
+	if group.Code == "" {
 		group.Code = generateGroupCode()
 	}
 
