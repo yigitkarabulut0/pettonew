@@ -188,8 +188,13 @@ export default function GroupsPage() {
     const isPrivate = Boolean(group.isPrivate);
 
     const handleOpen = () => {
+      // Joined members go straight to chat (per product decision). Anyone
+      // else (discover/preview) gets sent to the full detail page where a
+      // non-member preview + "Join to chat" CTA lives.
       if (group.isMember && group.conversationId) {
         router.push(`/(app)/conversation/${group.conversationId}` as any);
+      } else {
+        router.push(`/(app)/group/${group.id}` as any);
       }
     };
 

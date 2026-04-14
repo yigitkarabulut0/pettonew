@@ -55,6 +55,47 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS rules TEXT[] NOT NULL DEFAULT '{}'`)
 	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`)
 
+	// ── Group Chat v0.2.0 ───────────────────────────────────────────
+	// messages: richer payloads + moderation state
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type TEXT NOT NULL DEFAULT 'text'`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_url TEXT`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_avatar_url TEXT`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by TEXT`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ`)
+	pool.Exec(ctx, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_by TEXT`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_messages_pinned ON messages(conversation_id) WHERE pinned_at IS NOT NULL`)
+
+	// community_groups: ownership
+	pool.Exec(ctx, `ALTER TABLE community_groups ADD COLUMN IF NOT EXISTS owner_user_id TEXT NOT NULL DEFAULT ''`)
+
+	// group admins + mutes
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS community_group_admins (
+		group_id   TEXT NOT NULL,
+		user_id    TEXT NOT NULL,
+		granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (group_id, user_id)
+	)`)
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS community_group_mutes (
+		group_id    TEXT NOT NULL,
+		user_id     TEXT NOT NULL,
+		muted_until TIMESTAMPTZ,
+		muted_by    TEXT NOT NULL,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (group_id, user_id)
+	)`)
+
+	// Backfill owner_user_id from first user of each group's conversation (one-shot).
+	pool.Exec(ctx, `
+		UPDATE community_groups g
+		SET owner_user_id = c.user_ids[1]
+		FROM conversations c
+		WHERE g.conversation_id = c.id
+		  AND (g.owner_user_id IS NULL OR g.owner_user_id = '')
+		  AND array_length(c.user_ids, 1) >= 1
+	`)
+
 	return &PostgresStore{pool: pool}, nil
 }
 
@@ -1260,7 +1301,13 @@ func (s *PostgresStore) ListMessages(userID string, conversationID string) ([]do
 	}
 
 	rows, err := s.pool.Query(s.ctx(),
-		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at
+		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
+		        COALESCE(message_type, 'text'),
+		        COALESCE(image_url, ''),
+		        COALESCE(metadata::text, '{}'),
+		        COALESCE(sender_avatar_url, ''),
+		        deleted_at, COALESCE(deleted_by, ''),
+		        pinned_at,  COALESCE(pinned_by, '')
 		 FROM messages
 		 WHERE conversation_id = $1
 		 ORDER BY created_at`, conversationID)
@@ -1271,22 +1318,53 @@ func (s *PostgresStore) ListMessages(userID string, conversationID string) ([]do
 
 	messages := make([]domain.Message, 0)
 	for rows.Next() {
-		var m domain.Message
-		var createdAt time.Time
-		var readAt *time.Time
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderProfileID,
-			&m.SenderName, &m.Body, &readAt, &createdAt); err != nil {
+		m, ok := scanMessageRow(rows, userID)
+		if !ok {
 			continue
 		}
-		m.CreatedAt = createdAt.Format(time.RFC3339)
-		if readAt != nil {
-			t := readAt.Format(time.RFC3339)
-			m.ReadAt = &t
-		}
-		m.IsMine = m.SenderProfileID == userID
 		messages = append(messages, m)
 	}
 	return messages, nil
+}
+
+// scanMessageRow reads a row produced by the enriched SELECT in ListMessages /
+// ListGroupMessagesFor / GetGroupChatPreview / ListGroupPinnedMessages.
+func scanMessageRow(rows pgx.Rows, viewerUserID string) (domain.Message, bool) {
+	var m domain.Message
+	var createdAt time.Time
+	var readAt, deletedAt, pinnedAt *time.Time
+	var metadataJSON string
+	if err := rows.Scan(
+		&m.ID, &m.ConversationID, &m.SenderProfileID, &m.SenderName, &m.Body, &readAt, &createdAt,
+		&m.Type, &m.ImageURL, &metadataJSON, &m.SenderAvatarURL,
+		&deletedAt, &m.DeletedBy, &pinnedAt, &m.PinnedBy,
+	); err != nil {
+		return domain.Message{}, false
+	}
+	m.CreatedAt = createdAt.Format(time.RFC3339)
+	if readAt != nil {
+		t := readAt.Format(time.RFC3339)
+		m.ReadAt = &t
+	}
+	if deletedAt != nil {
+		t := deletedAt.Format(time.RFC3339)
+		m.DeletedAt = &t
+	}
+	if pinnedAt != nil {
+		t := pinnedAt.Format(time.RFC3339)
+		m.PinnedAt = &t
+	}
+	if metadataJSON != "" && metadataJSON != "{}" {
+		var meta map[string]any
+		if err := json.Unmarshal([]byte(metadataJSON), &meta); err == nil && len(meta) > 0 {
+			m.Metadata = meta
+		}
+	}
+	if m.Type == "" {
+		m.Type = "text"
+	}
+	m.IsMine = m.SenderProfileID == viewerUserID
+	return m, true
 }
 
 func (s *PostgresStore) SendMessage(userID string, conversationID string, body string) (domain.Message, error) {
@@ -1308,19 +1386,19 @@ func (s *PostgresStore) SendMessage(userID string, conversationID string, body s
 		return domain.Message{}, fmt.Errorf("conversation not found")
 	}
 
-	// Get sender name
-	var senderName string
+	// Get sender name & avatar
+	var senderName, senderAvatar string
 	_ = s.pool.QueryRow(s.ctx(),
-		`SELECT first_name FROM user_profiles WHERE user_id = $1`, userID).Scan(&senderName)
+		`SELECT COALESCE(first_name, ''), COALESCE(avatar_url, '') FROM user_profiles WHERE user_id = $1`, userID).Scan(&senderName, &senderAvatar)
 
 	msgID := newID("message")
 	now := time.Now().UTC()
 	body = strings.TrimSpace(body)
 
 	_, err = s.pool.Exec(s.ctx(),
-		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, body, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		msgID, conversationID, userID, senderName, body, now)
+		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, sender_avatar_url, message_type, body, created_at)
+		 VALUES ($1, $2, $3, $4, $5, 'text', $6, $7)`,
+		msgID, conversationID, userID, senderName, senderAvatar, body, now)
 	if err != nil {
 		return domain.Message{}, fmt.Errorf("send message: %w", err)
 	}
@@ -1343,6 +1421,8 @@ func (s *PostgresStore) SendMessage(userID string, conversationID string, body s
 		ConversationID:  conversationID,
 		SenderProfileID: userID,
 		SenderName:      senderName,
+		SenderAvatarURL: senderAvatar,
+		Type:            "text",
 		Body:            body,
 		CreatedAt:       now.Format(time.RFC3339),
 		IsMine:          true,
@@ -1357,7 +1437,16 @@ func (s *PostgresStore) MarkMessagesRead(userID string, conversationID string) {
 		conversationID, userID, now)
 }
 
+// ListGroupMessages is a legacy signature kept for the existing Store interface.
+// It lists *all* non-deleted messages for a group without attributing "isMine".
 func (s *PostgresStore) ListGroupMessages(groupID string) ([]domain.Message, error) {
+	return s.ListGroupMessagesFor("", groupID)
+}
+
+// ListGroupMessagesFor returns messages in a group's conversation, filtering
+// out deleted rows and enriching with avatar/type/metadata. If viewerUserID is
+// non-empty the message's IsMine flag is set accordingly.
+func (s *PostgresStore) ListGroupMessagesFor(viewerUserID string, groupID string) ([]domain.Message, error) {
 	var convID string
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
@@ -1369,8 +1458,17 @@ func (s *PostgresStore) ListGroupMessages(groupID string) ([]domain.Message, err
 	}
 
 	rows, err := s.pool.Query(s.ctx(),
-		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at
-		 FROM messages WHERE conversation_id = $1 ORDER BY created_at`, convID)
+		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
+		        COALESCE(message_type, 'text'),
+		        COALESCE(image_url, ''),
+		        COALESCE(metadata::text, '{}'),
+		        COALESCE(sender_avatar_url, ''),
+		        deleted_at, COALESCE(deleted_by, ''),
+		        pinned_at,  COALESCE(pinned_by, '')
+		 FROM messages
+		 WHERE conversation_id = $1 AND deleted_at IS NULL
+		 ORDER BY created_at
+		 LIMIT 500`, convID)
 	if err != nil {
 		return []domain.Message{}, nil
 	}
@@ -1378,24 +1476,96 @@ func (s *PostgresStore) ListGroupMessages(groupID string) ([]domain.Message, err
 
 	messages := make([]domain.Message, 0)
 	for rows.Next() {
-		var m domain.Message
-		var createdAt time.Time
-		var readAt *time.Time
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderProfileID,
-			&m.SenderName, &m.Body, &readAt, &createdAt); err != nil {
-			continue
+		if m, ok := scanMessageRow(rows, viewerUserID); ok {
+			messages = append(messages, m)
 		}
-		m.CreatedAt = createdAt.Format(time.RFC3339)
-		if readAt != nil {
-			t := readAt.Format(time.RFC3339)
-			m.ReadAt = &t
-		}
-		messages = append(messages, m)
 	}
 	return messages, nil
 }
 
+// GetGroupChatPreview returns the last N non-deleted messages of a group
+// without requiring the caller to be a member. Used by the non-member
+// preview on the group detail screen.
+func (s *PostgresStore) GetGroupChatPreview(groupID string, limit int) ([]domain.Message, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	var convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
+	if err != nil || convID == "" {
+		return []domain.Message{}, nil
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
+		        COALESCE(message_type, 'text'),
+		        COALESCE(image_url, ''),
+		        COALESCE(metadata::text, '{}'),
+		        COALESCE(sender_avatar_url, ''),
+		        deleted_at, COALESCE(deleted_by, ''),
+		        pinned_at,  COALESCE(pinned_by, '')
+		 FROM messages
+		 WHERE conversation_id = $1 AND deleted_at IS NULL AND message_type <> 'system'
+		 ORDER BY created_at DESC
+		 LIMIT $2`, convID, limit)
+	if err != nil {
+		return []domain.Message{}, nil
+	}
+	defer rows.Close()
+	out := make([]domain.Message, 0, limit)
+	for rows.Next() {
+		if m, ok := scanMessageRow(rows, ""); ok {
+			out = append(out, m)
+		}
+	}
+	// Reverse so the newest is last (chronological preview order)
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+// ListGroupPinnedMessages returns all messages currently pinned in a group.
+func (s *PostgresStore) ListGroupPinnedMessages(groupID string) ([]domain.Message, error) {
+	var convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
+	if err != nil || convID == "" {
+		return []domain.Message{}, nil
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
+		        COALESCE(message_type, 'text'),
+		        COALESCE(image_url, ''),
+		        COALESCE(metadata::text, '{}'),
+		        COALESCE(sender_avatar_url, ''),
+		        deleted_at, COALESCE(deleted_by, ''),
+		        pinned_at,  COALESCE(pinned_by, '')
+		 FROM messages
+		 WHERE conversation_id = $1 AND deleted_at IS NULL AND pinned_at IS NOT NULL
+		 ORDER BY pinned_at DESC`, convID)
+	if err != nil {
+		return []domain.Message{}, nil
+	}
+	defer rows.Close()
+	out := make([]domain.Message, 0)
+	for rows.Next() {
+		if m, ok := scanMessageRow(rows, ""); ok {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// SendGroupMessage is kept for the legacy interface and now forwards to SendGroupMessageEx as text.
 func (s *PostgresStore) SendGroupMessage(userID string, groupID string, body string) (domain.Message, error) {
+	return s.SendGroupMessageEx(userID, groupID, SendGroupMessageInput{Type: "text", Body: body})
+}
+
+// SendGroupMessageEx is the enriched group message send: validates membership,
+// checks active mutes, supports text/image/pet_share payloads, and persists the
+// author's cached avatar for zero-join reads.
+func (s *PostgresStore) SendGroupMessageEx(userID string, groupID string, in SendGroupMessageInput) (domain.Message, error) {
 	var convID string
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
@@ -1406,18 +1576,62 @@ func (s *PostgresStore) SendGroupMessage(userID string, groupID string, body str
 		return domain.Message{}, fmt.Errorf("group has no conversation")
 	}
 
-	var senderName string
+	isMember, _ := s.IsGroupMember(userID, groupID)
+	if !isMember {
+		return domain.Message{}, fmt.Errorf("not a group member")
+	}
+
+	// Active mute check
+	if muted, _ := s.GetGroupMute(userID, groupID); muted {
+		return domain.Message{}, fmt.Errorf("you are muted in this group")
+	}
+
+	msgType := strings.TrimSpace(in.Type)
+	if msgType == "" {
+		msgType = "text"
+	}
+	body := strings.TrimSpace(in.Body)
+	imageURL := strings.TrimSpace(in.ImageURL)
+	switch msgType {
+	case "text":
+		if body == "" {
+			return domain.Message{}, fmt.Errorf("body required")
+		}
+	case "image":
+		if imageURL == "" {
+			return domain.Message{}, fmt.Errorf("imageUrl required")
+		}
+	case "pet_share":
+		if in.Metadata == nil {
+			return domain.Message{}, fmt.Errorf("metadata required")
+		}
+		if petID, _ := in.Metadata["petId"].(string); petID == "" {
+			return domain.Message{}, fmt.Errorf("metadata.petId required")
+		}
+	default:
+		return domain.Message{}, fmt.Errorf("invalid message type")
+	}
+
+	metaJSON := []byte("{}")
+	if len(in.Metadata) > 0 {
+		if b, err := json.Marshal(in.Metadata); err == nil {
+			metaJSON = b
+		}
+	}
+
+	var senderName, senderAvatar string
 	_ = s.pool.QueryRow(s.ctx(),
-		`SELECT first_name FROM user_profiles WHERE user_id = $1`, userID).Scan(&senderName)
+		`SELECT COALESCE(first_name, ''), COALESCE(avatar_url, '') FROM user_profiles WHERE user_id = $1`, userID).
+		Scan(&senderName, &senderAvatar)
 
 	msgID := newID("message")
 	now := time.Now().UTC()
-	body = strings.TrimSpace(body)
 
 	_, err = s.pool.Exec(s.ctx(),
-		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, body, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		msgID, convID, userID, senderName, body, now)
+		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, sender_avatar_url,
+		                        message_type, body, image_url, metadata, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+		msgID, convID, userID, senderName, senderAvatar, msgType, body, nullableText(imageURL), string(metaJSON), now)
 	if err != nil {
 		return domain.Message{}, fmt.Errorf("send group message: %w", err)
 	}
@@ -1425,15 +1639,234 @@ func (s *PostgresStore) SendGroupMessage(userID string, groupID string, body str
 	_, _ = s.pool.Exec(s.ctx(),
 		`UPDATE conversations SET last_message_at = $2 WHERE id = $1`, convID, now)
 
-	return domain.Message{
+	out := domain.Message{
 		ID:              msgID,
 		ConversationID:  convID,
 		SenderProfileID: userID,
 		SenderName:      senderName,
+		SenderAvatarURL: senderAvatar,
+		Type:            msgType,
 		Body:            body,
+		ImageURL:        imageURL,
+		Metadata:        in.Metadata,
 		CreatedAt:       now.Format(time.RFC3339),
 		IsMine:          true,
-	}, nil
+	}
+	return out, nil
+}
+
+// insertSystemMessage drops a system message into a group's conversation. Used
+// for member_joined / member_kicked / member_muted / admin_promoted events.
+func (s *PostgresStore) insertSystemMessage(conversationID string, body string, metadata map[string]any) {
+	if conversationID == "" {
+		return
+	}
+	metaJSON := []byte("{}")
+	if len(metadata) > 0 {
+		if b, err := json.Marshal(metadata); err == nil {
+			metaJSON = b
+		}
+	}
+	now := time.Now().UTC()
+	_, _ = s.pool.Exec(s.ctx(),
+		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, message_type, body, metadata, created_at)
+		 VALUES ($1, $2, '', '', 'system', $3, $4::jsonb, $5)`,
+		newID("message"), conversationID, body, string(metaJSON), now)
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET last_message_at = $2 WHERE id = $1`, conversationID, now)
+}
+
+// DeleteGroupMessage soft-deletes a message. The actor must either be the
+// author or a group admin / owner.
+func (s *PostgresStore) DeleteGroupMessage(actorUserID string, groupID string, messageID string) error {
+	var convID string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
+	if convID == "" {
+		return fmt.Errorf("group not found")
+	}
+	var sender string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT sender_profile_id FROM messages WHERE id = $1 AND conversation_id = $2`, messageID, convID).Scan(&sender)
+	if err != nil {
+		return fmt.Errorf("message not found")
+	}
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin && sender != actorUserID {
+		return fmt.Errorf("forbidden")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE messages SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1`, messageID, actorUserID)
+	return err
+}
+
+// SetGroupMessagePinned pins/unpins a message. Admin only.
+func (s *PostgresStore) SetGroupMessagePinned(actorUserID string, groupID string, messageID string, pinned bool) error {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
+		return fmt.Errorf("forbidden")
+	}
+	var convID string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`, groupID).Scan(&convID)
+	if convID == "" {
+		return fmt.Errorf("group not found")
+	}
+	if pinned {
+		_, err := s.pool.Exec(s.ctx(),
+			`UPDATE messages SET pinned_at = NOW(), pinned_by = $3
+			 WHERE id = $1 AND conversation_id = $2`, messageID, convID, actorUserID)
+		return err
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE messages SET pinned_at = NULL, pinned_by = NULL
+		 WHERE id = $1 AND conversation_id = $2`, messageID, convID)
+	return err
+}
+
+// MuteGroupMember inserts or updates a mute row. Admin only.
+func (s *PostgresStore) MuteGroupMember(actorUserID string, groupID string, targetUserID string, until *time.Time) error {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
+		return fmt.Errorf("forbidden")
+	}
+	if actorUserID == targetUserID {
+		return fmt.Errorf("cannot mute yourself")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO community_group_mutes (group_id, user_id, muted_until, muted_by)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (group_id, user_id) DO UPDATE SET muted_until = EXCLUDED.muted_until, muted_by = EXCLUDED.muted_by, created_at = NOW()`,
+		groupID, targetUserID, until, actorUserID)
+	if err != nil {
+		return err
+	}
+	// System message
+	var convID, name string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT conversation_id FROM community_groups WHERE id=$1`, groupID).Scan(&convID)
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`, targetUserID).Scan(&name)
+	s.insertSystemMessage(convID, "member_muted", map[string]any{"kind": "member_muted", "userId": targetUserID, "firstName": name})
+	return nil
+}
+
+// UnmuteGroupMember removes a mute row. Admin only.
+func (s *PostgresStore) UnmuteGroupMember(actorUserID string, groupID string, targetUserID string) error {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
+		return fmt.Errorf("forbidden")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM community_group_mutes WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
+	return err
+}
+
+// KickGroupMember removes a user from the group's conversation.user_ids array
+// and drops any admin row. Admin only; cannot kick the owner.
+func (s *PostgresStore) KickGroupMember(actorUserID string, groupID string, targetUserID string) error {
+	isAdmin, _ := s.IsGroupAdmin(actorUserID, groupID)
+	if !isAdmin {
+		return fmt.Errorf("forbidden")
+	}
+	var convID, ownerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT conversation_id, COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&convID, &ownerID)
+	if err != nil || convID == "" {
+		return fmt.Errorf("group not found")
+	}
+	if targetUserID == ownerID {
+		return fmt.Errorf("cannot kick owner")
+	}
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET user_ids = array_remove(user_ids, $1) WHERE id = $2`, targetUserID, convID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE community_groups SET member_count = (SELECT COALESCE(array_length(user_ids,1),0) FROM conversations WHERE id = $2) WHERE id = $1`, groupID, convID)
+	var name string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`, targetUserID).Scan(&name)
+	s.insertSystemMessage(convID, "member_kicked", map[string]any{"kind": "member_kicked", "userId": targetUserID, "firstName": name})
+	return nil
+}
+
+// PromoteGroupAdmin grants admin rights. Owner only.
+func (s *PostgresStore) PromoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error {
+	var owner string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&owner)
+	if owner == "" || owner != actorUserID {
+		return fmt.Errorf("forbidden")
+	}
+	isMember, _ := s.IsGroupMember(targetUserID, groupID)
+	if !isMember {
+		return fmt.Errorf("target not a member")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO community_group_admins (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		groupID, targetUserID)
+	return err
+}
+
+// DemoteGroupAdmin revokes admin rights. Owner only.
+func (s *PostgresStore) DemoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error {
+	var owner string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&owner)
+	if owner == "" || owner != actorUserID {
+		return fmt.Errorf("forbidden")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM community_group_admins WHERE group_id = $1 AND user_id = $2`, groupID, targetUserID)
+	return err
+}
+
+// IsGroupMember checks whether a user is part of a group's conversation.
+func (s *PostgresStore) IsGroupMember(userID string, groupID string) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS(
+			SELECT 1 FROM community_groups g
+			JOIN conversations c ON c.id = g.conversation_id
+			WHERE g.id = $1 AND $2 = ANY(c.user_ids)
+		)`, groupID, userID).Scan(&ok)
+	return ok, err
+}
+
+// IsGroupAdmin returns true if userID is the group owner or listed in community_group_admins.
+func (s *PostgresStore) IsGroupAdmin(userID string, groupID string) (bool, error) {
+	var owner string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(owner_user_id,'') FROM community_groups WHERE id=$1`, groupID).Scan(&owner)
+	if owner != "" && owner == userID {
+		return true, nil
+	}
+	var ok bool
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS(SELECT 1 FROM community_group_admins WHERE group_id = $1 AND user_id = $2)`,
+		groupID, userID).Scan(&ok)
+	return ok, err
+}
+
+// GetGroupMute returns whether a user currently has an active mute on a group.
+func (s *PostgresStore) GetGroupMute(userID string, groupID string) (bool, *time.Time) {
+	var until *time.Time
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT muted_until FROM community_group_mutes
+		 WHERE group_id = $1 AND user_id = $2
+		 LIMIT 1`, groupID, userID).Scan(&until)
+	if err != nil {
+		return false, nil
+	}
+	if until != nil && time.Now().UTC().After(*until) {
+		// Expired — lazily clean it up.
+		_, _ = s.pool.Exec(s.ctx(),
+			`DELETE FROM community_group_mutes WHERE group_id = $1 AND user_id = $2`, groupID, userID)
+		return false, nil
+	}
+	return true, until
+}
+
+func nullableText(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }
 
 // ============================================================
@@ -2713,11 +3146,12 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT id, name, description, pet_type, member_count, image_url, conversation_id, created_at,
 		        latitude, longitude, city_label, COALESCE(code,''), is_private,
-		        COALESCE(category, ''), COALESCE(hashtags, '{}'), COALESCE(rules, '{}')
+		        COALESCE(category, ''), COALESCE(hashtags, '{}'), COALESCE(rules, '{}'),
+		        COALESCE(owner_user_id, '')
 		 FROM community_groups WHERE conversation_id = $1`, conversationID).Scan(
 		&g.ID, &g.Name, &g.Description, &g.PetType, &g.MemberCount, &img, &convID, &createdAt,
 		&g.Latitude, &g.Longitude, &g.CityLabel, &g.Code, &g.IsPrivate,
-		&g.Category, &g.Hashtags, &g.Rules)
+		&g.Category, &g.Hashtags, &g.Rules, &g.OwnerUserID)
 	if err != nil {
 		return nil
 	}
@@ -2781,6 +3215,20 @@ func (s *PostgresStore) GetGroupByConversation(conversationID string) *domain.Co
 		}
 	}
 
+	// Load extra admin IDs for this group.
+	adminRows, err := s.pool.Query(s.ctx(),
+		`SELECT user_id FROM community_group_admins WHERE group_id = $1`, g.ID)
+	if err == nil {
+		g.AdminUserIDs = []string{}
+		for adminRows.Next() {
+			var uid string
+			if err := adminRows.Scan(&uid); err == nil {
+				g.AdminUserIDs = append(g.AdminUserIDs, uid)
+			}
+		}
+		adminRows.Close()
+	}
+
 	return &g
 }
 
@@ -2811,14 +3259,17 @@ func (s *PostgresStore) CreateGroup(creatorUserID string, group domain.Community
 
 	s.pool.Exec(s.ctx(), `INSERT INTO conversations(id,match_id,title,subtitle,user_ids,last_message_at) VALUES($1,'',$2,'',$3,NOW())`, convID, group.Name, convUserIDs)
 	s.pool.Exec(s.ctx(),
-		`INSERT INTO community_groups(id,name,description,pet_type,category,member_count,image_url,conversation_id,latitude,longitude,city_label,code,is_private,hashtags,rules,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		`INSERT INTO community_groups(id,name,description,pet_type,category,member_count,image_url,conversation_id,latitude,longitude,city_label,code,is_private,hashtags,rules,owner_user_id,created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		group.ID, group.Name, group.Description, group.PetType, group.Category, group.MemberCount, nilIfEmpty(group.ImageURL), group.ConversationID,
-		group.Latitude, group.Longitude, group.CityLabel, nilIfEmpty(group.Code), group.IsPrivate, group.Hashtags, group.Rules, group.CreatedAt)
+		group.Latitude, group.Longitude, group.CityLabel, nilIfEmpty(group.Code), group.IsPrivate, group.Hashtags, group.Rules, creatorUserID, group.CreatedAt)
 
-	// Mark creator as member in returned struct
+	// Mark creator as member + owner in returned struct
 	if creatorUserID != "" {
 		group.IsMember = true
+		group.OwnerUserID = creatorUserID
+		group.IsOwner = true
+		group.IsAdmin = true
 	}
 	return group
 }
@@ -2861,6 +3312,15 @@ func (s *PostgresStore) JoinGroup(userID string, groupID string) error {
 		`UPDATE community_groups SET member_count = (
 			SELECT COALESCE(array_length(user_ids, 1), 0) FROM conversations WHERE id = $2
 		) WHERE id = $1`, groupID, convID)
+
+	// System message: {firstName} joined the group
+	var firstName string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT COALESCE(first_name,'') FROM user_profiles WHERE user_id=$1`, userID).Scan(&firstName)
+	s.insertSystemMessage(convID, "member_joined", map[string]any{
+		"kind":      "member_joined",
+		"userId":    userID,
+		"firstName": firstName,
+	})
 	return nil
 }
 

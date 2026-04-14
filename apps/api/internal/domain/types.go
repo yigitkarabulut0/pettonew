@@ -71,14 +71,22 @@ type MatchPreview struct {
 }
 
 type Message struct {
-	ID              string  `json:"id"`
-	ConversationID  string  `json:"conversationId"`
-	SenderProfileID string  `json:"senderProfileId"`
-	SenderName      string  `json:"senderName"`
-	Body            string  `json:"body"`
-	CreatedAt       string  `json:"createdAt"`
-	IsMine          bool    `json:"isMine"`
-	ReadAt          *string `json:"readAt,omitempty"`
+	ID              string         `json:"id"`
+	ConversationID  string         `json:"conversationId"`
+	SenderProfileID string         `json:"senderProfileId"`
+	SenderName      string         `json:"senderName"`
+	SenderAvatarURL string         `json:"senderAvatarUrl,omitempty"`
+	Type            string         `json:"type"`
+	Body            string         `json:"body"`
+	ImageURL        string         `json:"imageUrl,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       string         `json:"createdAt"`
+	IsMine          bool           `json:"isMine"`
+	ReadAt          *string        `json:"readAt,omitempty"`
+	DeletedAt       *string        `json:"deletedAt,omitempty"`
+	DeletedBy       string         `json:"deletedBy,omitempty"`
+	PinnedAt        *string        `json:"pinnedAt,omitempty"`
+	PinnedBy        string         `json:"pinnedBy,omitempty"`
 }
 
 type MatchPetPair struct {
@@ -381,6 +389,12 @@ type CommunityGroup struct {
 	Distance       float64       `json:"distance,omitempty"`
 	Hashtags       []string      `json:"hashtags"`
 	Rules          []string      `json:"rules"`
+	OwnerUserID    string        `json:"ownerUserId,omitempty"`
+	IsOwner        bool          `json:"isOwner"`
+	IsAdmin        bool          `json:"isAdmin"`
+	Muted          bool          `json:"muted"`
+	MutedUntil     *string       `json:"mutedUntil,omitempty"`
+	AdminUserIDs   []string      `json:"adminUserIds,omitempty"`
 	CreatedAt      string        `json:"createdAt"`
 }
 

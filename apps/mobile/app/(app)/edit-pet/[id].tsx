@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PetPhoto } from "@petto/contracts";
 import { Controller, useForm } from "react-hook-form";
 import type { FieldError } from "react-hook-form";
 import {
@@ -102,6 +103,14 @@ export default function EditPetPage() {
   const [compatibilityModalOpen, setCompatibilityModalOpen] = useState(false);
   const [charactersModalOpen, setCharactersModalOpen] = useState(false);
   const [taxonomyInitialized, setTaxonomyInitialized] = useState(false);
+  // Photo editor state — existing photos (already uploaded to R2) vs newly
+  // picked local assets that still need to be uploaded on save.
+  const [existingPhotos, setExistingPhotos] = useState<PetPhoto[]>([]);
+  const [newPhotoAssets, setNewPhotoAssets] = useState<
+    Array<{ uri: string; mimeType?: string | null }>
+  >([]);
+  const [photosInitialized, setPhotosInitialized] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const {
     control,
@@ -161,13 +170,80 @@ export default function EditPetPage() {
   const selectedCompatibilityItems = compatibility.filter((item) => selectedCompatibilityIds.includes(item.id));
   const selectedCharactersItems = characters.filter((item) => selectedCharacterIds.includes(item.id));
 
+  // Seed existingPhotos from pet once — only on first load so the user's
+  // local removals / additions aren't clobbered by a background refetch.
+  useEffect(() => {
+    if (photosInitialized || !pet) return;
+    setExistingPhotos(pet.photos ?? []);
+    setPhotosInitialized(true);
+  }, [pet, photosInitialized]);
+
+  const totalPhotoCount = existingPhotos.length + newPhotoAssets.length;
+
+  const pickPhotos = async () => {
+    setPhotoError(null);
+    if (totalPhotoCount >= 6) {
+      setPhotoError(t("onboarding.pets.photosLimit", { defaultValue: "Max 6 photos." }));
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+      selectionLimit: Math.max(1, 6 - totalPhotoCount)
+    });
+    if (result.canceled) return;
+    setNewPhotoAssets((current) => {
+      const merged = [
+        ...current,
+        ...result.assets.map((asset) => ({
+          uri: asset.uri,
+          mimeType: asset.mimeType
+        }))
+      ];
+      const unique = merged.filter(
+        (asset, index, array) =>
+          array.findIndex((entry) => entry.uri === asset.uri) === index
+      );
+      return unique.slice(0, Math.max(0, 6 - existingPhotos.length));
+    });
+  };
+
   const mutation = useMutation({
     mutationFn: async (values: PetValues) => {
       if (!session || !petId) throw new Error("Missing session or petId");
 
+      if (existingPhotos.length + newPhotoAssets.length < 1) {
+        setPhotoError(t("onboarding.pets.photoRequired"));
+        throw new Error(t("onboarding.pets.photoRequired"));
+      }
+      setPhotoError(null);
+
       const parsedAge = Number.parseInt(values.ageYearsInput, 10);
       const selectedSpecies = species.find((s) => s.id === values.speciesId)!;
       const selectedBreed = breeds.find((b) => b.id === values.breedId)!;
+
+      // Upload any new assets to R2 first, then merge with existing photos.
+      // Re-normalize primary so the first tile is always the primary photo.
+      const uploadedNew = await Promise.all(
+        newPhotoAssets.map(async (asset, index) => {
+          const uploaded = await uploadMedia(
+            session.tokens.accessToken,
+            asset.uri,
+            `pet-photo-${Date.now()}-${index}.jpg`,
+            asset.mimeType ?? "image/jpeg"
+          );
+          return {
+            id: uploaded.id,
+            url: uploaded.url,
+            isPrimary: false
+          };
+        })
+      );
+      const merged = [...existingPhotos, ...uploadedNew].map((p, i) => ({
+        ...p,
+        isPrimary: i === 0
+      }));
 
       return updatePet(session.tokens.accessToken, petId, {
         name: values.name.trim(),
@@ -183,7 +259,7 @@ export default function EditPetPage() {
         characters: selectedCharactersItems.map((item) => item.label),
         isNeutered: values.isNeutered,
         bio: values.bio.trim(),
-        photos: pet?.photos ?? [],
+        photos: merged,
         cityLabel: session.user.cityLabel
       });
     },
@@ -260,6 +336,165 @@ export default function EditPetPage() {
           backgroundColor: theme.colors.white
         }}
       >
+        {/* ── Photo editor ───────────────────────────────────── */}
+        <View style={{ gap: mobileTheme.spacing.md }}>
+          <Text
+            selectable
+            style={{
+              ...mobileTheme.typography.label,
+              color: theme.colors.ink,
+              fontFamily: "Inter_600SemiBold"
+            }}
+          >
+            {t("onboarding.pets.photos")}
+          </Text>
+
+          <View
+            style={{
+              flexDirection: "row",
+              gap: mobileTheme.spacing.md,
+              flexWrap: "wrap"
+            }}
+          >
+            {existingPhotos.map((photo, index) => (
+              <View key={photo.id || photo.url} style={{ position: "relative" }}>
+                <Image
+                  source={{ uri: photo.url }}
+                  style={{
+                    width: 92,
+                    height: 92,
+                    borderRadius: mobileTheme.radius.lg
+                  }}
+                  resizeMode="cover"
+                />
+                <Pressable
+                  onPress={() =>
+                    setExistingPhotos((current) =>
+                      current.filter((entry) => entry.id !== photo.id || entry.url !== photo.url)
+                    )
+                  }
+                  style={{
+                    position: "absolute",
+                    top: mobileTheme.spacing.sm,
+                    right: mobileTheme.spacing.sm,
+                    borderRadius: mobileTheme.radius.pill,
+                    backgroundColor: "rgba(0,0,0,0.6)",
+                    paddingHorizontal: mobileTheme.spacing.sm,
+                    paddingVertical: mobileTheme.spacing.xs
+                  }}
+                  hitSlop={6}
+                >
+                  <X size={14} color={theme.colors.white} />
+                </Pressable>
+                {index === 0 ? (
+                  <View
+                    style={{
+                      position: "absolute",
+                      left: mobileTheme.spacing.sm,
+                      bottom: mobileTheme.spacing.sm,
+                      borderRadius: mobileTheme.radius.pill,
+                      backgroundColor: "rgba(0,0,0,0.6)",
+                      paddingHorizontal: mobileTheme.spacing.sm,
+                      paddingVertical: mobileTheme.spacing.xs
+                    }}
+                  >
+                    <Camera size={14} color={theme.colors.white} />
+                  </View>
+                ) : null}
+              </View>
+            ))}
+            {newPhotoAssets.map((asset, index) => {
+              const globalIndex = existingPhotos.length + index;
+              return (
+                <View key={asset.uri} style={{ position: "relative" }}>
+                  <Image
+                    source={{ uri: asset.uri }}
+                    style={{
+                      width: 92,
+                      height: 92,
+                      borderRadius: mobileTheme.radius.lg
+                    }}
+                    resizeMode="cover"
+                  />
+                  <Pressable
+                    onPress={() =>
+                      setNewPhotoAssets((current) =>
+                        current.filter((entry) => entry.uri !== asset.uri)
+                      )
+                    }
+                    style={{
+                      position: "absolute",
+                      top: mobileTheme.spacing.sm,
+                      right: mobileTheme.spacing.sm,
+                      borderRadius: mobileTheme.radius.pill,
+                      backgroundColor: "rgba(0,0,0,0.6)",
+                      paddingHorizontal: mobileTheme.spacing.sm,
+                      paddingVertical: mobileTheme.spacing.xs
+                    }}
+                    hitSlop={6}
+                  >
+                    <X size={14} color={theme.colors.white} />
+                  </Pressable>
+                  {globalIndex === 0 ? (
+                    <View
+                      style={{
+                        position: "absolute",
+                        left: mobileTheme.spacing.sm,
+                        bottom: mobileTheme.spacing.sm,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor: "rgba(0,0,0,0.6)",
+                        paddingHorizontal: mobileTheme.spacing.sm,
+                        paddingVertical: mobileTheme.spacing.xs
+                      }}
+                    >
+                      <Camera size={14} color={theme.colors.white} />
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+            {totalPhotoCount < 6 && (
+              <Pressable
+                onPress={pickPhotos}
+                style={{
+                  width: 92,
+                  height: 92,
+                  borderRadius: mobileTheme.radius.lg,
+                  borderWidth: 1,
+                  borderStyle: "dashed",
+                  borderColor: photoError ? theme.colors.danger : theme.colors.border,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: theme.colors.background
+                }}
+              >
+                <Camera size={22} color={theme.colors.secondary} />
+                <Text
+                  style={{
+                    marginTop: 4,
+                    fontSize: 11,
+                    color: theme.colors.secondary,
+                    fontFamily: "Inter_600SemiBold"
+                  }}
+                >
+                  {t("onboarding.pets.addPhotos")}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+          {photoError ? (
+            <Text
+              style={{
+                color: theme.colors.danger,
+                fontSize: 12,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {photoError}
+            </Text>
+          ) : null}
+        </View>
+
         <Controller
           control={control}
           name="name"

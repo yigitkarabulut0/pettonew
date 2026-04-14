@@ -310,7 +310,11 @@
     "startConversation": "Sohbete başla.",
     "typeMessage": "Mesaj yaz...",
     "send": "Gönder",
-    "conversation": "Sohbet"
+    "conversation": "Sohbet",
+    "noMessagesYet": "Henüz mesaj yok. Merhaba de!",
+    "shareImage": "Fotoğraf paylaş",
+    "sharePet": "Evcil hayvan paylaş",
+    "messageDeleted": "Mesaj silindi"
   },
   "report": {
     "title": "Şikayet",
@@ -491,7 +495,26 @@
     "hashtagsLabel": "Etiketler",
     "rulesLabel": "Kurallar",
     "membersLabel": "Üyeler",
-    "shareGroupMessage": "\"{{name}}\" grubuna Fetcht'te katıl!"
+    "shareGroupMessage": "\"{{name}}\" grubuna Fetcht'te katıl!",
+    "openChat": "Sohbeti Aç",
+    "joinToChat": "Katıl ve sohbet et",
+    "joinToChatTitle": "Sadece üyelere özel",
+    "joinToChatBody": "Mesajları görmek ve diğer sahiplerle sohbet etmek için gruba katıl.",
+    "youAreMuted": "Bu grupta susturuldun",
+    "viewAll": "Tümünü gör",
+    "manage": "Yönet",
+    "manageMembers": "Üyeleri yönet",
+    "owner": "Kurucu",
+    "adminBadge": "Yönetici",
+    "promoteAdmin": "Yönetici yap",
+    "demoteAdmin": "Yöneticilikten al",
+    "mute1h": "Sustur · 1 saat",
+    "mute24h": "Sustur · 24 saat",
+    "muteIndef": "Sustur · Süresiz",
+    "unmute": "Susturmayı kaldır",
+    "kickMember": "Gruptan çıkar",
+    "pinnedMessages": "Sabitlenmiş mesajlar",
+    "deleteMessage": "Mesajı sil"
   },
   "playdates": {
     "title": "Buluşmalar",

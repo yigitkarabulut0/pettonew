@@ -310,7 +310,11 @@
     "startConversation": "Start the conversation.",
     "typeMessage": "Type a message...",
     "send": "Send",
-    "conversation": "Conversation"
+    "conversation": "Conversation",
+    "noMessagesYet": "No messages yet. Say hi!",
+    "shareImage": "Share photo",
+    "sharePet": "Share a pet",
+    "messageDeleted": "Message deleted"
   },
   "report": {
     "title": "Report",
@@ -491,7 +495,26 @@
     "hashtagsLabel": "Hashtags",
     "rulesLabel": "Rules",
     "membersLabel": "Members",
-    "shareGroupMessage": "Join \"{{name}}\" on Fetcht!"
+    "shareGroupMessage": "Join \"{{name}}\" on Fetcht!",
+    "openChat": "Open Chat",
+    "joinToChat": "Join to chat",
+    "joinToChatTitle": "Members only",
+    "joinToChatBody": "Join this group to read messages and chat with other owners.",
+    "youAreMuted": "You are muted in this group",
+    "viewAll": "View all",
+    "manage": "Manage",
+    "manageMembers": "Manage members",
+    "owner": "Owner",
+    "adminBadge": "Admin",
+    "promoteAdmin": "Promote to admin",
+    "demoteAdmin": "Remove admin",
+    "mute1h": "Mute · 1 hour",
+    "mute24h": "Mute · 24 hours",
+    "muteIndef": "Mute · Indefinitely",
+    "unmute": "Unmute",
+    "kickMember": "Remove from group",
+    "pinnedMessages": "Pinned messages",
+    "deleteMessage": "Delete message"
   },
   "playdates": {
     "title": "Playdates",

@@ -94,15 +94,33 @@ export interface MatchPreview {
   conversationId: string;
 }
 
+export type MessageType = "text" | "image" | "pet_share" | "system";
+
+export interface PetShareMeta {
+  petId: string;
+  petName: string;
+  petPhotoUrl?: string;
+  speciesLabel?: string;
+  breedLabel?: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
   senderProfileId: string;
   senderName: string;
+  senderAvatarUrl?: string;
+  type: MessageType;
   body: string;
+  imageUrl?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   isMine: boolean;
   readAt?: string;
+  deletedAt?: string;
+  deletedBy?: string;
+  pinnedAt?: string;
+  pinnedBy?: string;
 }
 
 export interface MatchPetPair {
@@ -398,6 +416,12 @@ export interface CommunityGroup {
   distance?: number;
   hashtags: string[];
   rules: string[];
+  ownerUserId?: string;
+  isOwner?: boolean;
+  isAdmin?: boolean;
+  muted?: boolean;
+  mutedUntil?: string;
+  adminUserIds?: string[];
   createdAt: string;
 }
 

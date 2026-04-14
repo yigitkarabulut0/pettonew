@@ -164,8 +164,19 @@ func (s *Server) Routes() http.Handler {
 			// Pet milestones
 			router.Get("/pets/{petID}/milestones", s.handleListPetMilestones)
 			// Group messages
+			router.Get("/groups/{groupID}", s.handleGetGroup)
 			router.Get("/groups/{groupID}/messages", s.handleListGroupMessages)
 			router.Post("/groups/{groupID}/messages", s.handleSendGroupMessage)
+			router.Delete("/groups/{groupID}/messages/{messageID}", s.handleDeleteGroupMessage)
+			router.Post("/groups/{groupID}/messages/{messageID}/pin", s.handlePinGroupMessage)
+			router.Delete("/groups/{groupID}/messages/{messageID}/pin", s.handleUnpinGroupMessage)
+			router.Get("/groups/{groupID}/pinned", s.handleListGroupPinned)
+			router.Get("/groups/{groupID}/preview", s.handleGroupChatPreview)
+			router.Post("/groups/{groupID}/mutes", s.handleMuteGroupMember)
+			router.Delete("/groups/{groupID}/mutes/{userID}", s.handleUnmuteGroupMember)
+			router.Delete("/groups/{groupID}/members/{userID}", s.handleKickGroupMember)
+			router.Post("/groups/{groupID}/admins/{userID}", s.handlePromoteGroupAdmin)
+			router.Delete("/groups/{groupID}/admins/{userID}", s.handleDemoteGroupAdmin)
 		})
 
 		router.Get("/media/proxy", s.handleMediaProxy)
@@ -650,14 +661,37 @@ func (s *Server) handleMessages(writer http.ResponseWriter, request *http.Reques
 
 func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
-		ConversationID string `json:"conversationId"`
-		Body           string `json:"body"`
+		ConversationID string         `json:"conversationId"`
+		Type           string         `json:"type"`
+		Body           string         `json:"body"`
+		ImageURL       string         `json:"imageUrl"`
+		Metadata       map[string]any `json:"metadata"`
 	}
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
 
-	message, err := s.store.SendMessage(currentUserID(request), payload.ConversationID, payload.Body)
+	userID := currentUserID(request)
+	var message domain.Message
+	var err error
+
+	// If this conversation belongs to a community group, go through the
+	// enriched group send path so mutes/types/metadata work the same in DM and
+	// group messages. Otherwise fall back to the plain DM send.
+	groupForConv := s.store.GetGroupByConversation(payload.ConversationID)
+	if groupForConv != nil && (payload.Type == "image" || payload.Type == "pet_share" || payload.Type == "text") {
+		if payload.Type == "" {
+			payload.Type = "text"
+		}
+		message, err = s.store.SendGroupMessageEx(userID, groupForConv.ID, store.SendGroupMessageInput{
+			Type:     payload.Type,
+			Body:     payload.Body,
+			ImageURL: payload.ImageURL,
+			Metadata: payload.Metadata,
+		})
+	} else {
+		message, err = s.store.SendMessage(userID, payload.ConversationID, payload.Body)
+	}
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
@@ -1592,6 +1626,15 @@ func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, reques
 	if !isMember {
 		group.Code = ""
 	}
+	isAdmin, _ := s.store.IsGroupAdmin(userID, group.ID)
+	group.IsAdmin = isAdmin
+	group.IsOwner = group.OwnerUserID == userID
+	muted, until := s.store.GetGroupMute(userID, group.ID)
+	group.Muted = muted
+	if until != nil {
+		t := until.UTC().Format(time.RFC3339)
+		group.MutedUntil = &t
+	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
 
@@ -1953,7 +1996,14 @@ func (s *Server) handleListPetMilestones(writer http.ResponseWriter, request *ht
 // ── Group Messages ──────────────────────────────────────────────────
 
 func (s *Server) handleListGroupMessages(writer http.ResponseWriter, request *http.Request) {
-	messages, err := s.store.ListGroupMessages(chi.URLParam(request, "groupID"))
+	userID := currentUserID(request)
+	groupID := chi.URLParam(request, "groupID")
+	isMember, _ := s.store.IsGroupMember(userID, groupID)
+	if !isMember {
+		writeError(writer, http.StatusForbidden, "not a member")
+		return
+	}
+	messages, err := s.store.ListGroupMessagesFor(userID, groupID)
 	if err != nil {
 		writeError(writer, http.StatusNotFound, err.Error())
 		return
@@ -1963,18 +2013,174 @@ func (s *Server) handleListGroupMessages(writer http.ResponseWriter, request *ht
 
 func (s *Server) handleSendGroupMessage(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
-		Body string `json:"body"`
+		Type     string         `json:"type"`
+		Body     string         `json:"body"`
+		ImageURL string         `json:"imageUrl"`
+		Metadata map[string]any `json:"metadata"`
 	}
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
 	groupID := chi.URLParam(request, "groupID")
-	message, err := s.store.SendGroupMessage(currentUserID(request), groupID, payload.Body)
+	if payload.Type == "" {
+		payload.Type = "text"
+	}
+	message, err := s.store.SendGroupMessageEx(currentUserID(request), groupID, store.SendGroupMessageInput{
+		Type:     payload.Type,
+		Body:     payload.Body,
+		ImageURL: payload.ImageURL,
+		Metadata: payload.Metadata,
+	})
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": message})
+}
+
+func (s *Server) handleGetGroup(writer http.ResponseWriter, request *http.Request) {
+	groupID := chi.URLParam(request, "groupID")
+	userID := currentUserID(request)
+	// Find the group's conversation via list then filter — reuse existing paths.
+	groups := s.store.ListGroups(store.ListGroupsParams{UserID: userID})
+	var found *domain.CommunityGroup
+	for i := range groups {
+		if groups[i].ID == groupID {
+			found = &groups[i]
+			break
+		}
+	}
+	if found == nil {
+		writeError(writer, http.StatusNotFound, "group not found")
+		return
+	}
+	// Enrich with members + admin/owner state via conversation lookup.
+	detail := s.store.GetGroupByConversation(found.ConversationID)
+	if detail != nil {
+		found = detail
+	}
+	isAdmin, _ := s.store.IsGroupAdmin(userID, groupID)
+	found.IsAdmin = isAdmin
+	found.IsOwner = found.OwnerUserID == userID
+	muted, until := s.store.GetGroupMute(userID, groupID)
+	found.Muted = muted
+	if until != nil {
+		t := until.UTC().Format(time.RFC3339)
+		found.MutedUntil = &t
+	}
+	if !found.IsMember {
+		found.Code = ""
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": found})
+}
+
+func (s *Server) handleDeleteGroupMessage(writer http.ResponseWriter, request *http.Request) {
+	groupID := chi.URLParam(request, "groupID")
+	messageID := chi.URLParam(request, "messageID")
+	if err := s.store.DeleteGroupMessage(currentUserID(request), groupID, messageID); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handlePinGroupMessage(writer http.ResponseWriter, request *http.Request) {
+	groupID := chi.URLParam(request, "groupID")
+	messageID := chi.URLParam(request, "messageID")
+	if err := s.store.SetGroupMessagePinned(currentUserID(request), groupID, messageID, true); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"pinned": true}})
+}
+
+func (s *Server) handleUnpinGroupMessage(writer http.ResponseWriter, request *http.Request) {
+	groupID := chi.URLParam(request, "groupID")
+	messageID := chi.URLParam(request, "messageID")
+	if err := s.store.SetGroupMessagePinned(currentUserID(request), groupID, messageID, false); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"pinned": false}})
+}
+
+func (s *Server) handleListGroupPinned(writer http.ResponseWriter, request *http.Request) {
+	messages, err := s.store.ListGroupPinnedMessages(chi.URLParam(request, "groupID"))
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": messages})
+}
+
+func (s *Server) handleGroupChatPreview(writer http.ResponseWriter, request *http.Request) {
+	messages, err := s.store.GetGroupChatPreview(chi.URLParam(request, "groupID"), 3)
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": messages})
+}
+
+func (s *Server) handleMuteGroupMember(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		UserID   string `json:"userId"`
+		Duration string `json:"duration"` // "1h" | "24h" | "indefinite"
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	var until *time.Time
+	switch payload.Duration {
+	case "1h":
+		t := time.Now().UTC().Add(time.Hour)
+		until = &t
+	case "24h":
+		t := time.Now().UTC().Add(24 * time.Hour)
+		until = &t
+	case "indefinite", "":
+		until = nil
+	default:
+		writeError(writer, http.StatusBadRequest, "invalid duration")
+		return
+	}
+	if err := s.store.MuteGroupMember(currentUserID(request), chi.URLParam(request, "groupID"), payload.UserID, until); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"muted": true}})
+}
+
+func (s *Server) handleUnmuteGroupMember(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.UnmuteGroupMember(currentUserID(request), chi.URLParam(request, "groupID"), chi.URLParam(request, "userID")); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"muted": false}})
+}
+
+func (s *Server) handleKickGroupMember(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.KickGroupMember(currentUserID(request), chi.URLParam(request, "groupID"), chi.URLParam(request, "userID")); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"kicked": true}})
+}
+
+func (s *Server) handlePromoteGroupAdmin(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.PromoteGroupAdmin(currentUserID(request), chi.URLParam(request, "groupID"), chi.URLParam(request, "userID")); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"admin": true}})
+}
+
+func (s *Server) handleDemoteGroupAdmin(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DemoteGroupAdmin(currentUserID(request), chi.URLParam(request, "groupID"), chi.URLParam(request, "userID")); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"admin": false}})
 }
 
 // ── Admin Create Pet Sitter ─────────────────────────────────────────

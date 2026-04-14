@@ -636,7 +636,157 @@ export async function sendMessage(
       ...authHeaders(accessToken),
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ conversationId, body })
+    body: JSON.stringify({ conversationId, type: "text", body })
+  });
+}
+
+export type ChatMessageInput = {
+  type: "text" | "image" | "pet_share";
+  body?: string;
+  imageUrl?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export async function sendConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  input: ChatMessageInput
+): Promise<Message> {
+  return request<Message>("/v1/messages", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ conversationId, ...input })
+  });
+}
+
+// ── Group chat moderation & preview helpers ──────────────────────────
+
+export async function getGroupPreview(
+  accessToken: string,
+  groupId: string
+): Promise<Message[]> {
+  const data = await request<Message[] | null>(
+    `/v1/groups/${groupId}/preview`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function getGroupDetail(
+  accessToken: string,
+  groupId: string
+): Promise<CommunityGroup | null> {
+  const data = await request<CommunityGroup | null>(
+    `/v1/groups/${groupId}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? null;
+}
+
+export async function listGroupPinned(
+  accessToken: string,
+  groupId: string
+): Promise<Message[]> {
+  const data = await request<Message[] | null>(
+    `/v1/groups/${groupId}/pinned`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function deleteGroupMessage(
+  accessToken: string,
+  groupId: string,
+  messageId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/messages/${messageId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function pinGroupMessage(
+  accessToken: string,
+  groupId: string,
+  messageId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/messages/${messageId}/pin`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function unpinGroupMessage(
+  accessToken: string,
+  groupId: string,
+  messageId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/messages/${messageId}/pin`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function muteGroupMember(
+  accessToken: string,
+  groupId: string,
+  userId: string,
+  duration: "1h" | "24h" | "indefinite"
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/mutes`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ userId, duration })
+  });
+}
+
+export async function unmuteGroupMember(
+  accessToken: string,
+  groupId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/mutes/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function kickGroupMember(
+  accessToken: string,
+  groupId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/members/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function promoteGroupAdmin(
+  accessToken: string,
+  groupId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/admins/${userId}`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function demoteGroupAdmin(
+  accessToken: string,
+  groupId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/groups/${groupId}/admins/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
   });
 }
 

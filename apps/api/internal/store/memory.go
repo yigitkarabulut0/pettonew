@@ -2356,10 +2356,85 @@ func (s *MemoryStore) SendGroupMessage(userID string, groupID string, body strin
 		Body:            strings.TrimSpace(body),
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		IsMine:          true,
+		Type:            "text",
 	}
 	conv.Messages = append(conv.Messages, message)
 	conv.LastMessageAt = message.CreatedAt
 	return message, nil
+}
+
+// Group chat moderation — memory store minimal stubs.
+func (s *MemoryStore) ListGroupMessagesFor(_ string, groupID string) ([]domain.Message, error) {
+	return s.ListGroupMessages(groupID)
+}
+func (s *MemoryStore) SendGroupMessageEx(userID string, groupID string, in SendGroupMessageInput) (domain.Message, error) {
+	msg, err := s.SendGroupMessage(userID, groupID, in.Body)
+	if err != nil {
+		return msg, err
+	}
+	msg.Type = in.Type
+	msg.ImageURL = in.ImageURL
+	msg.Metadata = in.Metadata
+	return msg, nil
+}
+func (s *MemoryStore) GetGroupChatPreview(groupID string, limit int) ([]domain.Message, error) {
+	all, err := s.ListGroupMessages(groupID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	return all, nil
+}
+func (s *MemoryStore) ListGroupPinnedMessages(_ string) ([]domain.Message, error) {
+	return []domain.Message{}, nil
+}
+func (s *MemoryStore) DeleteGroupMessage(_ string, _ string, _ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) SetGroupMessagePinned(_ string, _ string, _ string, _ bool) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) MuteGroupMember(_ string, _ string, _ string, _ *time.Time) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) UnmuteGroupMember(_ string, _ string, _ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) KickGroupMember(_ string, _ string, _ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) PromoteGroupAdmin(_ string, _ string, _ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) DemoteGroupAdmin(_ string, _ string, _ string) error {
+	return fmt.Errorf("unsupported in memory store")
+}
+func (s *MemoryStore) IsGroupMember(userID string, groupID string) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.groups[groupID]
+	if !ok {
+		return false, nil
+	}
+	conv, ok := s.conversations[g.ConversationID]
+	if !ok {
+		return false, nil
+	}
+	for _, uid := range conv.UserIDs {
+		if uid == userID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (s *MemoryStore) IsGroupAdmin(_ string, _ string) (bool, error) { return false, nil }
+func (s *MemoryStore) GetGroupMute(_ string, _ string) (bool, *time.Time) {
+	return false, nil
 }
 
 func newID(prefix string) string {

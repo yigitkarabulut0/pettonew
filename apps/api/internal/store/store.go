@@ -1,6 +1,18 @@
 package store
 
-import "github.com/yigitkarabulut/petto/apps/api/internal/domain"
+import (
+	"time"
+
+	"github.com/yigitkarabulut/petto/apps/api/internal/domain"
+)
+
+// SendGroupMessageInput describes the payload for sending a group chat message.
+type SendGroupMessageInput struct {
+	Type     string         // "text" | "image" | "pet_share"
+	Body     string         // required for text (optional caption on image/pet_share)
+	ImageURL string         // required for image
+	Metadata map[string]any // pet_share: {petId,petName,petPhotoUrl,speciesLabel,breedLabel}
+}
 
 type ListGroupsParams struct {
 	UserID  string
@@ -143,7 +155,21 @@ type Store interface {
 	AwardMilestone(petID string, milestoneType string, title string, description string)
 	// Group messages
 	ListGroupMessages(groupID string) ([]domain.Message, error)
+	ListGroupMessagesFor(userID string, groupID string) ([]domain.Message, error)
 	SendGroupMessage(userID string, groupID string, body string) (domain.Message, error)
+	SendGroupMessageEx(userID string, groupID string, input SendGroupMessageInput) (domain.Message, error)
+	GetGroupChatPreview(groupID string, limit int) ([]domain.Message, error)
+	ListGroupPinnedMessages(groupID string) ([]domain.Message, error)
+	DeleteGroupMessage(actorUserID string, groupID string, messageID string) error
+	SetGroupMessagePinned(actorUserID string, groupID string, messageID string, pinned bool) error
+	MuteGroupMember(actorUserID string, groupID string, targetUserID string, until *time.Time) error
+	UnmuteGroupMember(actorUserID string, groupID string, targetUserID string) error
+	KickGroupMember(actorUserID string, groupID string, targetUserID string) error
+	PromoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error
+	DemoteGroupAdmin(actorUserID string, groupID string, targetUserID string) error
+	IsGroupMember(userID string, groupID string) (bool, error)
+	IsGroupAdmin(userID string, groupID string) (bool, error)
+	GetGroupMute(userID string, groupID string) (muted bool, until *time.Time)
 }
 
 type ClosableStore interface {
