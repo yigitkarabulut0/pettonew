@@ -86,6 +86,13 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		PRIMARY KEY (group_id, user_id)
 	)`)
 
+	// ── Playdates v0.10.0 ───────────────────────────────────────────
+	// Geocoded columns so the discovery hub can filter/sort by distance.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS city_label TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS cover_image_url TEXT`)
+
 	// Backfill owner_user_id from first user of each group's conversation (one-shot).
 	pool.Exec(ctx, `
 		UPDATE community_groups g
@@ -3304,27 +3311,128 @@ func (s *PostgresStore) CreateDiaryEntry(userID string, petID string, body strin
 // Playdates & Groups
 // ================================================================
 
-func (s *PostgresStore) ListPlaydates() []domain.Playdate {
-	rows, _ := s.pool.Query(s.ctx(), `SELECT id, organizer_id, title, description, date, location, max_pets, attendees, created_at FROM playdates ORDER BY date`)
+func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playdate {
+	query := `SELECT id, organizer_id, title, description, date, location, max_pets, attendees, created_at,
+	                  COALESCE(latitude, 0), COALESCE(longitude, 0),
+	                  COALESCE(city_label, ''), COALESCE(cover_image_url, '')
+	           FROM playdates WHERE 1=1`
+	args := []any{}
+	idx := 1
+
+	if params.Search != "" {
+		query += fmt.Sprintf(" AND (title ILIKE '%%' || $%d || '%%' OR description ILIKE '%%' || $%d || '%%')", idx, idx)
+		args = append(args, params.Search)
+		idx++
+	}
+	if params.From != "" {
+		query += fmt.Sprintf(" AND date >= $%d", idx)
+		args = append(args, params.From)
+		idx++
+	}
+	if params.To != "" {
+		query += fmt.Sprintf(" AND date < $%d", idx)
+		args = append(args, params.To)
+		idx++
+	}
+	query += " ORDER BY date"
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.Playdate{}
+	}
 	defer rows.Close()
-	var out []domain.Playdate
+
+	out := make([]domain.Playdate, 0)
+	hasCaller := params.Lat != 0 && params.Lng != 0
 	for rows.Next() {
 		var p domain.Playdate
-		rows.Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date, &p.Location, &p.MaxPets, &p.Attendees, &p.CreatedAt)
-		if p.Attendees == nil { p.Attendees = []string{} }
+		var img *string
+		if err := rows.Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date,
+			&p.Location, &p.MaxPets, &p.Attendees, &p.CreatedAt,
+			&p.Latitude, &p.Longitude, &p.CityLabel, &img); err != nil {
+			continue
+		}
+		if p.Attendees == nil {
+			p.Attendees = []string{}
+		}
+		if img != nil {
+			p.CoverImageURL = *img
+		}
+		if params.UserID != "" {
+			for _, uid := range p.Attendees {
+				if uid == params.UserID {
+					p.IsAttending = true
+					break
+				}
+			}
+		}
+		if hasCaller && p.Latitude != 0 && p.Longitude != 0 {
+			p.Distance = service.Haversine(params.Lat, params.Lng, p.Latitude, p.Longitude)
+		}
 		out = append(out, p)
 	}
-	if out == nil { return []domain.Playdate{} }
+
+	// Sort: distance first (with no-location rows pushed to the end) or
+	// time first. Both treat time as the secondary key.
+	sortBy := params.Sort
+	if sortBy == "" {
+		sortBy = "distance"
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a := out[i]
+		b := out[j]
+		if sortBy == "distance" {
+			aHas := a.Latitude != 0 && a.Longitude != 0 && hasCaller
+			bHas := b.Latitude != 0 && b.Longitude != 0 && hasCaller
+			if aHas != bHas {
+				return aHas
+			}
+			if aHas && a.Distance != b.Distance {
+				return a.Distance < b.Distance
+			}
+		}
+		return a.Date < b.Date
+	})
+
 	return out
+}
+
+func (s *PostgresStore) GetPlaydate(playdateID string) (*domain.Playdate, error) {
+	var p domain.Playdate
+	var img *string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, organizer_id, title, description, date, location, max_pets, attendees, created_at,
+		        COALESCE(latitude, 0), COALESCE(longitude, 0),
+		        COALESCE(city_label, ''), COALESCE(cover_image_url, '')
+		 FROM playdates WHERE id = $1`, playdateID).
+		Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date, &p.Location,
+			&p.MaxPets, &p.Attendees, &p.CreatedAt,
+			&p.Latitude, &p.Longitude, &p.CityLabel, &img)
+	if err != nil {
+		return nil, fmt.Errorf("playdate not found")
+	}
+	if p.Attendees == nil {
+		p.Attendees = []string{}
+	}
+	if img != nil {
+		p.CoverImageURL = *img
+	}
+	return &p, nil
 }
 
 func (s *PostgresStore) CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate {
 	playdate.ID = newID("pd")
 	playdate.OrganizerID = userID
 	playdate.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	if playdate.Attendees == nil { playdate.Attendees = []string{} }
-	s.pool.Exec(s.ctx(), `INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		playdate.ID, playdate.OrganizerID, playdate.Title, playdate.Description, playdate.Date, playdate.Location, playdate.MaxPets, playdate.Attendees, playdate.CreatedAt)
+	if playdate.Attendees == nil {
+		playdate.Attendees = []string{}
+	}
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at,latitude,longitude,city_label,cover_image_url)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		playdate.ID, playdate.OrganizerID, playdate.Title, playdate.Description,
+		playdate.Date, playdate.Location, playdate.MaxPets, playdate.Attendees, playdate.CreatedAt,
+		playdate.Latitude, playdate.Longitude, playdate.CityLabel, nilIfEmpty(playdate.CoverImageURL))
 	return playdate
 }
 

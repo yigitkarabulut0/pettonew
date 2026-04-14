@@ -22,6 +22,17 @@ type ListGroupsParams struct {
 	PetType string
 }
 
+// ListPlaydatesParams filters/sorts the playdates discovery hub feed.
+type ListPlaydatesParams struct {
+	UserID string
+	Lat    float64
+	Lng    float64
+	Search string
+	From   string // ISO — inclusive lower bound on playdate.date
+	To     string // ISO — exclusive upper bound
+	Sort   string // "distance" (default) | "time"
+}
+
 type Store interface {
 	Register(email string, password string) (*domain.AppUser, string, error)
 	Login(email string, password string) (*domain.AppUser, error)
@@ -97,7 +108,8 @@ type Store interface {
 	CreateFeedingSchedule(petID string, schedule domain.FeedingSchedule) domain.FeedingSchedule
 	DeleteFeedingSchedule(petID string, scheduleID string) error
 	// Playdates
-	ListPlaydates() []domain.Playdate
+	ListPlaydates(params ListPlaydatesParams) []domain.Playdate
+	GetPlaydate(playdateID string) (*domain.Playdate, error)
 	CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate
 	JoinPlaydate(userID string, playdateID string) error
 	// Groups

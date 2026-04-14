@@ -123,6 +123,7 @@ func (s *Server) Routes() http.Handler {
 			router.Delete("/pets/{petID}/feeding/{scheduleID}", s.handleDeleteFeeding)
 			// Playdates
 			router.Get("/playdates", s.handleListPlaydates)
+			router.Get("/playdates/{playdateID}", s.handleGetPlaydate)
 			router.Post("/playdates", s.handleCreatePlaydate)
 			router.Post("/playdates/{playdateID}/join", s.handleJoinPlaydate)
 			// Groups
@@ -1384,7 +1385,7 @@ func (s *Server) handleAdminDeletePetSitter(w http.ResponseWriter, r *http.Reque
 // ── Admin Playdates ─────────────────────────────────────────────────
 
 func (s *Server) handleAdminPlaydates(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListPlaydates()})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListPlaydates(store.ListPlaydatesParams{})})
 }
 
 func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Request) {
@@ -1560,8 +1561,37 @@ func (s *Server) handleDeleteFeeding(writer http.ResponseWriter, request *http.R
 // ── Playdates ────────────────────────────────────────────────────────
 
 func (s *Server) handleListPlaydates(writer http.ResponseWriter, request *http.Request) {
-	playdates := s.store.ListPlaydates()
-	writeJSON(writer, http.StatusOK, map[string]any{"data": playdates})
+	params := store.ListPlaydatesParams{
+		UserID: currentUserID(request),
+		Search: request.URL.Query().Get("search"),
+		From:   request.URL.Query().Get("from"),
+		To:     request.URL.Query().Get("to"),
+		Sort:   request.URL.Query().Get("sort"),
+	}
+	if v := request.URL.Query().Get("lat"); v != "" {
+		fmt.Sscanf(v, "%f", &params.Lat)
+	}
+	if v := request.URL.Query().Get("lng"); v != "" {
+		fmt.Sscanf(v, "%f", &params.Lng)
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListPlaydates(params)})
+}
+
+func (s *Server) handleGetPlaydate(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	playdate, err := s.store.GetPlaydate(playdateID)
+	if err != nil || playdate == nil {
+		writeError(writer, http.StatusNotFound, "playdate not found")
+		return
+	}
+	userID := currentUserID(request)
+	for _, uid := range playdate.Attendees {
+		if uid == userID {
+			playdate.IsAttending = true
+			break
+		}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": playdate})
 }
 
 func (s *Server) handleCreatePlaydate(writer http.ResponseWriter, request *http.Request) {

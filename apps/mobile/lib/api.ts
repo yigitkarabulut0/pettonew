@@ -1000,9 +1000,45 @@ export async function createFeedingSchedule(accessToken: string, petId: string, 
 }
 
 // Playdates
-export async function listPlaydates(accessToken: string): Promise<Playdate[]> {
-  const data = await request<Playdate[] | null>("/v1/playdates", { headers: authHeaders(accessToken) });
+export type ListPlaydatesParams = {
+  lat?: number;
+  lng?: number;
+  search?: string;
+  from?: string;
+  to?: string;
+  sort?: "distance" | "time";
+};
+
+export async function listPlaydates(
+  accessToken: string,
+  params: ListPlaydatesParams = {}
+): Promise<Playdate[]> {
+  const qs = new URLSearchParams();
+  if (params.lat != null) qs.set("lat", String(params.lat));
+  if (params.lng != null) qs.set("lng", String(params.lng));
+  if (params.search) qs.set("search", params.search);
+  if (params.from) qs.set("from", params.from);
+  if (params.to) qs.set("to", params.to);
+  if (params.sort) qs.set("sort", params.sort);
+  const q = qs.toString();
+  const data = await request<Playdate[] | null>(
+    `/v1/playdates${q ? `?${q}` : ""}`,
+    { headers: authHeaders(accessToken) }
+  );
   return data ?? [];
+}
+export async function getPlaydate(
+  accessToken: string,
+  playdateId: string
+): Promise<Playdate | null> {
+  try {
+    const data = await request<Playdate>(`/v1/playdates/${playdateId}`, {
+      headers: authHeaders(accessToken)
+    });
+    return data ?? null;
+  } catch {
+    return null;
+  }
 }
 export async function createPlaydate(accessToken: string, playdate: Omit<Playdate, "id" | "organizerId" | "attendees" | "createdAt">): Promise<Playdate> {
   return request<Playdate>("/v1/playdates", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(playdate) });

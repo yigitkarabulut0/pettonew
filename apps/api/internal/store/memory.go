@@ -1125,7 +1125,7 @@ func (s *MemoryStore) DeleteFeedingSchedule(petID string, scheduleID string) err
 
 // ── Playdates ───────────────────────────────────────────────────────
 
-func (s *MemoryStore) ListPlaydates() []domain.Playdate {
+func (s *MemoryStore) ListPlaydates(_ ListPlaydatesParams) []domain.Playdate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := []domain.Playdate{}
@@ -1133,6 +1133,16 @@ func (s *MemoryStore) ListPlaydates() []domain.Playdate {
 		result = append(result, *p)
 	}
 	return result
+}
+
+func (s *MemoryStore) GetPlaydate(playdateID string) (*domain.Playdate, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if p, ok := s.playdates[playdateID]; ok {
+		cp := *p
+		return &cp, nil
+	}
+	return nil, fmt.Errorf("playdate not found")
 }
 
 func (s *MemoryStore) CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate {

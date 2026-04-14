@@ -346,15 +346,21 @@ type VenueReview struct {
 }
 
 type Playdate struct {
-	ID          string   `json:"id"`
-	OrganizerID string   `json:"organizerId"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Date        string   `json:"date"`
-	Location    string   `json:"location"`
-	MaxPets     int      `json:"maxPets"`
-	Attendees   []string `json:"attendees"`
-	CreatedAt   string   `json:"createdAt"`
+	ID            string   `json:"id"`
+	OrganizerID   string   `json:"organizerId"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Date          string   `json:"date"`
+	Location      string   `json:"location"`
+	MaxPets       int      `json:"maxPets"`
+	Attendees     []string `json:"attendees"`
+	CreatedAt     string   `json:"createdAt"`
+	Latitude      float64  `json:"latitude,omitempty"`
+	Longitude     float64  `json:"longitude,omitempty"`
+	CityLabel     string   `json:"cityLabel,omitempty"`
+	CoverImageURL string   `json:"coverImageUrl,omitempty"`
+	Distance      float64  `json:"distance,omitempty"`
+	IsAttending   bool     `json:"isAttending"`
 }
 
 type MemberPet struct {

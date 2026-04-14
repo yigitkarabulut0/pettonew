@@ -382,6 +382,12 @@ export interface Playdate {
   maxPets: number;
   attendees: string[];
   createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  cityLabel?: string;
+  coverImageUrl?: string;
+  distance?: number;
+  isAttending?: boolean;
 }
 
 export interface MemberPet {

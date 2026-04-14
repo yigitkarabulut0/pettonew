@@ -1,78 +1,166 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
-  TextInput,
   View
 } from "react-native";
-import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, CalendarDays, MapPin, Minus, Plus, Users } from "lucide-react-native";
-
+import MapView, { Marker, type Region } from "react-native-maps";
 import { useTranslation } from "react-i18next";
-import { listPlaydates, createPlaydate, joinPlaydate, listExploreVenues } from "@/lib/api";
+import {
+  ArrowLeft,
+  CalendarDays,
+  List as ListIcon,
+  Map as MapIcon,
+  Navigation,
+  Plus,
+  RefreshCw,
+  Search,
+  X
+} from "lucide-react-native";
+import type { Playdate } from "@petto/contracts";
+
+import { listPlaydates, joinPlaydate } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
+import {
+  getCachedLocation,
+  refreshLocation,
+  type CachedLocation
+} from "@/lib/location";
+import { clusterPoints } from "@/lib/clustering";
+import { PlaydateCard } from "@/components/playdates/playdate-card";
+import {
+  PlaydateFilters,
+  type SortMode,
+  type TimeFilter
+} from "@/components/playdates/playdate-filters";
+import { PlaydateMarker } from "@/components/playdates/playdate-marker";
+import { CreatePlaydateModal } from "@/components/playdates/create-playdate-modal";
 
-export default function PlaydatesPage() {
+// Default map center if the user hasn't granted location yet — Istanbul.
+const DEFAULT_REGION: Region = {
+  latitude: 41.01,
+  longitude: 28.98,
+  latitudeDelta: 0.25,
+  longitudeDelta: 0.25
+};
+
+const NEARBY_THRESHOLD_KM = 25;
+
+function computeDateRange(filter: TimeFilter, custom?: { from?: Date; to?: Date }) {
+  const now = new Date();
+  if (filter === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  if (filter === "week") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  if (filter === "custom" && custom?.from) {
+    const end = custom.to ?? new Date(custom.from.getTime() + 24 * 60 * 60 * 1000);
+    return { from: custom.from.toISOString(), to: end.toISOString() };
+  }
+  return { from: undefined, to: undefined };
+}
+
+export default function PlaydatesHubPage() {
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const session = useSessionStore((state) => state.session);
+  const session = useSessionStore((s) => s.session);
   const queryClient = useQueryClient();
-
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [location, setLocation] = useState("");
-  const [maxPetsValue, setMaxPetsValue] = useState(10);
-
   const token = session?.tokens.accessToken ?? "";
 
-  const venuesQuery = useQuery({
-    queryKey: ["venues-for-playdate"],
-    queryFn: () => listExploreVenues(token),
-    enabled: Boolean(token)
-  });
-  const venues = venuesQuery.data ?? [];
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
+  const [time, setTime] = useState<TimeFilter>("all");
+  const [sort, setSort] = useState<SortMode>("distance");
+  const [location, setLocation] = useState<CachedLocation | null>(null);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
+  const [selectedPlaydateId, setSelectedPlaydateId] = useState<string | null>(null);
+  const mapRef = useRef<MapView>(null);
+
+  // Seed the location from cache on mount so the first render has a
+  // usable map — then kick off a fresh fix in the background.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const cached = await getCachedLocation();
+      if (!cancelled && cached) {
+        setLocation(cached);
+        setRegion({
+          latitude: cached.latitude,
+          longitude: cached.longitude,
+          latitudeDelta: 0.12,
+          longitudeDelta: 0.12
+        });
+      }
+      const fresh = await refreshLocation();
+      if (cancelled) return;
+      if (fresh.status === "granted") {
+        setLocation(fresh.location);
+        setLocationDenied(false);
+        if (!cached) {
+          setRegion({
+            latitude: fresh.location.latitude,
+            longitude: fresh.location.longitude,
+            latitudeDelta: 0.12,
+            longitudeDelta: 0.12
+          });
+        }
+      } else if (fresh.status === "denied") {
+        setLocationDenied(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dateRange = useMemo(() => computeDateRange(time), [time]);
 
   const playdatesQuery = useQuery({
-    queryKey: ["playdates"],
-    queryFn: () => listPlaydates(token),
+    queryKey: [
+      "playdates",
+      token,
+      location?.latitude,
+      location?.longitude,
+      sort,
+      time
+    ],
+    queryFn: () =>
+      listPlaydates(token, {
+        lat: location?.latitude,
+        lng: location?.longitude,
+        from: dateRange.from,
+        to: dateRange.to,
+        sort
+      }),
     enabled: Boolean(token)
   });
 
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createPlaydate(token, {
-        title: title.trim(),
-        description: description.trim(),
-        date: selectedDate.toISOString(),
-        location: location.trim(),
-        maxPets: maxPetsValue
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["playdates"] });
-      setTitle("");
-      setDescription("");
-      setSelectedDate(new Date());
-      setLocation("");
-      setMaxPetsValue(10);
-      setComposerOpen(false);
-    }
-  });
+  const { refreshing, handleRefresh } = useLocalRefresh(
+    useCallback(async () => {
+      // Re-acquire location on pull-to-refresh so stale coordinates
+      // don't pin the map to an old city if the user moved.
+      const fresh = await refreshLocation();
+      if (fresh.status === "granted") setLocation(fresh.location);
+      await playdatesQuery.refetch();
+    }, [playdatesQuery])
+  );
 
   const joinMutation = useMutation({
     mutationFn: (playdateId: string) => joinPlaydate(token, playdateId),
@@ -81,374 +169,730 @@ export default function PlaydatesPage() {
     }
   });
 
-  const { refreshing, handleRefresh } = useLocalRefresh(
-    useCallback(() => playdatesQuery.refetch(), [playdatesQuery])
+  const playdates = playdatesQuery.data ?? [];
+  const { nearby, other } = useMemo(() => {
+    const near: Playdate[] = [];
+    const rest: Playdate[] = [];
+    for (const p of playdates) {
+      if (
+        location &&
+        p.distance != null &&
+        p.distance > 0 &&
+        p.distance <= NEARBY_THRESHOLD_KM
+      ) {
+        near.push(p);
+      } else {
+        rest.push(p);
+      }
+    }
+    return { nearby: near, other: rest };
+  }, [playdates, location]);
+
+  const mapPoints = useMemo(
+    () =>
+      playdates
+        .filter((p) => p.latitude && p.longitude)
+        .map((p) => ({
+          id: p.id,
+          latitude: p.latitude as number,
+          longitude: p.longitude as number,
+          playdate: p
+        })),
+    [playdates]
   );
 
-  const playdates = playdatesQuery.data ?? [];
+  const clusters = useMemo(
+    () => clusterPoints(mapPoints, region.latitudeDelta),
+    [mapPoints, region.latitudeDelta]
+  );
+
+  const selectedPlaydate = selectedPlaydateId
+    ? playdates.find((p) => p.id === selectedPlaydateId) ?? null
+    : null;
+
+  const openDetail = (playdate: Playdate) => {
+    router.push({
+      pathname: "/(app)/playdates/[id]",
+      params: {
+        id: playdate.id,
+        initialTitle: playdate.title,
+        initialImage: playdate.coverImageUrl ?? ""
+      }
+    } as any);
+  };
+
+  const handleJoin = (playdate: Playdate) => {
+    if (!playdate.isAttending) {
+      joinMutation.mutate(playdate.id);
+    }
+  };
+
+  const onRegionChangeComplete = (r: Region) => setRegion(r);
+
+  const recenterToUser = async () => {
+    if (location && mapRef.current) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          latitudeDelta: 0.12,
+          longitudeDelta: 0.12
+        },
+        400
+      );
+    } else {
+      const fresh = await refreshLocation();
+      if (fresh.status === "granted") {
+        setLocation(fresh.location);
+        mapRef.current?.animateToRegion(
+          {
+            latitude: fresh.location.latitude,
+            longitude: fresh.location.longitude,
+            latitudeDelta: 0.12,
+            longitudeDelta: 0.12
+          },
+          400
+        );
+      }
+    }
+  };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {/* Header */}
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      {/* Unified white header surface (title + toggle + filters) with soft
+          shadow — same pattern as groups.tsx so the filter row breathes. */}
       <View
         style={{
-          paddingTop: insets.top + mobileTheme.spacing.md,
-          paddingBottom: mobileTheme.spacing.lg,
-          paddingHorizontal: mobileTheme.spacing.xl,
           backgroundColor: theme.colors.white,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: mobileTheme.spacing.md,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border
+          paddingBottom: 14,
+          ...mobileTheme.shadow.sm
         }}
       >
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
+        <View
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            backgroundColor: theme.colors.background,
+            paddingTop: insets.top + 12,
+            paddingBottom: 10,
+            paddingHorizontal: 20,
+            flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center"
+            gap: 12
           }}
         >
-          <ArrowLeft size={18} color={theme.colors.ink} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: theme.colors.background,
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            <ArrowLeft size={20} color={theme.colors.ink} />
+          </Pressable>
           <Text
             style={{
-              fontSize: mobileTheme.typography.subheading.fontSize,
-              fontWeight: mobileTheme.typography.subheading.fontWeight,
-              color: theme.colors.ink
+              flex: 1,
+              fontSize: 22,
+              color: theme.colors.ink,
+              fontFamily: "Inter_700Bold"
             }}
           >
             {t("playdates.title")}
           </Text>
-        </View>
-        <Pressable
-          onPress={() => setComposerOpen(!composerOpen)}
-          hitSlop={12}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            backgroundColor: theme.colors.primaryBg,
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
-          <Plus size={18} color={theme.colors.primary} />
-        </Pressable>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: mobileTheme.spacing.xl,
-          paddingTop: mobileTheme.spacing.xl,
-          paddingBottom: insets.bottom + 24
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.colors.primary}
-          />
-        }
-      >
-        {/* Composer */}
-        {composerOpen && (
-          <View
+          <Pressable
+            onPress={handleRefresh}
+            hitSlop={10}
             style={{
-              backgroundColor: theme.colors.white,
-              borderRadius: mobileTheme.radius.lg,
-              padding: mobileTheme.spacing.xl,
-              marginBottom: mobileTheme.spacing.xl,
-              gap: mobileTheme.spacing.lg,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: theme.colors.background,
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            <RefreshCw size={18} color={theme.colors.ink} />
+          </Pressable>
+          <Pressable
+            onPress={() => setCreateOpen(true)}
+            hitSlop={10}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: theme.colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
               ...mobileTheme.shadow.sm
             }}
           >
-            <Text
-              style={{
-                fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
-                color: theme.colors.ink
-              }}
-            >
-              {t("playdates.newPlaydate")}
-            </Text>
+            <Plus size={20} color={theme.colors.white} />
+          </Pressable>
+        </View>
 
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder={t("playdates.titlePlaceholder")}
-              placeholderTextColor={theme.colors.muted}
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink
-              }}
-            />
-
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder={t("playdates.descriptionPlaceholder")}
-              placeholderTextColor={theme.colors.muted}
-              multiline
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                minHeight: 80,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink,
-                textAlignVertical: "top"
-              }}
-            />
-
-            <Pressable
-              onPress={() => setShowDatePicker(true)}
-              style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: mobileTheme.radius.md,
-                padding: mobileTheme.spacing.lg,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: mobileTheme.spacing.sm
-              }}
-            >
-              <CalendarDays size={16} color={theme.colors.muted} />
-              <Text
+        {/* View toggle */}
+        <View
+          style={{
+            flexDirection: "row",
+            marginHorizontal: 20,
+            marginBottom: 12,
+            backgroundColor: theme.colors.surface,
+            borderRadius: mobileTheme.radius.pill,
+            padding: 4,
+            borderWidth: 1,
+            borderColor: theme.colors.border
+          }}
+        >
+          {(["list", "map"] as const).map((key) => {
+            const active = viewMode === key;
+            const Icon = key === "list" ? ListIcon : MapIcon;
+            return (
+              <Pressable
+                key={key}
+                onPress={() => setViewMode(key)}
                 style={{
-                  fontSize: mobileTheme.typography.body.fontSize,
-                  color: theme.colors.ink
+                  flex: 1,
+                  paddingVertical: 11,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: active ? theme.colors.white : "transparent",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 6,
+                  ...(active ? mobileTheme.shadow.sm : {})
                 }}
               >
-                {selectedDate.toLocaleDateString()} {selectedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </Text>
-            </Pressable>
-            {showDatePicker && (
-              <DateTimePicker
-                value={selectedDate}
-                mode="datetime"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                minimumDate={new Date()}
-                onChange={(_event, date) => {
-                  setShowDatePicker(Platform.OS === "ios");
-                  if (date) setSelectedDate(date);
-                }}
-              />
-            )}
+                <Icon
+                  size={14}
+                  color={active ? theme.colors.primary : theme.colors.muted}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontFamily: active ? "Inter_700Bold" : "Inter_500Medium",
+                    color: active ? theme.colors.ink : theme.colors.muted
+                  }}
+                >
+                  {key === "list"
+                    ? (t("playdates.listView") as string)
+                    : (t("playdates.mapView") as string)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-            <View style={{ gap: mobileTheme.spacing.sm }}>
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                {t("playdates.venue")}
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: mobileTheme.spacing.sm }}
-              >
-                {venues.map((venue) => (
-                  <Pressable
-                    key={venue.id}
-                    onPress={() => setLocation(venue.name)}
-                    style={{
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderRadius: mobileTheme.radius.pill,
-                      backgroundColor: location === venue.name ? theme.colors.primaryBg : theme.colors.background,
-                      borderWidth: 1,
-                      borderColor: location === venue.name ? theme.colors.primary : theme.colors.border
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: mobileTheme.typography.caption.fontSize,
-                        fontWeight: location === venue.name ? "600" : "400",
-                        color: location === venue.name ? theme.colors.primary : theme.colors.ink
-                      }}
-                      numberOfLines={1}
-                    >
-                      {venue.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-              {location ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <MapPin size={14} color={theme.colors.primary} />
-                  <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.primary, fontWeight: "600" }}>
-                    {location}
-                  </Text>
+        {/* Filters */}
+        <PlaydateFilters
+          time={time}
+          onTimeChange={setTime}
+          sort={sort}
+          onSortToggle={() =>
+            setSort((s) => (s === "distance" ? "time" : "distance"))
+          }
+          onOpenCustom={() => setTime("all")}
+        />
+      </View>
+
+      {/* Location denied banner */}
+      {locationDenied ? (
+        <View
+          style={{
+            marginHorizontal: 20,
+            marginTop: 12,
+            padding: 12,
+            borderRadius: mobileTheme.radius.md,
+            backgroundColor: theme.colors.accent + "22",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10
+          }}
+        >
+          <Navigation size={16} color={theme.colors.accent} />
+          <Text
+            style={{
+              flex: 1,
+              fontSize: 12,
+              color: theme.colors.ink,
+              fontFamily: "Inter_500Medium"
+            }}
+          >
+            {t("playdates.locationDeniedBanner")}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Body */}
+      {viewMode === "list" ? (
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 14,
+            paddingBottom: insets.bottom + 48,
+            gap: 10
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.colors.primary}
+            />
+          }
+        >
+          {playdatesQuery.isLoading ? (
+            <SkeletonStack theme={theme} />
+          ) : playdatesQuery.isError ? (
+            <ErrorState
+              theme={theme}
+              onRetry={() => playdatesQuery.refetch()}
+              message={t("playdates.errorLoading") as string}
+            />
+          ) : playdates.length === 0 ? (
+            <EmptyState
+              theme={theme}
+              title={t("playdates.noPlaydates") as string}
+              body={t("playdates.noPlaydatesDescription") as string}
+              onCreate={() => setCreateOpen(true)}
+              ctaLabel={t("playdates.createPlaydate") as string}
+            />
+          ) : (
+            <>
+              {nearby.length > 0 ? (
+                <>
+                  <SectionLabel
+                    text={t("playdates.nearby") as string}
+                    count={nearby.length}
+                    theme={theme}
+                  />
+                  {nearby.map((p) => (
+                    <PlaydateCard
+                      key={p.id}
+                      playdate={p}
+                      onPress={() => openDetail(p)}
+                      onJoin={() => handleJoin(p)}
+                      joinPending={joinMutation.isPending}
+                    />
+                  ))}
+                </>
+              ) : null}
+
+              {other.length > 0 ? (
+                <View style={{ marginTop: nearby.length > 0 ? 16 : 0, gap: 10 }}>
+                  <SectionLabel
+                    text={
+                      nearby.length > 0
+                        ? (t("playdates.otherPlaydates") as string)
+                        : (t("playdates.allPlaydates") as string)
+                    }
+                    count={other.length}
+                    theme={theme}
+                  />
+                  {other.map((p) => (
+                    <PlaydateCard
+                      key={p.id}
+                      playdate={p}
+                      onPress={() => openDetail(p)}
+                      onJoin={() => handleJoin(p)}
+                      joinPending={joinMutation.isPending}
+                    />
+                  ))}
                 </View>
               ) : null}
-            </View>
+            </>
+          )}
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <MapView
+            ref={mapRef}
+            style={{ flex: 1 }}
+            initialRegion={region}
+            onRegionChangeComplete={onRegionChangeComplete}
+            showsUserLocation
+            showsMyLocationButton={false}
+            toolbarEnabled={false}
+          >
+            {clusters.map((c) => {
+              if (c.kind === "single") {
+                const p = (c.point as any).playdate as Playdate;
+                return (
+                  <Marker
+                    key={p.id}
+                    coordinate={{
+                      latitude: p.latitude as number,
+                      longitude: p.longitude as number
+                    }}
+                    onPress={() => setSelectedPlaydateId(p.id)}
+                    tracksViewChanges={false}
+                  >
+                    <PlaydateMarker
+                      kind="single"
+                      selected={selectedPlaydateId === p.id}
+                    />
+                  </Marker>
+                );
+              }
+              return (
+                <Marker
+                  key={c.id}
+                  coordinate={{
+                    latitude: c.latitude,
+                    longitude: c.longitude
+                  }}
+                  onPress={() => {
+                    mapRef.current?.animateToRegion(
+                      {
+                        latitude: c.latitude,
+                        longitude: c.longitude,
+                        latitudeDelta: Math.max(
+                          region.latitudeDelta / 2.5,
+                          0.004
+                        ),
+                        longitudeDelta: Math.max(
+                          region.longitudeDelta / 2.5,
+                          0.004
+                        )
+                      },
+                      400
+                    );
+                  }}
+                  tracksViewChanges={false}
+                >
+                  <PlaydateMarker kind="group" count={c.count} />
+                </Marker>
+              );
+            })}
+          </MapView>
 
-            <View style={{ gap: mobileTheme.spacing.sm }}>
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                {t("playdates.maxPets")}
-              </Text>
+          {/* Recenter button */}
+          <Pressable
+            onPress={recenterToUser}
+            style={{
+              position: "absolute",
+              right: 16,
+              bottom: insets.bottom + (selectedPlaydate ? 190 : 28),
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: theme.colors.white,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              ...mobileTheme.shadow.sm
+            }}
+          >
+            <Navigation size={18} color={theme.colors.primary} />
+          </Pressable>
+
+          {/* Bottom preview card */}
+          {selectedPlaydate ? (
+            <View
+              style={{
+                position: "absolute",
+                left: 16,
+                right: 16,
+                bottom: insets.bottom + 20
+              }}
+            >
               <View
                 style={{
                   flexDirection: "row",
-                  alignItems: "center",
-                  gap: mobileTheme.spacing.md,
-                  backgroundColor: theme.colors.background,
-                  borderRadius: mobileTheme.radius.md,
-                  padding: mobileTheme.spacing.sm,
-                  alignSelf: "flex-start"
+                  justifyContent: "flex-end",
+                  marginBottom: 6
                 }}
               >
                 <Pressable
-                  onPress={() => setMaxPetsValue((prev) => Math.max(1, prev - 1))}
-                  disabled={maxPetsValue <= 1}
+                  onPress={() => setSelectedPlaydateId(null)}
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: maxPetsValue <= 1 ? theme.colors.border : theme.colors.primaryBg,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    backgroundColor: theme.colors.white,
                     alignItems: "center",
-                    justifyContent: "center"
+                    justifyContent: "center",
+                    ...mobileTheme.shadow.sm
                   }}
                 >
-                  <Minus size={16} color={maxPetsValue <= 1 ? theme.colors.muted : theme.colors.primary} />
-                </Pressable>
-                <Text
-                  style={{
-                    fontSize: mobileTheme.typography.subheading.fontSize,
-                    fontWeight: "700",
-                    color: theme.colors.ink,
-                    minWidth: 30,
-                    textAlign: "center"
-                  }}
-                >
-                  {maxPetsValue}
-                </Text>
-                <Pressable
-                  onPress={() => setMaxPetsValue((prev) => Math.min(20, prev + 1))}
-                  disabled={maxPetsValue >= 20}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: maxPetsValue >= 20 ? theme.colors.border : theme.colors.primaryBg,
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}
-                >
-                  <Plus size={16} color={maxPetsValue >= 20 ? theme.colors.muted : theme.colors.primary} />
+                  <X size={14} color={theme.colors.muted} />
                 </Pressable>
               </View>
+              <PlaydateCard
+                playdate={selectedPlaydate}
+                onPress={() => openDetail(selectedPlaydate)}
+                onJoin={() => handleJoin(selectedPlaydate)}
+                joinPending={joinMutation.isPending}
+              />
             </View>
+          ) : null}
+        </View>
+      )}
 
-            <Pressable
-              onPress={() => createMutation.mutate()}
-              disabled={!title.trim() || createMutation.isPending}
-              style={{
-                backgroundColor: title.trim() ? theme.colors.primary : theme.colors.border,
-                borderRadius: mobileTheme.radius.md,
-                paddingVertical: mobileTheme.spacing.md,
-                alignItems: "center"
-              }}
-            >
-              {createMutation.isPending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: mobileTheme.typography.body.fontSize }}>
-                  {t("playdates.createPlaydate")}
-                </Text>
-              )}
-            </Pressable>
-          </View>
-        )}
+      <CreatePlaydateModal
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        userLocation={
+          location
+            ? { latitude: location.latitude, longitude: location.longitude }
+            : null
+        }
+      />
+    </View>
+  );
+}
 
-        {/* Loading */}
-        {playdatesQuery.isLoading && (
-          <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center" }}>
-            <LottieLoading size={70} />
-          </View>
-        )}
+// ── Internal helpers ──────────────────────────────────────────────
 
-        {/* Empty */}
-        {!playdatesQuery.isLoading && playdates.length === 0 && (
-          <View style={{ paddingVertical: mobileTheme.spacing["4xl"], alignItems: "center", gap: mobileTheme.spacing.lg }}>
-            <CalendarDays size={48} color={theme.colors.muted} />
-            <Text style={{ fontSize: mobileTheme.typography.subheading.fontSize, fontWeight: mobileTheme.typography.subheading.fontWeight, color: theme.colors.ink }}>
-              {t("playdates.noPlaydates")}
-            </Text>
-            <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, textAlign: "center", paddingHorizontal: mobileTheme.spacing["3xl"] }}>
-              {t("playdates.noPlaydatesDescription")}
-            </Text>
-          </View>
-        )}
+function SectionLabel({
+  text,
+  count,
+  theme
+}: {
+  text: string;
+  count: number;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 4,
+        marginBottom: 4
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 11,
+          letterSpacing: 1,
+          color: theme.colors.muted,
+          fontFamily: "Inter_700Bold",
+          textTransform: "uppercase"
+        }}
+      >
+        {text}
+      </Text>
+      <View
+        style={{
+          minWidth: 22,
+          height: 18,
+          paddingHorizontal: 6,
+          borderRadius: 9,
+          backgroundColor: theme.colors.primaryBg,
+          alignItems: "center",
+          justifyContent: "center"
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 10,
+            color: theme.colors.primary,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          {count}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
-        {/* Playdates */}
-        {playdates.map((playdate) => (
+function SkeletonStack({ theme }: { theme: ReturnType<typeof useTheme> }) {
+  return (
+    <View style={{ gap: 10 }}>
+      {[0, 1, 2].map((i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: "row",
+            gap: 14,
+            padding: 14,
+            borderRadius: mobileTheme.radius.lg,
+            backgroundColor: theme.colors.white,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            ...mobileTheme.shadow.sm
+          }}
+        >
           <View
-            key={playdate.id}
             style={{
-              backgroundColor: theme.colors.white,
-              borderRadius: mobileTheme.radius.lg,
-              padding: mobileTheme.spacing.xl,
-              marginBottom: mobileTheme.spacing.md,
-              gap: mobileTheme.spacing.sm,
-              ...mobileTheme.shadow.sm
+              width: 92,
+              height: 92,
+              borderRadius: mobileTheme.radius.md,
+              backgroundColor: theme.colors.background
             }}
-          >
-            <Text style={{ fontSize: mobileTheme.typography.bodySemiBold.fontSize, fontWeight: "600", color: theme.colors.ink }}>
-              {playdate.title}
-            </Text>
-            {playdate.description ? (
-              <Text style={{ fontSize: mobileTheme.typography.body.fontSize, color: theme.colors.muted, lineHeight: mobileTheme.typography.body.lineHeight }}>
-                {playdate.description}
-              </Text>
-            ) : null}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-              <CalendarDays size={14} color={theme.colors.muted} />
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                {new Date(playdate.date).toLocaleDateString()}
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <MapPin size={14} color={theme.colors.muted} />
-              <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.muted }}>
-                {playdate.location}
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Users size={14} color={theme.colors.secondary} />
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, color: theme.colors.secondary }}>
-                  {t("playdates.attending", { current: playdate.attendees.length, max: playdate.maxPets })}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => joinMutation.mutate(playdate.id)}
-                disabled={joinMutation.isPending}
-                style={{
-                  backgroundColor: theme.colors.primaryBg,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderRadius: mobileTheme.radius.md
-                }}
-              >
-                <Text style={{ fontSize: mobileTheme.typography.caption.fontSize, fontWeight: "600", color: theme.colors.primary }}>
-                  {t("common.join")}
-                </Text>
-              </Pressable>
-            </View>
+          />
+          <View style={{ flex: 1, gap: 8, paddingTop: 6 }}>
+            <View
+              style={{
+                height: 14,
+                width: "70%",
+                borderRadius: 4,
+                backgroundColor: theme.colors.background
+              }}
+            />
+            <View
+              style={{
+                height: 12,
+                width: "50%",
+                borderRadius: 4,
+                backgroundColor: theme.colors.background
+              }}
+            />
+            <View
+              style={{
+                height: 12,
+                width: "40%",
+                borderRadius: 4,
+                backgroundColor: theme.colors.background
+              }}
+            />
           </View>
-        ))}
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function EmptyState({
+  theme,
+  title,
+  body,
+  onCreate,
+  ctaLabel
+}: {
+  theme: ReturnType<typeof useTheme>;
+  title: string;
+  body: string;
+  onCreate: () => void;
+  ctaLabel: string;
+}) {
+  return (
+    <View
+      style={{
+        alignItems: "center",
+        padding: 40,
+        marginTop: 40,
+        borderRadius: mobileTheme.radius.lg,
+        backgroundColor: theme.colors.white,
+        borderWidth: 1,
+        borderColor: theme.colors.border
+      }}
+    >
+      <View
+        style={{
+          width: 64,
+          height: 64,
+          borderRadius: 32,
+          backgroundColor: theme.colors.primaryBg,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 14
+        }}
+      >
+        <CalendarDays size={28} color={theme.colors.primary} />
+      </View>
+      <Text
+        style={{
+          fontSize: 16,
+          color: theme.colors.ink,
+          fontFamily: "Inter_700Bold"
+        }}
+      >
+        {title}
+      </Text>
+      <Text
+        style={{
+          marginTop: 6,
+          fontSize: 13,
+          color: theme.colors.muted,
+          textAlign: "center",
+          lineHeight: 18,
+          fontFamily: "Inter_500Medium",
+          maxWidth: 260
+        }}
+      >
+        {body}
+      </Text>
+      <Pressable
+        onPress={onCreate}
+        style={({ pressed }) => ({
+          marginTop: 18,
+          paddingHorizontal: 20,
+          paddingVertical: 12,
+          borderRadius: mobileTheme.radius.pill,
+          backgroundColor: theme.colors.primary,
+          opacity: pressed ? 0.88 : 1,
+          ...mobileTheme.shadow.sm
+        })}
+      >
+        <Text
+          style={{
+            color: theme.colors.white,
+            fontSize: 13,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          {ctaLabel}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ErrorState({
+  theme,
+  message,
+  onRetry
+}: {
+  theme: ReturnType<typeof useTheme>;
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <View
+      style={{
+        padding: 24,
+        marginTop: 20,
+        borderRadius: mobileTheme.radius.lg,
+        backgroundColor: theme.colors.dangerBg,
+        alignItems: "center",
+        gap: 10
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 14,
+          color: theme.colors.danger,
+          fontFamily: "Inter_600SemiBold"
+        }}
+      >
+        {message}
+      </Text>
+      <Pressable
+        onPress={onRetry}
+        style={({ pressed }) => ({
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderRadius: mobileTheme.radius.pill,
+          backgroundColor: theme.colors.danger,
+          opacity: pressed ? 0.85 : 1
+        })}
+      >
+        <Text
+          style={{
+            color: theme.colors.white,
+            fontSize: 12,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          Retry
+        </Text>
+      </Pressable>
+    </View>
   );
 }
