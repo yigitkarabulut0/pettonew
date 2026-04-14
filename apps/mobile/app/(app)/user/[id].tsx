@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Heart } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, Heart } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 
 import { LottieLoading } from "@/components/lottie-loading";
+import { PetDetailModal } from "@/components/pet-card";
 import { getUserProfile, toggleHomePostLike } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
+import type { Pet } from "@petto/contracts";
 
 export default function UserProfilePage() {
   const { t } = useTranslation();
@@ -57,6 +60,8 @@ export default function UserProfilePage() {
   const user = data?.user;
   const pets = data?.pets ?? [];
   const posts = data?.posts ?? [];
+
+  const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -185,17 +190,19 @@ export default function UserProfilePage() {
                 {pets.map((pet) => {
                   const photo = pet.photos?.[0]?.url;
                   return (
-                    <View
+                    <Pressable
                       key={pet.id}
-                      style={{
+                      onPress={() => setSelectedPet(pet as Pet)}
+                      style={({ pressed }) => ({
                         flexDirection: "row",
                         alignItems: "center",
                         gap: mobileTheme.spacing.md,
                         backgroundColor: theme.colors.white,
                         borderRadius: mobileTheme.radius.lg,
                         padding: mobileTheme.spacing.lg,
+                        opacity: pressed ? 0.88 : 1,
                         ...mobileTheme.shadow.sm
-                      }}
+                      })}
                     >
                       <View
                         style={{
@@ -236,7 +243,8 @@ export default function UserProfilePage() {
                           {pet.speciesLabel} · {pet.breedLabel}
                         </Text>
                       </View>
-                    </View>
+                      <ChevronRight size={18} color={theme.colors.muted} />
+                    </Pressable>
                   );
                 })}
               </View>
@@ -338,6 +346,12 @@ export default function UserProfilePage() {
           )}
         </ScrollView>
       )}
+
+      <PetDetailModal
+        pet={selectedPet}
+        visible={Boolean(selectedPet)}
+        onClose={() => setSelectedPet(null)}
+      />
     </View>
   );
 }

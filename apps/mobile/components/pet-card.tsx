@@ -364,15 +364,30 @@ export function PetDetailModal({
     if (idx !== activePhoto) setActivePhoto(idx);
   };
 
+  // Brand-aligned glass buttons: soft white circles with a thin ring and
+  // a subtle shadow. Ink-colored icons read clearly against both bright
+  // and dark photos, and the style echoes the primary/white card chrome
+  // used across the rest of the app (match feed, groups, profile).
   const glassBtnStyle = {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "rgba(0,0,0,0.38)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.94)",
     alignItems: "center" as const,
     justifyContent: "center" as const,
-    borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.18)"
+    borderWidth: 1,
+    borderColor: "rgba(22,21,20,0.06)",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4
+  };
+  const closeBtnStyle = {
+    ...glassBtnStyle,
+    // Close sits alone on the left; give it a faint primary tint so the
+    // "exit" action is distinguishable from the secondary actions.
+    backgroundColor: "rgba(255,255,255,0.96)"
   };
 
   return (
@@ -458,32 +473,52 @@ export function PetDetailModal({
                 justifyContent: "space-between"
               }}
             >
-              <Pressable onPress={onClose} hitSlop={10} style={glassBtnStyle}>
-                <X size={20} color="#FFFFFF" strokeWidth={2.3} />
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={({ pressed }) => [
+                  closeBtnStyle,
+                  { opacity: pressed ? 0.8 : 1 }
+                ]}
+              >
+                <X size={20} color={theme.colors.ink} strokeWidth={2.4} />
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10 }}>
                 {!isOwnPet ? (
                   <Pressable
                     onPress={() => setReportOpen(true)}
                     hitSlop={10}
-                    style={glassBtnStyle}
+                    style={({ pressed }) => [
+                      glassBtnStyle,
+                      { opacity: pressed ? 0.8 : 1 }
+                    ]}
                   >
-                    <Flag size={18} color="#FFFFFF" strokeWidth={2.3} />
+                    <Flag size={18} color={theme.colors.ink} strokeWidth={2.2} />
                   </Pressable>
                 ) : null}
                 <Pressable
                   onPress={() => setQrOpen(true)}
                   hitSlop={10}
-                  style={glassBtnStyle}
+                  style={({ pressed }) => [
+                    glassBtnStyle,
+                    { opacity: pressed ? 0.8 : 1 }
+                  ]}
                 >
-                  <QrCode size={18} color="#FFFFFF" strokeWidth={2.3} />
+                  <QrCode size={18} color={theme.colors.ink} strokeWidth={2.2} />
                 </Pressable>
                 <Pressable
                   onPress={handleShare}
                   hitSlop={10}
-                  style={glassBtnStyle}
+                  style={({ pressed }) => [
+                    glassBtnStyle,
+                    { opacity: pressed ? 0.8 : 1 }
+                  ]}
                 >
-                  <Share2 size={18} color="#FFFFFF" strokeWidth={2.3} />
+                  <Share2
+                    size={18}
+                    color={theme.colors.primary}
+                    strokeWidth={2.4}
+                  />
                 </Pressable>
               </View>
             </View>
