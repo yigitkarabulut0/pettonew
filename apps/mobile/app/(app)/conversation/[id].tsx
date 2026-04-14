@@ -100,13 +100,46 @@ export default function ConversationPage() {
   const isAdmin = Boolean(groupInfo?.isAdmin);
   const isMuted = Boolean(groupInfo?.muted);
 
+  // Single source-of-truth for the messages cache key. Used by useQuery,
+  // mutation optimistic updates, cancelQueries, and invalidate — if these
+  // ever drift, optimistic writes silently miss the observer and the user
+  // sees the "my message disappeared" bug.
+  const messagesQueryKey = useMemo(
+    () => ["messages", id, session?.tokens.accessToken] as const,
+    [id, session?.tokens.accessToken]
+  );
+
   const { data: messages = [] } = useQuery({
-    queryKey: ["messages", id, session?.tokens.accessToken],
-    queryFn: () => listMessages(session!.tokens.accessToken, id),
+    queryKey: messagesQueryKey,
+    queryFn: async () => {
+      const serverMsgs = await listMessages(session!.tokens.accessToken, id);
+      // Preserve optimistic temp-* messages across polls. Without this,
+      // a background refetch that finishes between onMutate and server
+      // ACK replaces the freshly-inserted optimistic bubble with the
+      // pre-send snapshot — so the message the user just sent visibly
+      // disappears for ~2.5s until the real one arrives. Keep every
+      // temp unless the server already returned a matching real row
+      // (same sender + type + body + imageUrl, within 60s).
+      const current = queryClient.getQueryData<Message[]>(messagesQueryKey);
+      if (!current || current.length === 0) return serverMsgs;
+      const temps = current.filter((m) => typeof m.id === "string" && m.id.startsWith("temp-"));
+      if (temps.length === 0) return serverMsgs;
+      const kept = temps.filter((t) => {
+        return !serverMsgs.some(
+          (s) =>
+            s.senderProfileId === t.senderProfileId &&
+            s.type === t.type &&
+            (s.body ?? "") === (t.body ?? "") &&
+            (s.imageUrl ?? "") === (t.imageUrl ?? "") &&
+            Math.abs(
+              new Date(s.createdAt).getTime() -
+                new Date(t.createdAt).getTime()
+            ) < 60_000
+        );
+      });
+      return [...serverMsgs, ...kept];
+    },
     enabled: Boolean(session && id && (!isGroupChat || isMember)),
-    // Poll every 2.5 s — TanStack's structural sharing keeps the array
-    // identity stable when nothing changed, so memoized bubbles skip their
-    // re-render entirely on an unchanged poll.
     refetchInterval: 2500,
     staleTime: 1500,
     refetchOnWindowFocus: false
@@ -131,8 +164,8 @@ export default function ConversationPage() {
       return sendMessage(session.tokens.accessToken, id, text.trim());
     },
     onMutate: async (text: string) => {
-      await queryClient.cancelQueries({ queryKey: ["messages", id] });
-      const prev = queryClient.getQueryData(["messages", id]);
+      await queryClient.cancelQueries({ queryKey: messagesQueryKey });
+      const prev = queryClient.getQueryData(messagesQueryKey);
       const optimistic: Message = {
         id: `temp-${Date.now()}`,
         conversationId: id,
@@ -144,7 +177,7 @@ export default function ConversationPage() {
         createdAt: new Date().toISOString(),
         isMine: true
       };
-      queryClient.setQueryData(["messages", id], (old: Message[] | undefined) => [
+      queryClient.setQueryData(messagesQueryKey, (old: Message[] | undefined) => [
         ...(old ?? []),
         optimistic
       ]);
@@ -152,10 +185,10 @@ export default function ConversationPage() {
       return { prev };
     },
     onError: (_err, _text, context) => {
-      if (context?.prev) queryClient.setQueryData(["messages", id], context.prev);
+      if (context?.prev) queryClient.setQueryData(messagesQueryKey, context.prev);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages", id] });
+      queryClient.invalidateQueries({ queryKey: messagesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     }
   });
@@ -168,8 +201,8 @@ export default function ConversationPage() {
     // Optimistic insert — the pet/image bubble appears in the list the
     // instant the user taps send, before the network round-trip.
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: ["messages", id] });
-      const prev = queryClient.getQueryData<Message[]>(["messages", id]);
+      await queryClient.cancelQueries({ queryKey: messagesQueryKey });
+      const prev = queryClient.getQueryData<Message[]>(messagesQueryKey);
       const optimistic: Message = {
         id: `temp-${Date.now()}`,
         conversationId: id,
@@ -184,7 +217,7 @@ export default function ConversationPage() {
         isMine: true
       };
       queryClient.setQueryData<Message[]>(
-        ["messages", id],
+        messagesQueryKey,
         (old) => [...(old ?? []), optimistic]
       );
       // Jump to bottom so the user sees the new bubble.
@@ -193,11 +226,11 @@ export default function ConversationPage() {
     },
     onError: (_err, _input, context: any) => {
       if (context?.prev) {
-        queryClient.setQueryData(["messages", id], context.prev);
+        queryClient.setQueryData(messagesQueryKey, context.prev);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages", id] });
+      queryClient.invalidateQueries({ queryKey: messagesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     }
   });
@@ -250,7 +283,7 @@ export default function ConversationPage() {
         case "delete":
           if (groupInfo?.id) {
             await deleteGroupMessage(token, groupInfo.id, modMessage.id);
-            queryClient.invalidateQueries({ queryKey: ["messages", id] });
+            queryClient.invalidateQueries({ queryKey: messagesQueryKey });
           }
           break;
         case "pin":
@@ -296,7 +329,7 @@ export default function ConversationPage() {
     },
     onSuccess: () => {
       refetchGroupInfo();
-      queryClient.invalidateQueries({ queryKey: ["messages", id] });
+      queryClient.invalidateQueries({ queryKey: messagesQueryKey });
     }
   });
 
