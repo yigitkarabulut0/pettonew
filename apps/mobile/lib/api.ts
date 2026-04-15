@@ -10,12 +10,15 @@ import type {
   FeedingSchedule,
   HealthRecord,
   HomePost,
+  InvitableUser,
   LostPetAlert,
   MatchPreview,
   Message,
+  NotificationPreferences,
   Pet,
   PetSitter,
   Playdate,
+  PlaydateInvite,
   SessionPayload,
   TaxonomyItem,
   TaxonomyKind,
@@ -38,6 +41,51 @@ function getApiBaseUrl() {
   }
 
   return apiBaseUrl;
+}
+
+// v0.11.0 — notification preferences API.
+export async function getNotificationPrefs(
+  accessToken: string
+): Promise<NotificationPreferences> {
+  const prefs = await request<NotificationPreferences>(
+    "/v1/me/notification-prefs",
+    {
+      headers: authHeaders(accessToken)
+    }
+  );
+  return {
+    matches: prefs?.matches ?? true,
+    messages: prefs?.messages ?? true,
+    playdates: prefs?.playdates ?? true,
+    groups: prefs?.groups ?? true
+  };
+}
+
+export async function updateNotificationPrefs(
+  accessToken: string,
+  prefs: NotificationPreferences
+): Promise<NotificationPreferences> {
+  return request<NotificationPreferences>("/v1/me/notification-prefs", {
+    method: "PUT",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(prefs)
+  });
+}
+
+/**
+ * v0.11.0 — Build the public share landing URL for a playdate.
+ * The Go API serves `GET /p/{id}` as a tiny HTML page that attempts to
+ * deep-link into the app and falls back to store badges. This function
+ * strips any trailing `/v1` from the configured base so the URL hits the
+ * correct root-level route.
+ */
+export function buildPlaydateShareUrl(playdateId: string): string {
+  const raw = getApiBaseUrl();
+  const root = raw.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+  return `${root}/p/${encodeURIComponent(playdateId)}`;
 }
 
 async function parseError(response: Response) {
@@ -578,6 +626,34 @@ export async function listExploreEvents(
     : [];
 }
 
+/**
+ * v0.11.0 — unified Discover feed.
+ * Returns admin events AND user-created playdates in a single request so the
+ * Events tab can merge them into one date-sorted list.
+ */
+export async function listExploreFeed(
+  accessToken: string,
+  lat?: number,
+  lng?: number
+): Promise<{ events: ExploreEvent[]; playdates: Playdate[] }> {
+  const params = new URLSearchParams();
+  if (typeof lat === "number") params.set("lat", String(lat));
+  if (typeof lng === "number") params.set("lng", String(lng));
+  const qs = params.toString();
+  const raw = await request<{
+    events: ExploreEvent[] | null;
+    playdates: Playdate[] | null;
+  } | null>(`/v1/explore/feed${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(accessToken)
+  });
+  return {
+    events: Array.isArray(raw?.events)
+      ? raw!.events.map((event) => normalizeExploreEvent(event))
+      : [],
+    playdates: Array.isArray(raw?.playdates) ? raw!.playdates : []
+  };
+}
+
 export async function rsvpEvent(
   accessToken: string,
   eventId: string,
@@ -805,8 +881,33 @@ export async function uploadMedia(
   accessToken: string,
   uri: string,
   fileName: string,
-  mimeType = "image/jpeg"
+  // `mimeType` is accepted for call-site compatibility but the uploader
+  // unconditionally re-encodes to JPEG before upload (see below), so every
+  // object in R2 ends up with Content-Type: image/jpeg regardless of what
+  // the caller guessed.
+  _mimeType = "image/jpeg"
 ): Promise<UploadedAsset> {
+  // HEIC fix (v0.9.1): iPhone 11+ defaults to HEIC capture, which
+  // expo-image-picker returns unchanged. R2 then stored these with
+  // Content-Type: image/heic, and Android clients (which can't decode HEIC)
+  // saw broken images. We route every upload through expo-image-manipulator
+  // with SaveFormat.JPEG first — this is the same re-encode path the crop
+  // modal already uses for avatars, just lifted up so *every* caller gets it
+  // for free. No-op on images already in JPEG (tiny quality/cost loss from
+  // the re-encode is negligible compared to the cross-platform win).
+  const ImageManipulator = await import("expo-image-manipulator");
+  const converted = await ImageManipulator.manipulateAsync(uri, [], {
+    compress: 0.85,
+    format: ImageManipulator.SaveFormat.JPEG
+  });
+  const jpegUri = converted.uri;
+
+  // Ensure the object key also ends in .jpg so R2's public URL and any
+  // downstream extension sniffing line up with the actual bytes.
+  const jpegFileName = /\.jpe?g$/i.test(fileName)
+    ? fileName
+    : fileName.replace(/\.[^.]+$/, "") + ".jpg";
+
   const presigned = await request<
     UploadedAsset & { uploadUrl: string; objectKey: string }
   >("/v1/media/presign", {
@@ -816,18 +917,18 @@ export async function uploadMedia(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      fileName,
-      mimeType,
+      fileName: jpegFileName,
+      mimeType: "image/jpeg",
       folder: "mobile"
     })
   });
 
-  const fileResponse = await fetch(uri);
+  const fileResponse = await fetch(jpegUri);
   const fileBlob = await fileResponse.blob();
   const uploadResponse = await fetch(presigned.uploadUrl, {
     method: "PUT",
     headers: {
-      "Content-Type": mimeType
+      "Content-Type": "image/jpeg"
     },
     body: fileBlob
   });
@@ -1043,8 +1144,313 @@ export async function getPlaydate(
 export async function createPlaydate(accessToken: string, playdate: Omit<Playdate, "id" | "organizerId" | "attendees" | "createdAt">): Promise<Playdate> {
   return request<Playdate>("/v1/playdates", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(playdate) });
 }
-export async function joinPlaydate(accessToken: string, playdateId: string): Promise<void> {
-  await request(`/v1/playdates/${playdateId}/join`, { method: "POST", headers: authHeaders(accessToken) });
+
+export type JoinPlaydateResult = { joined: boolean; waitlisted: boolean };
+
+export type JoinPlaydatePayload = {
+  petIds: string[];
+  note?: string;
+};
+
+export async function joinPlaydate(
+  accessToken: string,
+  playdateId: string,
+  payload?: JoinPlaydatePayload
+): Promise<JoinPlaydateResult> {
+  const body = payload ? JSON.stringify(payload) : undefined;
+  const data = await request<JoinPlaydateResult>(
+    `/v1/playdates/${playdateId}/join`,
+    {
+      method: "POST",
+      headers: body
+        ? { ...authHeaders(accessToken), "Content-Type": "application/json" }
+        : authHeaders(accessToken),
+      body
+    }
+  );
+  return data ?? { joined: false, waitlisted: false };
+}
+
+export async function leavePlaydate(
+  accessToken: string,
+  playdateId: string,
+  petIds?: string[]
+): Promise<void> {
+  const body = petIds && petIds.length > 0 ? JSON.stringify({ petIds }) : undefined;
+  await request(`/v1/playdates/${playdateId}/leave`, {
+    method: "POST",
+    headers: body
+      ? { ...authHeaders(accessToken), "Content-Type": "application/json" }
+      : authHeaders(accessToken),
+    body
+  });
+}
+
+export async function updateAttendeePets(
+  accessToken: string,
+  playdateId: string,
+  petIds: string[]
+): Promise<Playdate> {
+  return request<Playdate>(`/v1/playdates/${playdateId}/attendee-pets`, {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ petIds })
+  });
+}
+
+export async function listInvitableUsers(
+  accessToken: string,
+  playdateId: string
+): Promise<InvitableUser[]> {
+  const data = await request<InvitableUser[] | null>(
+    `/v1/playdates/${playdateId}/invitable-users`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function createPlaydateInvites(
+  accessToken: string,
+  playdateId: string,
+  userIds: string[]
+): Promise<{ invites: PlaydateInvite[] }> {
+  const data = await request<{ invites: PlaydateInvite[] }>(
+    `/v1/playdates/${playdateId}/invites`,
+    {
+      method: "POST",
+      headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds })
+    }
+  );
+  return data ?? { invites: [] };
+}
+
+export type MyPlaydatesFilter = {
+  when: "upcoming" | "past";
+  role?: "all" | "hosted";
+};
+
+export async function listMyPlaydates(
+  accessToken: string,
+  filter: MyPlaydatesFilter
+): Promise<Playdate[]> {
+  const qs = new URLSearchParams();
+  qs.set("when", filter.when);
+  if (filter.role) qs.set("role", filter.role);
+  const data = await request<Playdate[] | null>(
+    `/v1/me/playdates?${qs.toString()}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function listMyPlaydateInvites(
+  accessToken: string
+): Promise<PlaydateInvite[]> {
+  const data = await request<PlaydateInvite[] | null>(
+    `/v1/me/playdate-invites`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function acceptPlaydateInvite(
+  accessToken: string,
+  inviteId: string
+): Promise<{ playdateId: string }> {
+  const data = await request<{ playdateId: string }>(
+    `/v1/playdate-invites/${inviteId}/accept`,
+    { method: "POST", headers: authHeaders(accessToken) }
+  );
+  return data ?? { playdateId: "" };
+}
+
+export async function declinePlaydateInvite(
+  accessToken: string,
+  inviteId: string
+): Promise<void> {
+  await request(`/v1/playdate-invites/${inviteId}/decline`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+// ── Playdate chat moderation (v0.14.0) ──────────────────────────────
+
+export async function getPlaydateByConversation(
+  accessToken: string,
+  conversationId: string
+): Promise<Playdate | null> {
+  try {
+    const data = await request<Playdate>(
+      `/v1/conversations/${conversationId}/playdate`,
+      { headers: authHeaders(accessToken) }
+    );
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  await request(
+    `/v1/conversations/${conversationId}/messages/${messageId}/delete`,
+    { method: "POST", headers: authHeaders(accessToken) }
+  );
+}
+
+export type PlaydateMuteDuration = "1h" | "24h" | "forever";
+
+export async function mutePlaydateMember(
+  accessToken: string,
+  playdateId: string,
+  userId: string,
+  duration: PlaydateMuteDuration = "forever"
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/chat-mutes`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ userId, duration })
+  });
+}
+
+export async function unmutePlaydateMember(
+  accessToken: string,
+  playdateId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/chat-mutes/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function muteConversation(
+  accessToken: string,
+  conversationId: string
+): Promise<void> {
+  await request(`/v1/conversations/${conversationId}/mute`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function unmuteConversation(
+  accessToken: string,
+  conversationId: string
+): Promise<void> {
+  await request(`/v1/conversations/${conversationId}/mute`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+// ── Host Tools panel (v0.16.0) ──────────────────────────────────────
+
+export async function kickPlaydateAttendee(
+  accessToken: string,
+  playdateId: string,
+  userId: string
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/attendees/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function setPlaydateLock(
+  accessToken: string,
+  playdateId: string,
+  locked: boolean
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/lock`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ locked })
+  });
+}
+
+export async function transferPlaydateOwnership(
+  accessToken: string,
+  playdateId: string,
+  newOwnerId: string
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/transfer`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ newOwnerId })
+  });
+}
+
+export async function pinConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  await request(
+    `/v1/conversations/${conversationId}/messages/${messageId}/pin`,
+    { method: "POST", headers: authHeaders(accessToken) }
+  );
+}
+
+export async function unpinConversationMessage(
+  accessToken: string,
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  await request(
+    `/v1/conversations/${conversationId}/messages/${messageId}/unpin`,
+    { method: "POST", headers: authHeaders(accessToken) }
+  );
+}
+
+export async function listConversationPinned(
+  accessToken: string,
+  conversationId: string
+): Promise<Message[]> {
+  const data = await request<Message[] | null>(
+    `/v1/conversations/${conversationId}/pinned`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function cancelPlaydate(accessToken: string, playdateId: string): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/cancel`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function updatePlaydate(
+  accessToken: string,
+  playdateId: string,
+  patch: Partial<Playdate>
+): Promise<Playdate> {
+  return request<Playdate>(`/v1/playdates/${playdateId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+}
+
+export async function announcePlaydate(
+  accessToken: string,
+  playdateId: string,
+  body: string
+): Promise<void> {
+  await request(`/v1/playdates/${playdateId}/announce`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ body })
+  });
 }
 
 // Community Groups

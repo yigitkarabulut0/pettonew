@@ -123,6 +123,29 @@ func (s *Server) handleExploreEvents(writer http.ResponseWriter, request *http.R
 	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListEvents()})
 }
 
+// v0.11.0 — unified Discover feed.
+// The mobile Events tab pulls admin-created events and user-created playdates
+// from a single endpoint so the client can merge/sort them without two
+// round-trips.
+func (s *Server) handleExploreFeed(writer http.ResponseWriter, request *http.Request) {
+	params := store.ListPlaydatesParams{
+		UserID: currentUserID(request),
+	}
+	if v := request.URL.Query().Get("lat"); v != "" {
+		fmt.Sscanf(v, "%f", &params.Lat)
+	}
+	if v := request.URL.Query().Get("lng"); v != "" {
+		fmt.Sscanf(v, "%f", &params.Lng)
+	}
+	events, playdates := s.store.ListExploreFeed(params)
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"events":    events,
+			"playdates": playdates,
+		},
+	})
+}
+
 func (s *Server) handleExploreEventRSVP(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
 		PetIDs []string `json:"petIds"`

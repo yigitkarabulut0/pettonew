@@ -3,13 +3,16 @@ import {
   ArrowUpDown,
   CalendarDays,
   Clock,
-  Filter,
   Sparkles
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { mobileTheme, useTheme } from "@/lib/theme";
 
-export type TimeFilter = "all" | "today" | "week" | "custom";
+// v0.11.0 — the "custom" range was never wired up to a picker, so it just
+// silently fell back to "all". Dropped the button entirely; users now pick
+// between All / Today / This week (the backend also exposes `from`/`to` query
+// params if we ever need to bring it back).
+export type TimeFilter = "all" | "today" | "week";
 export type SortMode = "distance" | "time";
 
 type PlaydateFiltersProps = {
@@ -17,17 +20,13 @@ type PlaydateFiltersProps = {
   onTimeChange: (next: TimeFilter) => void;
   sort: SortMode;
   onSortToggle: () => void;
-  onOpenCustom: () => void;
-  customLabel?: string;
 };
 
 export function PlaydateFilters({
   time,
   onTimeChange,
   sort,
-  onSortToggle,
-  onOpenCustom,
-  customLabel
+  onSortToggle
 }: PlaydateFiltersProps) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -39,8 +38,7 @@ export function PlaydateFilters({
   }> = [
     { key: "all", label: t("playdates.filterAll") as string, icon: Sparkles },
     { key: "today", label: t("playdates.today") as string, icon: Clock },
-    { key: "week", label: t("playdates.thisWeek") as string, icon: CalendarDays },
-    { key: "custom", label: customLabel || (t("playdates.custom") as string), icon: Filter }
+    { key: "week", label: t("playdates.thisWeek") as string, icon: CalendarDays }
   ];
 
   return (
@@ -62,13 +60,7 @@ export function PlaydateFilters({
           return (
             <Pressable
               key={key}
-              onPress={() => {
-                if (key === "custom") {
-                  onOpenCustom();
-                } else {
-                  onTimeChange(key);
-                }
-              }}
+              onPress={() => onTimeChange(key)}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",

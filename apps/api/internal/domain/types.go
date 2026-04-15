@@ -346,21 +346,86 @@ type VenueReview struct {
 }
 
 type Playdate struct {
-	ID            string   `json:"id"`
-	OrganizerID   string   `json:"organizerId"`
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Date          string   `json:"date"`
-	Location      string   `json:"location"`
-	MaxPets       int      `json:"maxPets"`
-	Attendees     []string `json:"attendees"`
-	CreatedAt     string   `json:"createdAt"`
-	Latitude      float64  `json:"latitude,omitempty"`
-	Longitude     float64  `json:"longitude,omitempty"`
-	CityLabel     string   `json:"cityLabel,omitempty"`
-	CoverImageURL string   `json:"coverImageUrl,omitempty"`
-	Distance      float64  `json:"distance,omitempty"`
-	IsAttending   bool     `json:"isAttending"`
+	ID             string             `json:"id"`
+	OrganizerID    string             `json:"organizerId"`
+	Title          string             `json:"title"`
+	Description    string             `json:"description"`
+	Date           string             `json:"date"`
+	Location       string             `json:"location"`
+	MaxPets        int                `json:"maxPets"`
+	Attendees      []string           `json:"attendees"`
+	CreatedAt      string             `json:"createdAt"`
+	Latitude       float64            `json:"latitude,omitempty"`
+	Longitude      float64            `json:"longitude,omitempty"`
+	CityLabel      string             `json:"cityLabel,omitempty"`
+	// v0.11.1 — optional link back to the Venue the wizard picked. Lets the
+	// Discover map highlight venues that currently host a playdate, and lets
+	// the venue detail sheet list active playdates directly.
+	VenueID        string             `json:"venueId,omitempty"`
+	CoverImageURL  string             `json:"coverImageUrl,omitempty"`
+	Distance       float64            `json:"distance,omitempty"`
+	IsAttending    bool               `json:"isAttending"`
+	Rules          []string           `json:"rules"`
+	Status         string             `json:"status"` // "active" | "cancelled"
+	CancelledAt    string             `json:"cancelledAt,omitempty"`
+	ConversationID string             `json:"conversationId,omitempty"`
+	Waitlist       []string           `json:"waitlist"`
+	AttendeesInfo  []PlaydateAttendee `json:"attendeesInfo,omitempty"`
+	HostInfo       *PlaydateHost      `json:"hostInfo,omitempty"`
+	IsOrganizer    bool               `json:"isOrganizer"`
+	IsWaitlisted   bool               `json:"isWaitlisted"`
+	SlotsUsed       int                `json:"slotsUsed"`              // pet-level slot count
+	MyPetIds        []string           `json:"myPetIds,omitempty"`     // pets the caller has joined with
+	MyWaitlistPets  []string           `json:"myWaitlistPets,omitempty"` // pets the caller has in the waitlist
+	Visibility      string             `json:"visibility"`             // "public" | "private"
+	CreatorPetIds   []string           `json:"creatorPetIds,omitempty"` // input-only: pets the host brings when creating
+	MyInviteStatus   string             `json:"myInviteStatus,omitempty"` // "pending" | "accepted" | "declined"
+	MyInviteID       string             `json:"myInviteId,omitempty"`
+	PendingInvites   int                `json:"pendingInvites"`         // count of still-pending invites (host only)
+	MyChatMuted      bool               `json:"myChatMuted"`            // caller is host-muted in this chat
+	MyConvMuted      bool               `json:"myConvMuted"`            // caller has silenced push for this conversation
+	ChatMutedUserIDs []string           `json:"chatMutedUserIds,omitempty"` // host-only: list of currently-muted attendees
+	Locked           bool               `json:"locked"`                 // host "soft close" — blocks new joins; not surfaced as a user badge
+}
+
+type PlaydateInvite struct {
+	ID             string `json:"id"`
+	PlaydateID     string `json:"playdateId"`
+	HostUserID     string `json:"hostUserId"`
+	InvitedUserID  string `json:"invitedUserId"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"createdAt"`
+	RespondedAt    string `json:"respondedAt,omitempty"`
+	// Denormalised hints so clients can render the inbox without round-trips.
+	PlaydateTitle  string `json:"playdateTitle,omitempty"`
+	PlaydateDate   string `json:"playdateDate,omitempty"`
+	PlaydateCity   string `json:"playdateCity,omitempty"`
+	HostFirstName  string `json:"hostFirstName,omitempty"`
+	HostAvatarURL  string `json:"hostAvatarUrl,omitempty"`
+	InvitedFirstName string `json:"invitedFirstName,omitempty"`
+	InvitedAvatarURL string `json:"invitedAvatarUrl,omitempty"`
+}
+
+type InvitableUser struct {
+	UserID    string `json:"userId"`
+	FirstName string `json:"firstName"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	// Short label explaining where you know them from (e.g. "Match", "Group").
+	ContextLabel string `json:"contextLabel,omitempty"`
+}
+
+type PlaydateHost struct {
+	UserID     string `json:"userId"`
+	FirstName  string `json:"firstName"`
+	AvatarURL  string `json:"avatarUrl,omitempty"`
+	IsVerified bool   `json:"isVerified"`
+}
+
+type PlaydateAttendee struct {
+	UserID    string      `json:"userId"`
+	FirstName string      `json:"firstName"`
+	AvatarURL string      `json:"avatarUrl,omitempty"`
+	Pets      []MemberPet `json:"pets"`
 }
 
 type MemberPet struct {
@@ -403,7 +468,11 @@ type CommunityGroup struct {
 	Muted          bool          `json:"muted"`
 	MutedUntil     *string       `json:"mutedUntil,omitempty"`
 	AdminUserIDs   []string      `json:"adminUserIds,omitempty"`
-	CreatedAt      string        `json:"createdAt"`
+	// MyConvMuted is the caller's personal push-notification mute toggle for
+	// this group's conversation. Different from the host-level `Muted` which
+	// silences outgoing messages — this one silences incoming push.
+	MyConvMuted bool   `json:"myConvMuted"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 type LostPetAlert struct {
@@ -535,6 +604,18 @@ type Notification struct {
 	Target    string `json:"target"`
 	SentAt    string `json:"sentAt"`
 	SentBy    string `json:"sentBy"`
+}
+
+// NotificationPreferences captures per-user opt-outs for push fan-out.
+// Missing row = all categories enabled (the default for legacy users).
+// Categories mirror the mobile settings page: matches (new mutual match),
+// messages (DM / group / playdate chat), playdates (invites + detail changes
+// + 1h reminder), groups (new member, moderator action).
+type NotificationPreferences struct {
+	Matches   bool `json:"matches"`
+	Messages  bool `json:"messages"`
+	Playdates bool `json:"playdates"`
+	Groups    bool `json:"groups"`
 }
 
 type AppUser struct {

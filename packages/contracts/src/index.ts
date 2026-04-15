@@ -194,6 +194,29 @@ export interface ExploreEvent {
   attendees: VenueCheckIn[];
 }
 
+/**
+ * v0.11.0 — Unified Discover feed response.
+ * Mobile Discover → Events tab hits /v1/explore/feed which returns both
+ * admin-created events and user-created playdates so the client can merge
+ * them into a single date-sorted list.
+ */
+export interface ExploreFeed {
+  events: ExploreEvent[];
+  playdates: Playdate[];
+}
+
+/**
+ * v0.11.0 — Per-user global notification opt-outs.
+ * These gate push fan-out on the server. A missing row (or a user who has
+ * never opened the notification-settings page) defaults to everything enabled.
+ */
+export interface NotificationPreferences {
+  matches: boolean;
+  messages: boolean;
+  playdates: boolean;
+  groups: boolean;
+}
+
 export interface HomePost {
   id: string;
   author: Pick<
@@ -372,6 +395,20 @@ export interface FeedingSchedule {
   createdAt?: string;
 }
 
+export interface PlaydateHost {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  isVerified: boolean;
+}
+
+export interface PlaydateAttendee {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  pets: MemberPet[];
+}
+
 export interface Playdate {
   id: string;
   organizerId: string;
@@ -385,9 +422,55 @@ export interface Playdate {
   latitude?: number;
   longitude?: number;
   cityLabel?: string;
+  /** v0.11.1 — optional Venue link. Populated when the playdate was created
+      from the venue picker; lets Discover highlight the venue pin. */
+  venueId?: string;
   coverImageUrl?: string;
   distance?: number;
   isAttending?: boolean;
+  rules?: string[];
+  status?: "active" | "cancelled";
+  cancelledAt?: string;
+  conversationId?: string;
+  waitlist?: string[];
+  attendeesInfo?: PlaydateAttendee[];
+  hostInfo?: PlaydateHost;
+  isOrganizer?: boolean;
+  isWaitlisted?: boolean;
+  slotsUsed?: number;
+  myPetIds?: string[];
+  myWaitlistPets?: string[];
+  visibility?: "public" | "private";
+  creatorPetIds?: string[];
+  myInviteStatus?: "pending" | "accepted" | "declined";
+  myInviteId?: string;
+  pendingInvites?: number;
+  myChatMuted?: boolean;
+  myConvMuted?: boolean;
+  chatMutedUserIds?: string[];
+  locked?: boolean;
+}
+
+export interface PlaydateInvite {
+  id: string;
+  playdateId: string;
+  hostUserId: string;
+  invitedUserId: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
+  respondedAt?: string;
+  playdateTitle?: string;
+  playdateDate?: string;
+  playdateCity?: string;
+  hostFirstName?: string;
+  hostAvatarUrl?: string;
+}
+
+export interface InvitableUser {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  contextLabel?: string;
 }
 
 export interface MemberPet {
@@ -430,6 +513,8 @@ export interface CommunityGroup {
   muted?: boolean;
   mutedUntil?: string;
   adminUserIds?: string[];
+  /** Caller's personal push-notification mute on the group conversation. */
+  myConvMuted?: boolean;
   createdAt: string;
 }
 

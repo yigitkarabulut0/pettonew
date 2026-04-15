@@ -1174,6 +1174,181 @@ func (s *MemoryStore) JoinPlaydate(userID string, playdateID string) error {
 	return nil
 }
 
+// GetPlaydateForUser is a compatibility shim for the in-memory store used by tests.
+// The memory backend does not enrich host/attendee info — callers should use the
+// Postgres store for full functionality.
+func (s *MemoryStore) GetPlaydateForUser(playdateID string, _ string) (*domain.Playdate, error) {
+	return s.GetPlaydate(playdateID)
+}
+
+// JoinPlaydateWithPets is a stub — the memory store only supports legacy joins.
+func (s *MemoryStore) JoinPlaydateWithPets(userID string, playdateID string, _ []string, _ string) error {
+	return s.JoinPlaydate(userID, playdateID)
+}
+
+// LeavePlaydateWithPets is a stub — the memory store does not track pet-level attendance.
+func (s *MemoryStore) LeavePlaydateWithPets(userID string, playdateID string, _ []string) ([]string, error) {
+	_, err := s.LeavePlaydate(userID, playdateID)
+	return nil, err
+}
+
+func (s *MemoryStore) UpdateAttendeePets(_ string, _ string, _ []string) error {
+	return fmt.Errorf("edit pets requires the Postgres store")
+}
+
+func (s *MemoryStore) LeavePlaydate(userID string, playdateID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pd, ok := s.playdates[playdateID]
+	if !ok {
+		return "", fmt.Errorf("playdate not found")
+	}
+	filtered := pd.Attendees[:0]
+	for _, a := range pd.Attendees {
+		if a != userID {
+			filtered = append(filtered, a)
+		}
+	}
+	pd.Attendees = filtered
+	return "", nil
+}
+
+func (s *MemoryStore) CancelPlaydate(userID string, playdateID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pd, ok := s.playdates[playdateID]
+	if !ok {
+		return fmt.Errorf("playdate not found")
+	}
+	if pd.OrganizerID != userID {
+		return fmt.Errorf("only the organizer can cancel this playdate")
+	}
+	pd.Status = "cancelled"
+	pd.CancelledAt = time.Now().UTC().Format(time.RFC3339)
+	return nil
+}
+
+func (s *MemoryStore) PostPlaydateAnnouncement(userID string, playdateID string, body string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	pd, ok := s.playdates[playdateID]
+	if !ok {
+		return fmt.Errorf("playdate not found")
+	}
+	if pd.OrganizerID != userID {
+		return fmt.Errorf("only the organizer can post announcements")
+	}
+	return nil
+}
+
+// Invite stubs — the memory store doesn't implement the invite graph.
+func (s *MemoryStore) CreatePlaydateInvites(_ string, _ string, _ []string) ([]domain.PlaydateInvite, error) {
+	return []domain.PlaydateInvite{}, nil
+}
+func (s *MemoryStore) ListInvitableUsers(_ string, _ string) ([]domain.InvitableUser, error) {
+	return []domain.InvitableUser{}, nil
+}
+func (s *MemoryStore) ListMyPendingPlaydateInvites(_ string) []domain.PlaydateInvite {
+	return []domain.PlaydateInvite{}
+}
+func (s *MemoryStore) RespondToPlaydateInvite(_ string, _ string, _ bool) (string, error) {
+	return "", fmt.Errorf("invites require the Postgres store")
+}
+
+// ── Playdate chat stubs (v0.14.0) ─────────────────────────────────────
+// The memory store doesn't implement moderation / rich types — these return
+// errors or no-ops. The Postgres store is the real implementation.
+func (s *MemoryStore) GetPlaydateByConversation(_ string) *domain.Playdate {
+	return nil
+}
+func (s *MemoryStore) SendPlaydateMessageEx(_ string, _ string, _ SendGroupMessageInput) (domain.Message, error) {
+	return domain.Message{}, fmt.Errorf("playdate chat requires the Postgres store")
+}
+func (s *MemoryStore) DeleteConversationMessage(_ string, _ string, _ string) error {
+	return fmt.Errorf("delete requires the Postgres store")
+}
+func (s *MemoryStore) SetPlaydateChatMute(_ string, _ string, _ string, _ *time.Time) error {
+	return fmt.Errorf("mute requires the Postgres store")
+}
+func (s *MemoryStore) UnsetPlaydateChatMute(_ string, _ string, _ string) error {
+	return fmt.Errorf("mute requires the Postgres store")
+}
+func (s *MemoryStore) GetPlaydateChatMute(_ string, _ string) (bool, *time.Time) {
+	return false, nil
+}
+func (s *MemoryStore) ListPlaydateChatMutedUsers(_ string) []string { return nil }
+func (s *MemoryStore) MuteConversation(_ string, _ string) error    { return nil }
+func (s *MemoryStore) UnmuteConversation(_ string, _ string) error  { return nil }
+func (s *MemoryStore) IsConversationMuted(_ string, _ string) bool  { return false }
+
+// v0.11.0 — notification prefs / unified feed stubs for the in-memory backend.
+func (s *MemoryStore) GetNotificationPrefs(_ string) domain.NotificationPreferences {
+	return domain.NotificationPreferences{
+		Matches:   true,
+		Messages:  true,
+		Playdates: true,
+		Groups:    true,
+	}
+}
+func (s *MemoryStore) UpsertNotificationPrefs(_ string, _ domain.NotificationPreferences) error {
+	return nil
+}
+func (s *MemoryStore) ShouldSendPush(_ string, _ string) bool { return true }
+
+func (s *MemoryStore) ListExploreFeed(params ListPlaydatesParams) ([]domain.ExploreEvent, []domain.Playdate) {
+	return s.ListEvents(), s.ListPlaydates(params)
+}
+
+// My playdates + reminders stubs — memory backend has no reminder scheduler.
+func (s *MemoryStore) ListMyPlaydates(_ ListMyPlaydatesParams) []domain.Playdate {
+	return []domain.Playdate{}
+}
+func (s *MemoryStore) ListDuePlaydateReminders(_ string, _ string, _ string) []PlaydateReminderTarget {
+	return nil
+}
+func (s *MemoryStore) MarkPlaydateReminderSent(_ string, _ string, _ string) {}
+
+// Host controls stubs (v0.16.0) — memory store does not implement host-ops.
+func (s *MemoryStore) SetPlaydateLock(_ string, _ string, _ bool) error {
+	return fmt.Errorf("lock requires the Postgres store")
+}
+func (s *MemoryStore) KickPlaydateAttendee(_ string, _ string, _ string) ([]string, error) {
+	return nil, fmt.Errorf("kick requires the Postgres store")
+}
+func (s *MemoryStore) TransferPlaydateOwnership(_ string, _ string, _ string) error {
+	return fmt.Errorf("transfer requires the Postgres store")
+}
+func (s *MemoryStore) PinConversationMessage(_ string, _ string, _ string, _ bool) error {
+	return fmt.Errorf("pin requires the Postgres store")
+}
+func (s *MemoryStore) ListConversationPinnedMessages(_ string) ([]domain.Message, error) {
+	return []domain.Message{}, nil
+}
+
+func (s *MemoryStore) UpdatePlaydate(userID string, playdateID string, patch domain.Playdate) (*domain.Playdate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pd, ok := s.playdates[playdateID]
+	if !ok {
+		return nil, fmt.Errorf("playdate not found")
+	}
+	if pd.OrganizerID != userID {
+		return nil, fmt.Errorf("only the organizer can edit this playdate")
+	}
+	pd.Title = patch.Title
+	pd.Description = patch.Description
+	pd.Date = patch.Date
+	pd.Location = patch.Location
+	pd.MaxPets = patch.MaxPets
+	pd.Latitude = patch.Latitude
+	pd.Longitude = patch.Longitude
+	pd.CityLabel = patch.CityLabel
+	pd.CoverImageURL = patch.CoverImageURL
+	pd.Rules = patch.Rules
+	cp := *pd
+	return &cp, nil
+}
+
 // ── Community Groups ────────────────────────────────────────────────
 
 func (s *MemoryStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {

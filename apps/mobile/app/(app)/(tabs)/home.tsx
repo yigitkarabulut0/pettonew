@@ -16,7 +16,7 @@ import {
   View
 } from "react-native";
 import { Image } from "expo-image";
-import { File, Paths } from "expo-file-system/next";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
@@ -1106,7 +1106,7 @@ function PostCard({
       </Pressable>
 
       {/* Body + Image */}
-      <View style={{ paddingHorizontal: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}>
+      <View style={{ paddingHorizontal: mobileTheme.spacing.lg, paddingTop: mobileTheme.spacing.md, gap: mobileTheme.spacing.md }}>
         {post.body ? (
           <Text
             style={{
@@ -1153,7 +1153,8 @@ function PostCard({
             style={{
               width: "100%",
               height: 260,
-              borderRadius: mobileTheme.radius.md
+              borderRadius: mobileTheme.radius.md,
+              marginTop: post.venueName && !post.body ? mobileTheme.spacing.md : 0
             }}
             contentFit="cover"
             transition={200}

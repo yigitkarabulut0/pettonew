@@ -1,6 +1,6 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,16 +15,19 @@ import {
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import type { Playdate } from "@petto/contracts";
 import {
   CalendarDays,
+  ListChecks,
   MapPin,
   Minus,
   Plus,
   Sparkles,
+  Trash2,
   X
 } from "lucide-react-native";
 
-import { createPlaydate, listExploreVenues } from "@/lib/api";
+import { createPlaydate, listExploreVenues, updatePlaydate } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
@@ -32,12 +35,17 @@ type CreatePlaydateModalProps = {
   visible: boolean;
   onClose: () => void;
   userLocation?: { latitude: number; longitude: number } | null;
+  /** When "edit" is set, initialValue must be supplied. Defaults to "create". */
+  mode?: "create" | "edit";
+  initialValue?: Playdate | null;
 };
 
 export function CreatePlaydateModal({
   visible,
   onClose,
-  userLocation
+  userLocation,
+  mode = "create",
+  initialValue = null
 }: CreatePlaydateModalProps) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -45,6 +53,7 @@ export function CreatePlaydateModal({
   const session = useSessionStore((s) => s.session);
   const queryClient = useQueryClient();
   const token = session?.tokens.accessToken ?? "";
+  const isEdit = mode === "edit" && initialValue != null;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -52,6 +61,45 @@ export function CreatePlaydateModal({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [maxPetsValue, setMaxPetsValue] = useState(10);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
+  const [rules, setRules] = useState<string[]>([]);
+  // When editing, we keep the original venue info even if it's not in the
+  // venue list (e.g. custom location).
+  const [editLocation, setEditLocation] = useState({
+    name: "",
+    lat: 0,
+    lng: 0,
+    city: "",
+    cover: ""
+  });
+
+  // Hydrate form whenever the modal opens in edit mode.
+  useEffect(() => {
+    if (!visible) return;
+    if (isEdit && initialValue) {
+      setTitle(initialValue.title ?? "");
+      setDescription(initialValue.description ?? "");
+      const d = new Date(initialValue.date);
+      setSelectedDate(isNaN(d.getTime()) ? new Date(Date.now() + 3600_000) : d);
+      setMaxPetsValue(initialValue.maxPets || 10);
+      setSelectedVenueId(null);
+      setRules(initialValue.rules ?? []);
+      setEditLocation({
+        name: initialValue.location ?? "",
+        lat: initialValue.latitude ?? 0,
+        lng: initialValue.longitude ?? 0,
+        city: initialValue.cityLabel ?? "",
+        cover: initialValue.coverImageUrl ?? ""
+      });
+    } else if (!isEdit) {
+      setTitle("");
+      setDescription("");
+      setSelectedDate(new Date(Date.now() + 3600_000));
+      setMaxPetsValue(10);
+      setSelectedVenueId(null);
+      setRules([]);
+      setEditLocation({ name: "", lat: 0, lng: 0, city: "", cover: "" });
+    }
+  }, [visible, isEdit, initialValue]);
 
   const venuesQuery = useQuery({
     queryKey: ["venues-for-playdate"],
@@ -63,13 +111,15 @@ export function CreatePlaydateModal({
     venues.find((v) => v.id === selectedVenueId) ?? null;
 
   const resolvedLocationName =
-    selectedVenue?.name ?? "";
+    selectedVenue?.name ?? (isEdit ? editLocation.name : "");
   const resolvedLat =
-    selectedVenue?.latitude ?? userLocation?.latitude ?? 0;
+    selectedVenue?.latitude ??
+    (isEdit ? editLocation.lat : userLocation?.latitude ?? 0);
   const resolvedLng =
-    selectedVenue?.longitude ?? userLocation?.longitude ?? 0;
-  const resolvedCity = selectedVenue?.cityLabel ?? "";
-  const resolvedCover = selectedVenue?.imageUrl ?? "";
+    selectedVenue?.longitude ??
+    (isEdit ? editLocation.lng : userLocation?.longitude ?? 0);
+  const resolvedCity = selectedVenue?.cityLabel ?? (isEdit ? editLocation.city : "");
+  const resolvedCover = selectedVenue?.imageUrl ?? (isEdit ? editLocation.cover : "");
 
   const reset = () => {
     setTitle("");
@@ -77,7 +127,11 @@ export function CreatePlaydateModal({
     setSelectedDate(new Date(Date.now() + 3600_000));
     setMaxPetsValue(10);
     setSelectedVenueId(null);
+    setRules([]);
+    setEditLocation({ name: "", lat: 0, lng: 0, city: "", cover: "" });
   };
+
+  const trimmedRules = () => rules.map((r) => r.trim()).filter((r) => r.length > 0);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -90,14 +144,50 @@ export function CreatePlaydateModal({
         latitude: resolvedLat,
         longitude: resolvedLng,
         cityLabel: resolvedCity,
-        coverImageUrl: resolvedCover
+        coverImageUrl: resolvedCover,
+        rules: trimmedRules()
       } as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playdates"] });
+      queryClient.invalidateQueries({ queryKey: ["my-playdates"] });
       reset();
       onClose();
     }
   });
+
+  const updateMutation = useMutation({
+    mutationFn: () => {
+      if (!initialValue) throw new Error("no initial value");
+      return updatePlaydate(token, initialValue.id, {
+        title: title.trim(),
+        description: description.trim(),
+        date: selectedDate.toISOString(),
+        location: resolvedLocationName,
+        maxPets: maxPetsValue,
+        latitude: resolvedLat,
+        longitude: resolvedLng,
+        cityLabel: resolvedCity,
+        coverImageUrl: resolvedCover,
+        rules: trimmedRules()
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["playdates"] });
+      queryClient.invalidateQueries({ queryKey: ["my-playdates"] });
+      if (initialValue) {
+        queryClient.invalidateQueries({ queryKey: ["playdate-detail", initialValue.id] });
+      }
+      onClose();
+    }
+  });
+
+  const activeMutation = isEdit ? updateMutation : createMutation;
+  const submitLabel = isEdit
+    ? (t("playdates.detail.edit") as string)
+    : (t("playdates.createPlaydate") as string);
+  const headerLabel = isEdit
+    ? (t("playdates.detail.edit") as string)
+    : (t("playdates.newPlaydate") as string);
 
   return (
     <Modal
@@ -151,7 +241,7 @@ export function CreatePlaydateModal({
                 fontFamily: "Inter_700Bold"
               }}
             >
-              {t("playdates.newPlaydate")}
+              {headerLabel}
             </Text>
             <Pressable
               onPress={onClose}
@@ -457,9 +547,101 @@ export function CreatePlaydateModal({
                 </View>
               </View>
 
+              {/* Rules editor */}
+              <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <ListChecks size={13} color={theme.colors.muted} />
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      letterSpacing: 1,
+                      color: theme.colors.muted,
+                      fontFamily: "Inter_700Bold",
+                      textTransform: "uppercase"
+                    }}
+                  >
+                    {t("playdates.detail.rules")}
+                  </Text>
+                </View>
+                {rules.map((rule, idx) => (
+                  <View
+                    key={`rule-${idx}`}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8
+                    }}
+                  >
+                    <TextInput
+                      value={rule}
+                      onChangeText={(txt) =>
+                        setRules((prev) => {
+                          const next = [...prev];
+                          next[idx] = txt;
+                          return next;
+                        })
+                      }
+                      placeholder={t("playdates.detail.rulePlaceholder") as string}
+                      placeholderTextColor={theme.colors.muted}
+                      style={{
+                        flex: 1,
+                        backgroundColor: theme.colors.background,
+                        borderRadius: mobileTheme.radius.md,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        fontSize: 14,
+                        color: theme.colors.ink,
+                        fontFamily: "Inter_500Medium"
+                      }}
+                    />
+                    <Pressable
+                      onPress={() =>
+                        setRules((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      hitSlop={8}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: theme.colors.background,
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      <Trash2 size={15} color={theme.colors.muted} />
+                    </Pressable>
+                  </View>
+                ))}
+                <Pressable
+                  onPress={() => setRules((prev) => [...prev, ""])}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    paddingVertical: 11,
+                    borderRadius: mobileTheme.radius.md,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    borderStyle: "dashed"
+                  }}
+                >
+                  <Plus size={14} color={theme.colors.primary} />
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: theme.colors.primary,
+                      fontFamily: "Inter_700Bold"
+                    }}
+                  >
+                    {t("playdates.detail.addRule")}
+                  </Text>
+                </Pressable>
+              </View>
+
               <Pressable
-                onPress={() => createMutation.mutate()}
-                disabled={!title.trim() || createMutation.isPending}
+                onPress={() => activeMutation.mutate()}
+                disabled={!title.trim() || activeMutation.isPending}
                 style={({ pressed }) => ({
                   marginTop: 6,
                   paddingVertical: 15,
@@ -472,7 +654,7 @@ export function CreatePlaydateModal({
                   ...mobileTheme.shadow.sm
                 })}
               >
-                {createMutation.isPending ? (
+                {activeMutation.isPending ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text
@@ -482,7 +664,7 @@ export function CreatePlaydateModal({
                       fontFamily: "Inter_700Bold"
                     }}
                   >
-                    {t("playdates.createPlaydate")}
+                    {submitLabel}
                   </Text>
                 )}
               </Pressable>

@@ -37,10 +37,77 @@ type Server struct {
 }
 
 func New(cfg config.Config, dataStore store.Store) *Server {
-	return &Server{
+	srv := &Server{
 		cfg:   cfg,
 		store: dataStore,
 		hub:   chat.NewHub(),
+	}
+	// Start the background playdate-reminder scheduler. Sends a "starts in 1
+	// hour" push to each attendee/host exactly once per playdate.
+	go srv.runPlaydateReminderLoop()
+	return srv
+}
+
+// runPlaydateReminderLoop ticks every minute, looks for playdates whose `date`
+// falls in the window [now+55min, now+65min], and fires a push + in-app
+// notification to every unseen (playdate, user) pair. Idempotency is enforced
+// by `playdate_reminders_sent`, so a service restart inside the window can
+// only re-attempt — never double-send.
+func (s *Server) runPlaydateReminderLoop() {
+	const kind = "1h_before"
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PLAYDATE-REMINDER] panic recovered: %v", r)
+		}
+	}()
+	// Small initial delay so short-lived processes don't hammer the DB on boot.
+	time.Sleep(20 * time.Second)
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[PLAYDATE-REMINDER] tick panic: %v", r)
+				}
+			}()
+			now := time.Now().UTC()
+			from := now.Add(55 * time.Minute).Format(time.RFC3339)
+			to := now.Add(65 * time.Minute).Format(time.RFC3339)
+			targets := s.store.ListDuePlaydateReminders(from, to, kind)
+			for _, tgt := range targets {
+				title := "Playdate in 1 hour"
+				body := tgt.PlaydateTitle
+				if tgt.CityLabel != "" {
+					body = tgt.PlaydateTitle + " · " + tgt.CityLabel
+				}
+				s.store.SaveNotification(domain.Notification{
+					ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+					Title:  title,
+					Body:   body,
+					Target: tgt.UserID,
+					SentAt: time.Now().UTC().Format(time.RFC3339),
+					SentBy: "system",
+				})
+				if s.store.ShouldSendPush(tgt.UserID, "playdates") {
+					tokens := s.store.GetUserPushTokens(tgt.UserID)
+					var push []string
+					for _, t := range tokens {
+						push = append(push, t.Token)
+					}
+					if len(push) > 0 {
+						_ = service.SendExpoPush(push, title, body, map[string]string{
+							"type":       "playdate_reminder",
+							"playdateId": tgt.PlaydateID,
+						})
+					}
+				}
+				s.store.MarkPlaydateReminderSent(tgt.PlaydateID, tgt.UserID, kind)
+			}
+			if len(targets) > 0 {
+				log.Printf("[PLAYDATE-REMINDER] sent %d reminders for 1h window", len(targets))
+			}
+		}()
 	}
 }
 
@@ -55,6 +122,13 @@ func (s *Server) Routes() http.Handler {
 	router.Get("/healthz", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	// v0.11.0 — public share landing page.
+	// Tapping a WhatsApp / SMS share link hits this URL instead of the raw
+	// petto:// scheme (which WhatsApp strips). We render a tiny HTML page
+	// that tries to open the app via the custom scheme and falls through to
+	// store badges if the app isn't installed.
+	router.Get("/p/{playdateID}", s.handlePlaydateShareLanding)
 
 	router.Route("/v1", func(router chi.Router) {
 		router.Route("/auth", func(router chi.Router) {
@@ -93,6 +167,10 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/explore/check-ins", s.handleExploreCheckIn)
 			router.Get("/explore/events", s.handleExploreEvents)
 			router.Post("/explore/events/{eventID}/rsvps", s.handleExploreEventRSVP)
+			router.Get("/explore/feed", s.handleExploreFeed)
+			// v0.11.0 — per-user notification preferences
+			router.Get("/me/notification-prefs", s.handleGetNotificationPrefs)
+			router.Put("/me/notification-prefs", s.handleUpdateNotificationPrefs)
 			router.Get("/discover/nearby", s.handleNearbyPets)
 			router.Get("/ws", s.handleWebSocket)
 			router.Get("/pets/{petID}/diary", s.handleListDiary)
@@ -125,7 +203,33 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/playdates", s.handleListPlaydates)
 			router.Get("/playdates/{playdateID}", s.handleGetPlaydate)
 			router.Post("/playdates", s.handleCreatePlaydate)
+			router.Patch("/playdates/{playdateID}", s.handleUpdatePlaydate)
 			router.Post("/playdates/{playdateID}/join", s.handleJoinPlaydate)
+			router.Post("/playdates/{playdateID}/leave", s.handleLeavePlaydate)
+			router.Patch("/playdates/{playdateID}/attendee-pets", s.handleUpdateAttendeePets)
+			router.Post("/playdates/{playdateID}/cancel", s.handleCancelPlaydate)
+			router.Post("/playdates/{playdateID}/announce", s.handlePlaydateAnnounce)
+			router.Get("/playdates/{playdateID}/invitable-users", s.handleListInvitableUsers)
+			router.Post("/playdates/{playdateID}/invites", s.handleCreatePlaydateInvites)
+			router.Get("/me/playdates", s.handleListMyPlaydates)
+			router.Get("/me/playdate-invites", s.handleListMyPlaydateInvites)
+			router.Post("/playdate-invites/{inviteID}/accept", s.handleAcceptPlaydateInvite)
+			router.Post("/playdate-invites/{inviteID}/decline", s.handleDeclinePlaydateInvite)
+			// Playdate chat moderation
+			router.Post("/playdates/{playdateID}/chat-mutes", s.handleMutePlaydateMember)
+			router.Delete("/playdates/{playdateID}/chat-mutes/{userID}", s.handleUnmutePlaydateMember)
+			// Host control panel (v0.16.0)
+			router.Delete("/playdates/{playdateID}/attendees/{userID}", s.handleKickPlaydateAttendee)
+			router.Post("/playdates/{playdateID}/lock", s.handleSetPlaydateLock)
+			router.Post("/playdates/{playdateID}/transfer", s.handleTransferPlaydateOwnership)
+			// Generalised conversation-level controls (works for DM / group / playdate)
+			router.Get("/conversations/{conversationID}/playdate", s.handleGetPlaydateByConversation)
+			router.Post("/conversations/{conversationID}/messages/{messageID}/delete", s.handleDeleteConversationMessage)
+			router.Post("/conversations/{conversationID}/mute", s.handleMuteConversation)
+			router.Delete("/conversations/{conversationID}/mute", s.handleUnmuteConversation)
+			router.Post("/conversations/{conversationID}/messages/{messageID}/pin", s.handlePinConversationMessage)
+			router.Post("/conversations/{conversationID}/messages/{messageID}/unpin", s.handleUnpinConversationMessage)
+			router.Get("/conversations/{conversationID}/pinned", s.handleListConversationPinned)
 			// Groups
 			router.Get("/groups", s.handleListGroups)
 			router.Post("/groups", s.handleCreateGroup)
@@ -598,19 +702,21 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 				Body: "Your pet got a new like!", Target: targetOwnerID,
 				SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
 			})
-			likeTokens := s.store.GetUserPushTokens(targetOwnerID)
-			var likePushTokens []string
-			for _, t := range likeTokens {
-				likePushTokens = append(likePushTokens, t.Token)
-			}
-			if len(likePushTokens) > 0 {
-				go func() {
-					if err := service.SendExpoPush(likePushTokens, "New Like! ❤️", "Someone liked your pet!", map[string]string{"type": "like"}); err != nil {
-						log.Printf("[PUSH-LIKE] error: %v", err)
-					}
-				}()
-			} else {
-				log.Printf("[PUSH-LIKE] no tokens for user %s", targetOwnerID)
+			if s.store.ShouldSendPush(targetOwnerID, "matches") {
+				likeTokens := s.store.GetUserPushTokens(targetOwnerID)
+				var likePushTokens []string
+				for _, t := range likeTokens {
+					likePushTokens = append(likePushTokens, t.Token)
+				}
+				if len(likePushTokens) > 0 {
+					go func() {
+						if err := service.SendExpoPush(likePushTokens, "New Like! ❤️", "Someone liked your pet!", map[string]string{"type": "like"}); err != nil {
+							log.Printf("[PUSH-LIKE] error: %v", err)
+						}
+					}()
+				} else {
+					log.Printf("[PUSH-LIKE] no tokens for user %s", targetOwnerID)
+				}
 			}
 		}
 	}
@@ -628,19 +734,21 @@ func (s *Server) handleSwipe(writer http.ResponseWriter, request *http.Request) 
 			ID: fmt.Sprintf("notif-%d", time.Now().UnixNano()), Title: "New Match! 🎉", Body: matchBody,
 			Target: match.MatchedPet.OwnerID, SentAt: time.Now().UTC().Format(time.RFC3339), SentBy: "system",
 		})
-		matchTokens := s.store.GetUserPushTokens(match.MatchedPet.OwnerID)
-		var pushTokens []string
-		for _, t := range matchTokens {
-			pushTokens = append(pushTokens, t.Token)
-		}
-		if len(pushTokens) > 0 {
-			go func() {
-				if err := service.SendExpoPush(pushTokens, "New Match! 🎉", matchBody, map[string]string{"type": "match", "conversationId": match.ConversationID}); err != nil {
-					log.Printf("[PUSH-MATCH] error: %v", err)
-				}
-			}()
-		} else {
-			log.Printf("[PUSH-MATCH] no tokens for user %s", match.MatchedPet.OwnerID)
+		if s.store.ShouldSendPush(match.MatchedPet.OwnerID, "matches") {
+			matchTokens := s.store.GetUserPushTokens(match.MatchedPet.OwnerID)
+			var pushTokens []string
+			for _, t := range matchTokens {
+				pushTokens = append(pushTokens, t.Token)
+			}
+			if len(pushTokens) > 0 {
+				go func() {
+					if err := service.SendExpoPush(pushTokens, "New Match! 🎉", matchBody, map[string]string{"type": "match", "conversationId": match.ConversationID}); err != nil {
+						log.Printf("[PUSH-MATCH] error: %v", err)
+					}
+				}()
+			} else {
+				log.Printf("[PUSH-MATCH] no tokens for user %s", match.MatchedPet.OwnerID)
+			}
 		}
 	}
 
@@ -688,21 +796,25 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 	var message domain.Message
 	var err error
 
-	// If this conversation belongs to a community group, go through the
-	// enriched group send path so mutes/types/metadata work the same in DM and
-	// group messages. Otherwise fall back to the plain DM send.
+	// Route based on conversation type so mutes/types/metadata/rate limits all
+	// work the same for group, playdate, and DM chats.
 	groupForConv := s.store.GetGroupByConversation(payload.ConversationID)
-	if groupForConv != nil && (payload.Type == "image" || payload.Type == "pet_share" || payload.Type == "text") {
-		if payload.Type == "" {
-			payload.Type = "text"
-		}
-		message, err = s.store.SendGroupMessageEx(userID, groupForConv.ID, store.SendGroupMessageInput{
-			Type:     payload.Type,
-			Body:     payload.Body,
-			ImageURL: payload.ImageURL,
-			Metadata: payload.Metadata,
-		})
-	} else {
+	playdateForConv := s.store.GetPlaydateByConversation(payload.ConversationID)
+	if payload.Type == "" {
+		payload.Type = "text"
+	}
+	richInput := store.SendGroupMessageInput{
+		Type:     payload.Type,
+		Body:     payload.Body,
+		ImageURL: payload.ImageURL,
+		Metadata: payload.Metadata,
+	}
+	switch {
+	case groupForConv != nil && (payload.Type == "image" || payload.Type == "pet_share" || payload.Type == "text"):
+		message, err = s.store.SendGroupMessageEx(userID, groupForConv.ID, richInput)
+	case playdateForConv != nil:
+		message, err = s.store.SendPlaydateMessageEx(userID, playdateForConv.ID, richInput)
+	default:
 		message, err = s.store.SendMessage(userID, payload.ConversationID, payload.Body)
 	}
 	if err != nil {
@@ -727,6 +839,15 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 
 		for _, uid := range convUserIDs {
 			if uid == senderID {
+				continue
+			}
+			// Skip push for users who have notification-muted this conversation.
+			// They still receive the message over WebSocket in real time.
+			if s.store.IsConversationMuted(uid, payload.ConversationID) {
+				continue
+			}
+			// v0.11.0 — respect the global "Messages" category opt-out too.
+			if !s.store.ShouldSendPush(uid, "messages") {
 				continue
 			}
 			userTokens := s.store.GetUserPushTokens(uid)
@@ -1579,17 +1700,11 @@ func (s *Server) handleListPlaydates(writer http.ResponseWriter, request *http.R
 
 func (s *Server) handleGetPlaydate(writer http.ResponseWriter, request *http.Request) {
 	playdateID := chi.URLParam(request, "playdateID")
-	playdate, err := s.store.GetPlaydate(playdateID)
+	userID := currentUserID(request)
+	playdate, err := s.store.GetPlaydateForUser(playdateID, userID)
 	if err != nil || playdate == nil {
 		writeError(writer, http.StatusNotFound, "playdate not found")
 		return
-	}
-	userID := currentUserID(request)
-	for _, uid := range playdate.Attendees {
-		if uid == userID {
-			playdate.IsAttending = true
-			break
-		}
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": playdate})
 }
@@ -1603,12 +1718,648 @@ func (s *Server) handleCreatePlaydate(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
 }
 
-func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Request) {
-	if err := s.store.JoinPlaydate(currentUserID(request), chi.URLParam(request, "playdateID")); err != nil {
+func (s *Server) handleUpdatePlaydate(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	var payload domain.Playdate
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result, err := s.store.UpdatePlaydate(userID, playdateID, payload)
+	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"joined": true}})
+	// Notify every attendee (except the editing host) that details changed.
+	// Spec: "Notify attendees when details change". Fire-and-forget push.
+	go func() {
+		if result == nil {
+			return
+		}
+		for _, attendeeID := range result.Attendees {
+			if attendeeID == userID {
+				continue
+			}
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  "Playdate details changed",
+				Body:   result.Title,
+				Target: attendeeID,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if !s.store.ShouldSendPush(attendeeID, "playdates") {
+				continue
+			}
+			tokens := s.store.GetUserPushTokens(attendeeID)
+			var push []string
+			for _, t := range tokens {
+				push = append(push, t.Token)
+			}
+			if len(push) > 0 {
+				_ = service.SendExpoPush(push, "Playdate details changed", result.Title, map[string]string{
+					"type":       "playdate_updated",
+					"playdateId": playdateID,
+				})
+			}
+		}
+	}()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+
+	var payload struct {
+		PetIds []string `json:"petIds"`
+		Note   string   `json:"note"`
+	}
+	// Body is optional for legacy callers; decode best-effort.
+	if request.Body != nil {
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+	}
+
+	var err error
+	if len(payload.PetIds) > 0 {
+		err = s.store.JoinPlaydateWithPets(userID, playdateID, payload.PetIds, payload.Note)
+	} else {
+		// Legacy fallback: picks the user's first pet server-side.
+		err = s.store.JoinPlaydate(userID, playdateID)
+	}
+	if err != nil && err != store.ErrPlaydateWaitlisted {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	waitlisted := err == store.ErrPlaydateWaitlisted
+
+	// Notify the host (non-blocking).
+	go func() {
+		pd, ferr := s.store.GetPlaydate(playdateID)
+		if ferr != nil || pd == nil || pd.OrganizerID == "" || pd.OrganizerID == userID {
+			return
+		}
+		title := "New playdate signup"
+		body := "Someone joined your playdate."
+		if waitlisted {
+			title = "Playdate waitlist update"
+			body = "Someone joined the waitlist for your playdate."
+		}
+		s.store.SaveNotification(domain.Notification{
+			ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+			Title:  title,
+			Body:   body,
+			Target: pd.OrganizerID,
+			SentAt: time.Now().UTC().Format(time.RFC3339),
+			SentBy: "system",
+		})
+		if !s.store.ShouldSendPush(pd.OrganizerID, "playdates") {
+			return
+		}
+		tokens := s.store.GetUserPushTokens(pd.OrganizerID)
+		var push []string
+		for _, t := range tokens {
+			push = append(push, t.Token)
+		}
+		if len(push) > 0 {
+			_ = service.SendExpoPush(push, title, body, map[string]string{"type": "playdate_join", "playdateId": playdateID})
+		}
+	}()
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{
+		"joined":     !waitlisted,
+		"waitlisted": waitlisted,
+	}})
+}
+
+func (s *Server) handleLeavePlaydate(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+
+	var payload struct {
+		PetIds []string `json:"petIds"`
+	}
+	if request.Body != nil {
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+	}
+
+	promoted, err := s.store.LeavePlaydateWithPets(userID, playdateID, payload.PetIds)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Notify host about the leave + any auto-promoted user.
+	go func() {
+		pd, ferr := s.store.GetPlaydate(playdateID)
+		if ferr != nil || pd == nil {
+			return
+		}
+		if pd.OrganizerID != "" && pd.OrganizerID != userID {
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  "Someone left your playdate",
+				Body:   "A participant has left your playdate.",
+				Target: pd.OrganizerID,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if s.store.ShouldSendPush(pd.OrganizerID, "playdates") {
+				tokens := s.store.GetUserPushTokens(pd.OrganizerID)
+				var push []string
+				for _, t := range tokens {
+					push = append(push, t.Token)
+				}
+				if len(push) > 0 {
+					_ = service.SendExpoPush(push, "Playdate update", "A participant has left your playdate.", map[string]string{"type": "playdate_leave", "playdateId": playdateID})
+				}
+			}
+		}
+		for _, promotedUser := range promoted {
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  "You're in!",
+				Body:   "A spot opened up on your waitlisted playdate.",
+				Target: promotedUser,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if !s.store.ShouldSendPush(promotedUser, "playdates") {
+				continue
+			}
+			tokens := s.store.GetUserPushTokens(promotedUser)
+			var push []string
+			for _, t := range tokens {
+				push = append(push, t.Token)
+			}
+			if len(push) > 0 {
+				_ = service.SendExpoPush(push, "You're in! 🎉", "A spot opened on your waitlisted playdate.", map[string]string{"type": "playdate_promoted", "playdateId": playdateID})
+			}
+		}
+	}()
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
+		"left":     true,
+		"promoted": len(promoted) > 0,
+	}})
+}
+
+func (s *Server) handleUpdateAttendeePets(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	var payload struct {
+		PetIds []string `json:"petIds"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.UpdateAttendeePets(userID, playdateID, payload.PetIds); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.store.GetPlaydateForUser(playdateID, userID)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": updated})
+}
+
+func (s *Server) handleCancelPlaydate(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	if err := s.store.CancelPlaydate(userID, playdateID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Notify all attendees.
+	go func() {
+		pd, ferr := s.store.GetPlaydate(playdateID)
+		if ferr != nil || pd == nil {
+			return
+		}
+		for _, attendeeID := range pd.Attendees {
+			if attendeeID == userID {
+				continue
+			}
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  "Playdate cancelled",
+				Body:   "A playdate you joined has been cancelled.",
+				Target: attendeeID,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if !s.store.ShouldSendPush(attendeeID, "playdates") {
+				continue
+			}
+			tokens := s.store.GetUserPushTokens(attendeeID)
+			var push []string
+			for _, t := range tokens {
+				push = append(push, t.Token)
+			}
+			if len(push) > 0 {
+				_ = service.SendExpoPush(push, "Playdate cancelled", "A playdate you joined has been cancelled.", map[string]string{"type": "playdate_cancelled", "playdateId": playdateID})
+			}
+		}
+	}()
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"cancelled": true}})
+}
+
+func (s *Server) handlePlaydateAnnounce(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	var payload struct {
+		Body string `json:"body"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.PostPlaydateAnnouncement(userID, playdateID, payload.Body); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"posted": true}})
+}
+
+// ── Playdate invites ────────────────────────────────────────────────
+
+func (s *Server) handleListInvitableUsers(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	users, err := s.store.ListInvitableUsers(userID, playdateID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": users})
+}
+
+func (s *Server) handleCreatePlaydateInvites(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	userID := currentUserID(request)
+	var payload struct {
+		UserIds []string `json:"userIds"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	invites, err := s.store.CreatePlaydateInvites(userID, playdateID, payload.UserIds)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Look up playdate + host info once so we can format rich push bodies.
+	pd, _ := s.store.GetPlaydate(playdateID)
+	go func() {
+		for _, inv := range invites {
+			title := "You're invited to a playdate"
+			body := "Someone invited you to join their playdate on Petto."
+			if pd != nil {
+				if pd.HostInfo != nil && pd.HostInfo.FirstName != "" {
+					body = pd.HostInfo.FirstName + " invited you"
+					if pd.Title != "" {
+						body += " to " + pd.Title
+					}
+				} else if pd.Title != "" {
+					body = "You've been invited to " + pd.Title
+				}
+			}
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  title,
+				Body:   body,
+				Target: inv.InvitedUserID,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if !s.store.ShouldSendPush(inv.InvitedUserID, "playdates") {
+				continue
+			}
+			tokens := s.store.GetUserPushTokens(inv.InvitedUserID)
+			var push []string
+			for _, t := range tokens {
+				push = append(push, t.Token)
+			}
+			if len(push) > 0 {
+				_ = service.SendExpoPush(push, title, body, map[string]string{
+					"type":       "playdate_invite",
+					"playdateId": playdateID,
+					"inviteId":   inv.ID,
+				})
+			}
+		}
+	}()
+
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
+		"invites": invites,
+	}})
+}
+
+func (s *Server) handleListMyPlaydateInvites(writer http.ResponseWriter, request *http.Request) {
+	userID := currentUserID(request)
+	invites := s.store.ListMyPendingPlaydateInvites(userID)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": invites})
+}
+
+func (s *Server) handleListMyPlaydates(writer http.ResponseWriter, request *http.Request) {
+	userID := currentUserID(request)
+	when := request.URL.Query().Get("when")
+	if when != "upcoming" && when != "past" {
+		when = "upcoming"
+	}
+	role := request.URL.Query().Get("role")
+	if role != "hosted" {
+		role = "all"
+	}
+	result := s.store.ListMyPlaydates(store.ListMyPlaydatesParams{
+		UserID: userID,
+		When:   when,
+		Role:   role,
+	})
+	writeJSON(writer, http.StatusOK, map[string]any{"data": result})
+}
+
+func (s *Server) handleAcceptPlaydateInvite(writer http.ResponseWriter, request *http.Request) {
+	inviteID := chi.URLParam(request, "inviteID")
+	userID := currentUserID(request)
+	playdateID, err := s.store.RespondToPlaydateInvite(userID, inviteID, true)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]string{
+		"playdateId": playdateID,
+	}})
+}
+
+func (s *Server) handleDeclinePlaydateInvite(writer http.ResponseWriter, request *http.Request) {
+	inviteID := chi.URLParam(request, "inviteID")
+	userID := currentUserID(request)
+	if _, err := s.store.RespondToPlaydateInvite(userID, inviteID, false); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"declined": true}})
+}
+
+// ── Playdate chat moderation (v0.14.0) ──────────────────────────────
+
+func (s *Server) handleMutePlaydateMember(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	hostID := currentUserID(request)
+	var payload struct {
+		UserID   string `json:"userId"`
+		Duration string `json:"duration"` // "1h" | "24h" | "forever"
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.UserID == "" {
+		writeError(writer, http.StatusBadRequest, "userId required")
+		return
+	}
+	var until *time.Time
+	switch payload.Duration {
+	case "1h":
+		t := time.Now().UTC().Add(1 * time.Hour)
+		until = &t
+	case "24h":
+		t := time.Now().UTC().Add(24 * time.Hour)
+		until = &t
+	case "", "forever":
+		until = nil
+	default:
+		writeError(writer, http.StatusBadRequest, "invalid duration")
+		return
+	}
+	if err := s.store.SetPlaydateChatMute(hostID, playdateID, payload.UserID, until); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"muted": true}})
+}
+
+func (s *Server) handleUnmutePlaydateMember(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	targetUserID := chi.URLParam(request, "userID")
+	hostID := currentUserID(request)
+	if err := s.store.UnsetPlaydateChatMute(hostID, playdateID, targetUserID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"unmuted": true}})
+}
+
+// ── Host Tools panel (v0.16.0) ───────────────────────────────────────
+
+func (s *Server) handleKickPlaydateAttendee(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	targetUserID := chi.URLParam(request, "userID")
+	hostID := currentUserID(request)
+	promoted, err := s.store.KickPlaydateAttendee(hostID, playdateID, targetUserID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Silent removal per spec — no chat system message, no push to the host
+	// group. We still ping the kicked user privately so they know they're
+	// out, and we ping any promoted waitlisters the usual way.
+	go func() {
+		pd, ferr := s.store.GetPlaydate(playdateID)
+		if ferr != nil || pd == nil {
+			return
+		}
+		// Kicked-user private notification (in-app only — no push badge).
+		s.store.SaveNotification(domain.Notification{
+			ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+			Title:  "Playdate update",
+			Body:   "You are no longer on a playdate's attendee list.",
+			Target: targetUserID,
+			SentAt: time.Now().UTC().Format(time.RFC3339),
+			SentBy: "system",
+		})
+		// Waitlist promotions — loud, same as Leave flow.
+		for _, promotedUser := range promoted {
+			s.store.SaveNotification(domain.Notification{
+				ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+				Title:  "You're in!",
+				Body:   "A spot opened up on your waitlisted playdate.",
+				Target: promotedUser,
+				SentAt: time.Now().UTC().Format(time.RFC3339),
+				SentBy: "system",
+			})
+			if !s.store.ShouldSendPush(promotedUser, "playdates") {
+				continue
+			}
+			tokens := s.store.GetUserPushTokens(promotedUser)
+			var push []string
+			for _, t := range tokens {
+				push = append(push, t.Token)
+			}
+			if len(push) > 0 {
+				_ = service.SendExpoPush(push, "You're in! 🎉", "A spot opened on your waitlisted playdate.", map[string]string{"type": "playdate_promoted", "playdateId": playdateID})
+			}
+		}
+	}()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]any{
+		"removed":  true,
+		"promoted": len(promoted) > 0,
+	}})
+}
+
+func (s *Server) handleSetPlaydateLock(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	hostID := currentUserID(request)
+	var payload struct {
+		Locked bool `json:"locked"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.SetPlaydateLock(hostID, playdateID, payload.Locked); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"locked": payload.Locked}})
+}
+
+func (s *Server) handleTransferPlaydateOwnership(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	currentHostID := currentUserID(request)
+	var payload struct {
+		NewOwnerID string `json:"newOwnerId"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.TransferPlaydateOwnership(currentHostID, playdateID, payload.NewOwnerID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Notify the new owner they're now hosting.
+	go func() {
+		s.store.SaveNotification(domain.Notification{
+			ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+			Title:  "You're now hosting",
+			Body:   "A playdate host handed ownership over to you.",
+			Target: payload.NewOwnerID,
+			SentAt: time.Now().UTC().Format(time.RFC3339),
+			SentBy: "system",
+		})
+		if !s.store.ShouldSendPush(payload.NewOwnerID, "playdates") {
+			return
+		}
+		tokens := s.store.GetUserPushTokens(payload.NewOwnerID)
+		var push []string
+		for _, t := range tokens {
+			push = append(push, t.Token)
+		}
+		if len(push) > 0 {
+			_ = service.SendExpoPush(push, "You're now hosting 👑", "A playdate host handed ownership over to you.", map[string]string{"type": "playdate_ownership_transfer", "playdateId": playdateID})
+		}
+	}()
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"transferred": true}})
+}
+
+// ── Conversation controls (generalised for any chat type) ───────────
+
+func (s *Server) handleGetPlaydateByConversation(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	userID := currentUserID(request)
+	pd := s.store.GetPlaydateByConversation(conversationID)
+	if pd == nil {
+		writeError(writer, http.StatusNotFound, "not a playdate conversation")
+		return
+	}
+	// Return the enriched view for the caller so the mobile screen sees
+	// isOrganizer / myChatMuted / myConvMuted without a second round trip.
+	enriched, err := s.store.GetPlaydateForUser(pd.ID, userID)
+	if err != nil || enriched == nil {
+		writeError(writer, http.StatusNotFound, "playdate not found")
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": enriched})
+}
+
+func (s *Server) handleDeleteConversationMessage(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	messageID := chi.URLParam(request, "messageID")
+	userID := currentUserID(request)
+	if err := s.store.DeleteConversationMessage(userID, conversationID, messageID); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	// Broadcast the deletion over WebSocket so every connected client can
+	// mark the message as removed in-place.
+	_ = s.hub.Publish(conversationID, map[string]any{
+		"type": "message.deleted",
+		"data": map[string]string{"messageId": messageID},
+	})
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handleMuteConversation(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	userID := currentUserID(request)
+	if err := s.store.MuteConversation(userID, conversationID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"muted": true}})
+}
+
+func (s *Server) handleUnmuteConversation(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	userID := currentUserID(request)
+	if err := s.store.UnmuteConversation(userID, conversationID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"unmuted": true}})
+}
+
+func (s *Server) handlePinConversationMessage(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	messageID := chi.URLParam(request, "messageID")
+	userID := currentUserID(request)
+	if err := s.store.PinConversationMessage(userID, conversationID, messageID, true); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	_ = s.hub.Publish(conversationID, map[string]any{
+		"type": "message.pinned",
+		"data": map[string]string{"messageId": messageID},
+	})
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"pinned": true}})
+}
+
+func (s *Server) handleUnpinConversationMessage(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	messageID := chi.URLParam(request, "messageID")
+	userID := currentUserID(request)
+	if err := s.store.PinConversationMessage(userID, conversationID, messageID, false); err != nil {
+		writeError(writer, http.StatusForbidden, err.Error())
+		return
+	}
+	_ = s.hub.Publish(conversationID, map[string]any{
+		"type": "message.unpinned",
+		"data": map[string]string{"messageId": messageID},
+	})
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"unpinned": true}})
+}
+
+func (s *Server) handleListConversationPinned(writer http.ResponseWriter, request *http.Request) {
+	conversationID := chi.URLParam(request, "conversationID")
+	msgs, err := s.store.ListConversationPinnedMessages(conversationID)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": msgs})
 }
 
 // ── Groups ───────────────────────────────────────────────────────────
@@ -1692,6 +2443,9 @@ func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, reques
 	if until != nil {
 		t := until.UTC().Format(time.RFC3339)
 		group.MutedUntil = &t
+	}
+	if group.ConversationID != "" {
+		group.MyConvMuted = s.store.IsConversationMuted(userID, group.ConversationID)
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
@@ -2130,6 +2884,10 @@ func (s *Server) handleGetGroup(writer http.ResponseWriter, request *http.Reques
 		t := until.UTC().Format(time.RFC3339)
 		found.MutedUntil = &t
 	}
+	// v0.11.0 — caller's per-user push mute on the group conversation.
+	if found.ConversationID != "" {
+		found.MyConvMuted = s.store.IsConversationMuted(userID, found.ConversationID)
+	}
 	if !found.IsMember {
 		found.Code = ""
 	}
@@ -2297,4 +3055,113 @@ func newUploadFileName(extension string) string {
 
 func newAssetID() string {
 	return "asset-" + strings.ReplaceAll(time.Now().UTC().Format("20060102150405.000000000"), ".", "")
+}
+
+// ── v0.11.0: notification preferences ──────────────────────────────────
+
+func (s *Server) handleGetNotificationPrefs(writer http.ResponseWriter, request *http.Request) {
+	userID := currentUserID(request)
+	prefs := s.store.GetNotificationPrefs(userID)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": prefs})
+}
+
+func (s *Server) handleUpdateNotificationPrefs(writer http.ResponseWriter, request *http.Request) {
+	userID := currentUserID(request)
+	var payload domain.NotificationPreferences
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.UpsertNotificationPrefs(userID, payload); err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": payload})
+}
+
+// ── v0.11.0: public /p/{id} share landing ──────────────────────────────
+// Tiny HTML page that opens the Expo app via the petto:// scheme and falls
+// back to store badges. We look the playdate up to decorate the page with
+// the title + city — but the page itself is never gated by auth, so even a
+// deleted / private playdate still returns a "Open in Petto" fallback (we
+// just don't leak details in that case).
+func (s *Server) handlePlaydateShareLanding(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	title := "Petto buluşması"
+	subtitle := "Petto'da bir buluşmaya davet edildin"
+	if pd, err := s.store.GetPlaydate(playdateID); err == nil && pd != nil && pd.Visibility == "public" {
+		if pd.Title != "" {
+			title = pd.Title
+		}
+		if pd.CityLabel != "" {
+			subtitle = pd.CityLabel
+		} else if pd.Location != "" {
+			subtitle = pd.Location
+		}
+	}
+	deepLink := fmt.Sprintf("petto://playdates/%s", playdateID)
+	html := `<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>` + htmlEscape(title) + ` · Petto</title>
+<meta property="og:title" content="` + htmlEscape(title) + `">
+<meta property="og:description" content="` + htmlEscape(subtitle) + `">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#E6694A">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, "SF Pro Text", Inter, system-ui, sans-serif; background: #FAF7F2; color: #161514; }
+  .wrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+  .card { width: 100%; max-width: 380px; background: #ffffff; border-radius: 24px; padding: 28px; box-shadow: 0 12px 40px rgba(22,21,20,0.08); text-align: center; }
+  .badge { display: inline-block; background: #E6694A; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; font-weight: 700; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0 0 8px; line-height: 1.25; }
+  p { font-size: 14px; color: #6B6962; margin: 0 0 20px; line-height: 1.45; }
+  .cta { display: block; background: #E6694A; color: #fff; text-decoration: none; padding: 14px 18px; border-radius: 999px; font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+  .stores { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+  .stores a { flex: 1; border: 1px solid #E6E2DC; border-radius: 12px; padding: 10px; text-decoration: none; color: #161514; font-size: 12px; font-weight: 600; }
+  footer { margin-top: 28px; font-size: 11px; color: #9A968F; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <span class="badge">Petto · Buluşma</span>
+      <h1>` + htmlEscape(title) + `</h1>
+      <p>` + htmlEscape(subtitle) + `</p>
+      <a class="cta" href="` + deepLink + `">Uygulamada aç</a>
+      <div class="stores">
+        <a href="https://apps.apple.com/app/id0000000000">App Store</a>
+        <a href="https://play.google.com/store/apps/details?id=app.petto.mobile">Google Play</a>
+      </div>
+    </div>
+    <footer>© Petto</footer>
+  </div>
+  <script>
+    // Try to open the app automatically. If the app isn't installed, the
+    // scheme navigation fails silently and the user stays on this page —
+    // the store badges above are the fallback.
+    (function () {
+      var deep = ` + "`" + deepLink + "`" + `;
+      setTimeout(function () { window.location.replace(deep); }, 80);
+    })();
+  </script>
+</body>
+</html>`
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Header().Set("Cache-Control", "public, max-age=60")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write([]byte(html))
+}
+
+func htmlEscape(s string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		"\"", "&quot;",
+		"'", "&#39;",
+	)
+	return replacer.Replace(s)
 }

@@ -12,7 +12,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, Flag, Lock, MicOff, PawPrint, Send } from "lucide-react-native";
+import { Bell, BellOff, ChevronLeft, Flag, Lock, MicOff, PawPrint, Send } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { MessageBubble } from "@/components/chat/message-bubble";
@@ -24,18 +24,23 @@ import { GroupInfoModal } from "@/components/groups/group-info-modal";
 import { ReportModal } from "@/components/report-modal";
 import { useTranslation } from "react-i18next";
 import {
+  deleteConversationMessage,
   deleteGroupMessage,
   getGroupByConversation,
   getPet,
+  getPlaydateByConversation,
   joinGroup,
   listConversations,
   listGroupPinned,
   listMessages,
   listMyPets,
+  muteConversation,
   muteGroupMember,
+  mutePlaydateMember,
   pinGroupMessage,
   sendConversationMessage,
   sendMessage,
+  unmuteConversation,
   unpinGroupMessage
 } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -76,12 +81,14 @@ export default function ConversationPage() {
   });
   const conversation = conversations.find((c) => c.id === id) ?? null;
 
-  // Fallback chain: real query data → router-param seed (instant) →
-  // localized "Conversation" as last resort. The seed is passed from
-  // groups.tsx / group/[id].tsx / conversations.tsx so the header shows
-  // the real name & image immediately on navigation.
-  const otherUserName = conversation?.title || initialTitle || t("chat.conversation");
-  const otherUserAvatar = conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl || initialImage;
+  // Fallback chain: router-param seed (instant, v0.11.0: takes priority so
+  // playdate chats show the playdate name without a "Conversation" flash) →
+  // real query data → localized last-resort. The seed is passed from
+  // groups.tsx / group/[id].tsx / playdates/[id].tsx / conversations.tsx so
+  // the header shows the real name & image immediately on navigation.
+  const otherUserName = initialTitle || conversation?.title || t("chat.conversation");
+  const otherUserAvatar =
+    initialImage || conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl;
   const petPairLabel = conversation?.matchPetPairs?.length
     ? conversation.matchPetPairs.map((p) => `${p.myPetName} & ${p.matchedPetName}`).join(", ")
     : "";
@@ -92,13 +99,37 @@ export default function ConversationPage() {
     enabled: Boolean(session && id)
   });
 
+  // If this conversation is a playdate chat, pull the enriched playdate so we
+  // know whether the caller is the organizer, is host-muted, or has silenced
+  // push. Falls back to null for DMs and group chats.
+  const { data: playdateInfo, refetch: refetchPlaydateInfo } = useQuery({
+    queryKey: ["playdate-by-conv", id],
+    queryFn: () => getPlaydateByConversation(session!.tokens.accessToken, id),
+    enabled: Boolean(session && id && !groupInfo)
+  });
+
   const isGroupChat = Boolean(groupInfo);
+  const isPlaydateChat = Boolean(playdateInfo);
   const currentUserId = session?.user.id ?? "";
   const isMember = isGroupChat
     ? Boolean(groupInfo?.members?.some((m) => m.userId === currentUserId))
+    : isPlaydateChat
+    ? Boolean(
+        playdateInfo?.isAttending ||
+          playdateInfo?.isOrganizer ||
+          playdateInfo?.isWaitlisted
+      )
     : true;
-  const isAdmin = Boolean(groupInfo?.isAdmin);
-  const isMuted = Boolean(groupInfo?.muted);
+  // Moderator = group admin OR playdate organizer. The ModerationSheet and
+  // all the action handlers treat them identically.
+  const isAdmin = Boolean(groupInfo?.isAdmin || playdateInfo?.isOrganizer);
+  // Host-level "you can't send" mute. Group chats expose it via groupInfo.muted
+  // (with a `mutedUntil` countdown); playdates expose `myChatMuted` (boolean).
+  const isMuted = Boolean(groupInfo?.muted || playdateInfo?.myChatMuted);
+  // Per-user notification mute — v0.11.0 covers both playdate AND group chats.
+  const isConvMuted = Boolean(
+    playdateInfo?.myConvMuted || groupInfo?.myConvMuted
+  );
 
   // Single source-of-truth for the messages cache key. Used by useQuery,
   // mutation optimistic updates, cancelQueries, and invalidate — if these
@@ -155,7 +186,7 @@ export default function ConversationPage() {
   const { data: myPets = [] } = useQuery({
     queryKey: ["my-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
-    enabled: Boolean(session && isGroupChat)
+    enabled: Boolean(session && (isGroupChat || isPlaydateChat))
   });
 
   const sendMutation = useMutation({
@@ -184,8 +215,14 @@ export default function ConversationPage() {
       setDraft("");
       return { prev };
     },
-    onError: (_err, _text, context) => {
+    onError: (err: any, _text, context) => {
       if (context?.prev) queryClient.setQueryData(messagesQueryKey, context.prev);
+      // Surface backend limits + moderation errors — otherwise the bubble
+      // silently rolls back and the user has no idea what happened.
+      const msg = (err?.message ?? "").toString();
+      if (msg) {
+        Alert.alert(t("chat.sendFailedTitle") as string, msg);
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: messagesQueryKey });
@@ -224,9 +261,13 @@ export default function ConversationPage() {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
       return { prev };
     },
-    onError: (_err, _input, context: any) => {
+    onError: (err: any, _input, context: any) => {
       if (context?.prev) {
         queryClient.setQueryData(messagesQueryKey, context.prev);
+      }
+      const msg = (err?.message ?? "").toString();
+      if (msg) {
+        Alert.alert(t("chat.sendFailedTitle") as string, msg);
       }
     },
     onSettled: () => {
@@ -245,7 +286,7 @@ export default function ConversationPage() {
   // ── Composer actions ─────────────────────────────────────────────
   const handleSharePet = (pet: Pet) => {
     setPetPickerOpen(false);
-    if (!session || isMuted || !isMember) return;
+    if (!session || isMuted || !canSend) return;
     const photo = pet.photos?.find((p) => p.isPrimary)?.url ?? pet.photos?.[0]?.url;
     richSendMutation.mutate({
       type: "pet_share",
@@ -281,10 +322,14 @@ export default function ConversationPage() {
           setReportOpen(true);
           break;
         case "delete":
+          // Group: legacy per-group delete (keeps pin / admin permissions).
+          // Playdate + DM: generalized conversation delete — author or host.
           if (groupInfo?.id) {
             await deleteGroupMessage(token, groupInfo.id, modMessage.id);
-            queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+          } else {
+            await deleteConversationMessage(token, id, modMessage.id);
           }
+          queryClient.invalidateQueries({ queryKey: messagesQueryKey });
           break;
         case "pin":
           if (groupInfo?.id) {
@@ -301,16 +346,31 @@ export default function ConversationPage() {
         case "mute-1h":
         case "mute-24h":
         case "mute-indefinite": {
-          if (!groupInfo?.id || !modMessage.senderProfileId) break;
+          if (!modMessage.senderProfileId) break;
           const duration =
             action === "mute-1h" ? "1h" : action === "mute-24h" ? "24h" : "indefinite";
-          await muteGroupMember(
-            token,
-            groupInfo.id,
-            modMessage.senderProfileId,
-            duration as "1h" | "24h" | "indefinite"
-          );
-          queryClient.invalidateQueries({ queryKey: ["group-by-conv", id] });
+          if (groupInfo?.id) {
+            await muteGroupMember(
+              token,
+              groupInfo.id,
+              modMessage.senderProfileId,
+              duration as "1h" | "24h" | "indefinite"
+            );
+            queryClient.invalidateQueries({ queryKey: ["group-by-conv", id] });
+          } else if (playdateInfo?.id) {
+            // Playdate moderation mute. Backend API uses "forever" for
+            // indefinite — map the shared ModerationAction.
+            const pdDuration =
+              duration === "indefinite" ? "forever" : (duration as "1h" | "24h");
+            await mutePlaydateMember(
+              token,
+              playdateInfo.id,
+              modMessage.senderProfileId,
+              pdDuration
+            );
+            refetchPlaydateInfo();
+            queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+          }
           break;
         }
       }
@@ -320,6 +380,25 @@ export default function ConversationPage() {
       setModMessage(null);
     }
   };
+
+  // ── Notification-mute toggle — v0.11.0 supports both playdate and
+  // group chats. The underlying /conversations/{id}/mute endpoint is
+  // conversation-id based so the same mutation works for both. We
+  // refetch whichever detail query is active so the bell updates.
+  const convMuteMutation = useMutation({
+    mutationFn: async () => {
+      if (!session) return;
+      if (isConvMuted) {
+        await unmuteConversation(session.tokens.accessToken, id);
+      } else {
+        await muteConversation(session.tokens.accessToken, id);
+      }
+    },
+    onSuccess: () => {
+      if (isPlaydateChat) refetchPlaydateInfo();
+      if (isGroupChat) refetchGroupInfo();
+    }
+  });
 
   // ── Join flow for non-members ───────────────────────────────────
   const joinMutation = useMutation({
@@ -428,6 +507,16 @@ export default function ConversationPage() {
           onPress={
             isGroupChat && groupInfo?.id
               ? () => router.push(`/(app)/group/${groupInfo.id}` as any)
+              : isPlaydateChat && playdateInfo?.id
+              ? () =>
+                  router.push({
+                    pathname: "/(app)/playdates/[id]",
+                    params: {
+                      id: playdateInfo.id,
+                      initialTitle: playdateInfo.title ?? "",
+                      initialImage: playdateInfo.coverImageUrl ?? ""
+                    }
+                  } as any)
               : undefined
           }
         >
@@ -439,7 +528,11 @@ export default function ConversationPage() {
               fontFamily: "Inter_700Bold"
             }}
           >
-            {isGroupChat ? (groupInfo?.name ?? initialTitle ?? otherUserName) : otherUserName}
+            {isGroupChat
+              ? (groupInfo?.name ?? initialTitle ?? otherUserName)
+              : isPlaydateChat
+              ? (playdateInfo?.title ?? initialTitle ?? otherUserName)
+              : otherUserName}
           </Text>
           {isGroupChat ? (
             <Text
@@ -451,6 +544,21 @@ export default function ConversationPage() {
             >
               {t("groups.members", { count: groupInfo?.memberCount ?? 0 })}
               {isAdmin ? ` · ${t("groups.adminBadge")}` : ""}
+            </Text>
+          ) : isPlaydateChat ? (
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.micro.fontSize,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {t("playdates.detail.attendeePlural")} ·{" "}
+              {playdateInfo?.slotsUsed ?? 0}
+              {playdateInfo?.maxPets ? ` / ${playdateInfo.maxPets}` : ""}
+              {playdateInfo?.isOrganizer
+                ? ` · ${t("playdates.myPlaydates.roleHost")}`
+                : ""}
             </Text>
           ) : petPairLabel ? (
             <Text
@@ -464,6 +572,27 @@ export default function ConversationPage() {
             </Text>
           ) : null}
         </Pressable>
+        {/* v0.11.0 — bell available for both playdate and group chats. */}
+        {(isPlaydateChat || isGroupChat) && isMember ? (
+          <Pressable
+            onPress={() => convMuteMutation.mutate()}
+            hitSlop={12}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: theme.colors.background,
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            {isConvMuted ? (
+              <BellOff size={18} color={theme.colors.primary} />
+            ) : (
+              <Bell size={18} color={theme.colors.muted} />
+            )}
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={() => setReportOpen(true)}
           hitSlop={12}
@@ -656,9 +785,23 @@ export default function ConversationPage() {
           >
             {isMuted ? (
               <MutedPill until={groupInfo?.mutedUntil ?? null} />
+            ) : !isMember ? (
+              // Playdate chat gate: non-joined users never get here (the
+              // conversation id is blanked by the backend) but guard anyway.
+              <View style={{ flex: 1, paddingVertical: 14, alignItems: "center" }}>
+                <Text
+                  style={{
+                    color: theme.colors.muted,
+                    fontSize: 13,
+                    fontFamily: "Inter_500Medium"
+                  }}
+                >
+                  {t("playdates.chat.joinToSend")}
+                </Text>
+              </View>
             ) : (
               <>
-                {isGroupChat && (
+                {(isGroupChat || isPlaydateChat) && (
                   <>
                     <Pressable
                       onPress={() => setPetPickerOpen(true)}

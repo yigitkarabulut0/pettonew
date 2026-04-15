@@ -31,34 +31,85 @@ const ICONS = {
   wind: Wind
 };
 
-export function WeatherWidget() {
+interface WeatherWidgetProps {
+  /** Optional explicit coordinates. When omitted, falls back to device location. */
+  latitude?: number;
+  longitude?: number;
+  /** Optional ISO timestamp — when the target moment is in the future we fetch
+   *  the nearest hourly forecast instead of the current weather. */
+  atISO?: string;
+}
+
+export function WeatherWidget(props: WeatherWidgetProps = {}) {
   const theme = useTheme();
   const { t } = useTranslation();
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
+  const explicitLat = props.latitude;
+  const explicitLng = props.longitude;
+  const atISO = props.atISO;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== "granted") {
-          setLoading(false);
-          return;
+        let lat = explicitLat;
+        let lng = explicitLng;
+        if (lat == null || lng == null) {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status !== "granted") {
+            setLoading(false);
+            return;
+          }
+          const loc = await Location.getLastKnownPositionAsync();
+          if (!loc || cancelled) {
+            setLoading(false);
+            return;
+          }
+          lat = loc.coords.latitude;
+          lng = loc.coords.longitude;
         }
-        const loc = await Location.getLastKnownPositionAsync();
-        if (!loc || cancelled) {
-          setLoading(false);
-          return;
+
+        // If we have a future target time, pull hourly forecast and pick the
+        // slot nearest to that moment. Otherwise use current_weather.
+        const useForecast =
+          atISO != null && new Date(atISO).getTime() - Date.now() > 60 * 60 * 1000;
+
+        let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`;
+        if (useForecast) {
+          url += `&hourly=temperature_2m,weathercode&forecast_days=7`;
+        } else {
+          url += `&current_weather=true`;
         }
-        const res = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${loc.coords.latitude}&longitude=${loc.coords.longitude}&current_weather=true`
-        );
+
+        const res = await fetch(url);
         if (cancelled) return;
         const json = await res.json();
-        const current = json?.current_weather;
-        if (current) {
-          setWeather(getCondition(current.temperature, current.weathercode));
+
+        if (useForecast && atISO && json?.hourly?.time && json.hourly.temperature_2m && json.hourly.weathercode) {
+          const target = new Date(atISO).getTime();
+          const times: string[] = json.hourly.time;
+          let bestIdx = 0;
+          let bestDelta = Infinity;
+          for (let i = 0; i < times.length; i++) {
+            const slot = times[i];
+            if (!slot) continue;
+            const delta = Math.abs(new Date(slot).getTime() - target);
+            if (delta < bestDelta) {
+              bestDelta = delta;
+              bestIdx = i;
+            }
+          }
+          const temp = json.hourly.temperature_2m[bestIdx];
+          const code = json.hourly.weathercode[bestIdx];
+          if (typeof temp === "number" && typeof code === "number") {
+            setWeather(getCondition(temp, code));
+          }
+        } else {
+          const current = json?.current_weather;
+          if (current) {
+            setWeather(getCondition(current.temperature, current.weathercode));
+          }
         }
       } catch {
         // silently fail
@@ -67,7 +118,7 @@ export function WeatherWidget() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [explicitLat, explicitLng, atISO]);
 
   if (loading || !weather) return null;
 

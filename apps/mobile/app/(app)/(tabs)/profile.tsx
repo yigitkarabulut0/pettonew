@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import {
   Activity,
   Award,
+  Bell,
   BookOpen,
   ChevronRight,
   Eye,
@@ -162,6 +163,12 @@ export default function ProfilePage() {
   /*  Quick links config                                                */
   /* ------------------------------------------------------------------ */
   const quickLinks = [
+    {
+      key: "notification-settings",
+      label: t("profile.notificationSettings"),
+      icon: Bell,
+      route: "/(app)/notification-settings"
+    },
     {
       key: "vet-contacts",
       label: t("care.vetContacts"),

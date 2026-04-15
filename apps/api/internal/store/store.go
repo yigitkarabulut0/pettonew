@@ -110,8 +110,41 @@ type Store interface {
 	// Playdates
 	ListPlaydates(params ListPlaydatesParams) []domain.Playdate
 	GetPlaydate(playdateID string) (*domain.Playdate, error)
+	GetPlaydateForUser(playdateID string, userID string) (*domain.Playdate, error)
 	CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate
 	JoinPlaydate(userID string, playdateID string) error
+	JoinPlaydateWithPets(userID string, playdateID string, petIds []string, note string) error
+	LeavePlaydate(userID string, playdateID string) (promoted string, err error)
+	LeavePlaydateWithPets(userID string, playdateID string, petIds []string) (promoted []string, err error)
+	UpdateAttendeePets(userID string, playdateID string, petIds []string) error
+	CancelPlaydate(userID string, playdateID string) error
+	UpdatePlaydate(userID string, playdateID string, patch domain.Playdate) (*domain.Playdate, error)
+	PostPlaydateAnnouncement(userID string, playdateID string, body string) error
+	CreatePlaydateInvites(hostID string, playdateID string, invitedUserIds []string) ([]domain.PlaydateInvite, error)
+	ListInvitableUsers(hostID string, playdateID string) ([]domain.InvitableUser, error)
+	ListMyPendingPlaydateInvites(userID string) []domain.PlaydateInvite
+	RespondToPlaydateInvite(userID string, inviteID string, accept bool) (string, error)
+	// Playdate chat (v0.14.0)
+	GetPlaydateByConversation(conversationID string) *domain.Playdate
+	SendPlaydateMessageEx(userID string, playdateID string, input SendGroupMessageInput) (domain.Message, error)
+	DeleteConversationMessage(actorUserID string, conversationID string, messageID string) error
+	SetPlaydateChatMute(hostID string, playdateID string, targetUserID string, until *time.Time) error
+	UnsetPlaydateChatMute(hostID string, playdateID string, targetUserID string) error
+	GetPlaydateChatMute(userID string, playdateID string) (bool, *time.Time)
+	ListPlaydateChatMutedUsers(playdateID string) []string
+	MuteConversation(userID string, conversationID string) error
+	UnmuteConversation(userID string, conversationID string) error
+	IsConversationMuted(userID string, conversationID string) bool
+	// My playdates + reminders (v0.15.0)
+	ListMyPlaydates(params ListMyPlaydatesParams) []domain.Playdate
+	ListDuePlaydateReminders(fromISO string, toISO string, kind string) []PlaydateReminderTarget
+	MarkPlaydateReminderSent(playdateID string, userID string, kind string)
+	// Host controls (v0.16.0)
+	SetPlaydateLock(hostID string, playdateID string, locked bool) error
+	KickPlaydateAttendee(hostID string, playdateID string, targetUserID string) ([]string, error)
+	TransferPlaydateOwnership(currentHostID string, playdateID string, newOwnerID string) error
+	PinConversationMessage(actorUserID string, conversationID string, messageID string, pinned bool) error
+	ListConversationPinnedMessages(conversationID string) ([]domain.Message, error)
 	// Groups
 	ListGroups(params ListGroupsParams) []domain.CommunityGroup
 	GetGroupByConversation(conversationID string) *domain.CommunityGroup
@@ -150,6 +183,13 @@ type Store interface {
 	GetUserPushTokens(userID string) []domain.PushToken
 	SaveNotification(notification domain.Notification)
 	ListNotifications() []domain.Notification
+	// Notification preferences — per-user opt-outs gating push fan-out.
+	// Categories: "matches", "messages", "playdates", "groups".
+	GetNotificationPrefs(userID string) domain.NotificationPreferences
+	UpsertNotificationPrefs(userID string, prefs domain.NotificationPreferences) error
+	ShouldSendPush(userID string, category string) bool
+	// Explore feed — merged admin events + user playdates for Discover.
+	ListExploreFeed(params ListPlaydatesParams) (events []domain.ExploreEvent, playdates []domain.Playdate)
 	// Walk routes
 	ListWalkRoutes(city string) []domain.WalkRoute
 	CreateWalkRoute(route domain.WalkRoute) domain.WalkRoute

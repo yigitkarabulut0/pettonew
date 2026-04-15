@@ -510,6 +510,25 @@ func (s *PersistentStore) JoinPlaydate(userID string, playdateID string) error {
 	return s.persistAfter(s.MemoryStore.JoinPlaydate(userID, playdateID))
 }
 
+func (s *PersistentStore) LeavePlaydate(userID string, playdateID string) (string, error) {
+	promoted, err := s.MemoryStore.LeavePlaydate(userID, playdateID)
+	_ = s.persist(context.Background())
+	return promoted, err
+}
+
+func (s *PersistentStore) CancelPlaydate(userID string, playdateID string) error {
+	return s.persistAfter(s.MemoryStore.CancelPlaydate(userID, playdateID))
+}
+
+func (s *PersistentStore) UpdatePlaydate(userID string, playdateID string, patch domain.Playdate) (*domain.Playdate, error) {
+	result, err := s.MemoryStore.UpdatePlaydate(userID, playdateID, patch)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.persist(context.Background())
+	return result, nil
+}
+
 func (s *PersistentStore) CreateGroup(creatorUserID string, group domain.CommunityGroup) domain.CommunityGroup {
 	result := s.MemoryStore.CreateGroup(creatorUserID, group)
 	_ = s.persist(context.Background())

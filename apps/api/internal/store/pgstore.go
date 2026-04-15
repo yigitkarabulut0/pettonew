@@ -5,6 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
 	"strings"
@@ -92,6 +93,188 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION NOT NULL DEFAULT 0`)
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS city_label TEXT NOT NULL DEFAULT ''`)
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS cover_image_url TEXT`)
+	// v0.11.1 — optional venue link so the Discover map can highlight
+	// venues that currently host a playdate.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS venue_id TEXT`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_playdates_venue_id ON playdates(venue_id)`)
+
+	// ── Playdates v0.11.0 ───────────────────────────────────────────
+	// Rules list, soft-cancel, per-playdate chat, FIFO waitlist.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS rules TEXT[] NOT NULL DEFAULT '{}'`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS conversation_id TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS waitlist TEXT[] NOT NULL DEFAULT '{}'`)
+
+	// ── Host controls v0.16.0 ───────────────────────────────────────
+	// "Locked" is a soft close the host can use to stop new joins without
+	// advertising it — we intentionally do NOT surface a user-facing badge.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE`)
+
+	// ── My Playdates v0.15.0 ────────────────────────────────────────
+	// Idempotency log for the background reminder scheduler — one row per
+	// (playdate, user, kind) the very first time a reminder fires.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_reminders_sent (
+		playdate_id TEXT NOT NULL,
+		user_id     TEXT NOT NULL,
+		kind        TEXT NOT NULL,
+		sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (playdate_id, user_id, kind)
+	)`)
+
+	// ── Playdate chat v0.14.0 ───────────────────────────────────────
+	// Host moderation: muted users can read but not send into the chat.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_chat_mutes (
+		playdate_id TEXT NOT NULL,
+		user_id     TEXT NOT NULL,
+		muted_by    TEXT NOT NULL,
+		muted_until TIMESTAMPTZ,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (playdate_id, user_id)
+	)`)
+	// Per-user notification mute on any conversation — silences OS push only.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS conversation_mutes (
+		conversation_id TEXT NOT NULL,
+		user_id         TEXT NOT NULL,
+		muted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (conversation_id, user_id)
+	)`)
+
+	// ── v0.11.0: Notification preferences ────────────────────────────
+	// Global per-user opt-outs gating SendExpoPush fan-out. No row = all
+	// categories enabled (default for existing users). The mobile
+	// notification-settings page is the only writer.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS notification_preferences (
+		user_id    TEXT PRIMARY KEY,
+		matches    BOOLEAN NOT NULL DEFAULT TRUE,
+		messages   BOOLEAN NOT NULL DEFAULT TRUE,
+		playdates  BOOLEAN NOT NULL DEFAULT TRUE,
+		groups     BOOLEAN NOT NULL DEFAULT TRUE,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+
+	// ── v0.11.0: pet photo index ──────────────────────────────────────
+	// Speeds up the per-attendee photo lookup in GetPlaydateForUser, which
+	// used to scan pet_photos once per attendee in the detail page (the
+	// "detail page inanılmaz uzun suruyor" report).
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_photos_pet_id_order ON pet_photos(pet_id, display_order)`)
+
+	// ── Playdates v0.13.0 ───────────────────────────────────────────
+	// Visibility + per-user invites for private playdates.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`)
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_invites (
+		id               TEXT PRIMARY KEY,
+		playdate_id      TEXT NOT NULL,
+		host_user_id     TEXT NOT NULL,
+		invited_user_id  TEXT NOT NULL,
+		status           TEXT NOT NULL DEFAULT 'pending',
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		responded_at     TIMESTAMPTZ
+	)`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_playdate_invites_unique ON playdate_invites(playdate_id, invited_user_id)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_playdate_invites_user ON playdate_invites(invited_user_id, status)`)
+
+	// ── Playdates v0.12.0 ───────────────────────────────────────────
+	// Pet-level attendance: each pet occupies one slot. These tables are the
+	// source of truth; the legacy `attendees` column becomes a derived cache
+	// of distinct user ids with seats in the pet-attendance table.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_pet_attendees (
+		playdate_id TEXT NOT NULL,
+		pet_id      TEXT NOT NULL,
+		user_id     TEXT NOT NULL,
+		joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (playdate_id, pet_id)
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_playdate_pet_attendees_user ON playdate_pet_attendees(playdate_id, user_id)`)
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_pet_waitlist (
+		playdate_id TEXT NOT NULL,
+		pet_id      TEXT NOT NULL,
+		user_id     TEXT NOT NULL,
+		joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (playdate_id, pet_id)
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_playdate_pet_waitlist_order ON playdate_pet_waitlist(playdate_id, joined_at)`)
+
+	// Backfill pet-level rows from existing attendee arrays. For each user in
+	// `attendees`, we pick their first visible pet as the "joined" pet. If they
+	// have no pets we insert a legacy sentinel so the slot count stays correct.
+	legacyBackfill, _ := pool.Query(ctx,
+		`SELECT p.id, p.attendees FROM playdates p
+		 WHERE array_length(p.attendees, 1) IS NOT NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM playdate_pet_attendees ppa WHERE ppa.playdate_id = p.id
+		   )`)
+	if legacyBackfill != nil {
+		type legacyRow struct {
+			id        string
+			attendees []string
+		}
+		var pending []legacyRow
+		for legacyBackfill.Next() {
+			var row legacyRow
+			if err := legacyBackfill.Scan(&row.id, &row.attendees); err == nil {
+				pending = append(pending, row)
+			}
+		}
+		legacyBackfill.Close()
+		for _, row := range pending {
+			for _, uid := range row.attendees {
+				var petID string
+				_ = pool.QueryRow(ctx,
+					`SELECT id FROM pets WHERE owner_id = $1 AND is_hidden = false
+					 ORDER BY created_at LIMIT 1`, uid).Scan(&petID)
+				if petID == "" {
+					petID = "legacy-" + uid
+				}
+				pool.Exec(ctx,
+					`INSERT INTO playdate_pet_attendees (playdate_id, pet_id, user_id, joined_at)
+					 VALUES ($1, $2, $3, NOW())
+					 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+					row.id, petID, uid)
+			}
+		}
+	}
+
+	// Backfill conversation_id for existing playdates: create a conversation
+	// seeded with the organizer + all attendees, then link it back.
+	pdBackfillRows, _ := pool.Query(ctx,
+		`SELECT id, organizer_id, title, attendees FROM playdates WHERE conversation_id = ''`)
+	if pdBackfillRows != nil {
+		type pdBf struct {
+			id, organizerID, title string
+			attendees              []string
+		}
+		var pending []pdBf
+		for pdBackfillRows.Next() {
+			var row pdBf
+			if err := pdBackfillRows.Scan(&row.id, &row.organizerID, &row.title, &row.attendees); err == nil {
+				pending = append(pending, row)
+			}
+		}
+		pdBackfillRows.Close()
+		for _, row := range pending {
+			convID := newID("conversation")
+			now := time.Now().UTC()
+			userIDs := []string{row.organizerID}
+			for _, uid := range row.attendees {
+				if uid != row.organizerID {
+					userIDs = append(userIDs, uid)
+				}
+			}
+			subtitle := "Playdate chat"
+			title := row.title
+			if title == "" {
+				title = "Playdate"
+			}
+			_, err := pool.Exec(ctx,
+				`INSERT INTO conversations (id, match_id, title, subtitle, last_message_at, user_ids)
+				 VALUES ($1, $2, $3, $4, $5, $6)`,
+				convID, "", title, subtitle, now, userIDs)
+			if err == nil {
+				pool.Exec(ctx, `UPDATE playdates SET conversation_id = $1 WHERE id = $2`, convID, row.id)
+			}
+		}
+	}
 
 	// Backfill owner_user_id from first user of each group's conversation (one-shot).
 	pool.Exec(ctx, `
@@ -1702,6 +1885,485 @@ func (s *PostgresStore) SendGroupMessageEx(userID string, groupID string, in Sen
 	return out, nil
 }
 
+// ── Playdate chat (v0.14.0) ──────────────────────────────────────────
+//
+// Playdate conversations are regular rows in the `conversations` table, but
+// sends need their own enriched path so we can: support pet_share/image types,
+// enforce the per-playdate host mute, rate-limit spam, and cap message length.
+// These helpers mirror the group chat flow but gate off the playdate's
+// `conversation_id` and the `playdate_chat_mutes` table instead of the group
+// membership + mute tables.
+
+// GetPlaydateByConversation resolves the playdate whose dedicated chat thread
+// is the given conversation ID. Returns nil when no match (e.g. DMs, group
+// chats).
+func (s *PostgresStore) GetPlaydateByConversation(conversationID string) *domain.Playdate {
+	var id string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id FROM playdates WHERE conversation_id = $1`, conversationID).Scan(&id)
+	if err != nil {
+		return nil
+	}
+	p, err := s.getPlaydateRow(id)
+	if err != nil {
+		return nil
+	}
+	return p
+}
+
+// PlaydateReminderTarget is one delivery the scheduler still owes — an
+// attendee or the host of a playdate that starts within the 1-hour window.
+type PlaydateReminderTarget struct {
+	PlaydateID    string
+	PlaydateTitle string
+	PlaydateDate  string
+	CityLabel     string
+	UserID        string
+}
+
+// ListDuePlaydateReminders scans active playdates starting between `fromISO`
+// and `toISO`, returning one target per (playdate, user) that hasn't already
+// been notified with `kind`. Caller is the background scheduler in the server.
+func (s *PostgresStore) ListDuePlaydateReminders(fromISO, toISO string, kind string) []PlaydateReminderTarget {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT p.id, p.title, p.date, COALESCE(p.city_label, ''), p.organizer_id, p.attendees
+		 FROM playdates p
+		 WHERE COALESCE(p.status, 'active') = 'active'
+		   AND p.date >= $1 AND p.date < $2`,
+		fromISO, toISO)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	type row struct {
+		id, title, date, city, organizerID string
+		attendees                          []string
+	}
+	var pending []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.title, &r.date, &r.city, &r.organizerID, &r.attendees); err == nil {
+			pending = append(pending, r)
+		}
+	}
+
+	out := []PlaydateReminderTarget{}
+	for _, r := range pending {
+		userSet := map[string]struct{}{r.organizerID: {}}
+		for _, uid := range r.attendees {
+			if uid != "" {
+				userSet[uid] = struct{}{}
+			}
+		}
+		for uid := range userSet {
+			if uid == "" {
+				continue
+			}
+			var one int
+			err := s.pool.QueryRow(s.ctx(),
+				`SELECT 1 FROM playdate_reminders_sent WHERE playdate_id=$1 AND user_id=$2 AND kind=$3`,
+				r.id, uid, kind).Scan(&one)
+			if err == nil {
+				continue // already sent
+			}
+			out = append(out, PlaydateReminderTarget{
+				PlaydateID:    r.id,
+				PlaydateTitle: r.title,
+				PlaydateDate:  r.date,
+				CityLabel:     r.city,
+				UserID:        uid,
+			})
+		}
+	}
+	return out
+}
+
+// MarkPlaydateReminderSent idempotently records that we've delivered `kind`
+// to this (playdate, user) pair. Called after a successful push.
+func (s *PostgresStore) MarkPlaydateReminderSent(playdateID string, userID string, kind string) {
+	_, _ = s.pool.Exec(s.ctx(),
+		`INSERT INTO playdate_reminders_sent (playdate_id, user_id, kind)
+		 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		playdateID, userID, kind)
+}
+
+// ListMyPlaydatesParams drives the /v1/me/playdates endpoint.
+type ListMyPlaydatesParams struct {
+	UserID string
+	When   string // "upcoming" | "past"
+	Role   string // "all" | "hosted"
+}
+
+// ListMyPlaydates returns every playdate the caller is hosting or attending,
+// filtered by past/upcoming and optionally narrowed to hosted-only. Each row
+// is fully enriched so the My Playdates cards can render role badges, attendee
+// previews, and quick-action state without a second round trip.
+func (s *PostgresStore) ListMyPlaydates(params ListMyPlaydatesParams) []domain.Playdate {
+	if params.UserID == "" {
+		return []domain.Playdate{}
+	}
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	// Base filter: user is the organizer, a current attendee, or has a
+	// pending invite (so invited users see the invited playdate in their
+	// upcoming list even before accepting).
+	query := `SELECT id FROM playdates WHERE 1=1`
+	args := []any{params.UserID}
+	idx := 2
+
+	if params.Role == "hosted" {
+		query += ` AND organizer_id = $1`
+	} else {
+		query += ` AND (
+			organizer_id = $1
+			OR $1 = ANY(attendees)
+			OR EXISTS (SELECT 1 FROM playdate_invites WHERE playdate_id = playdates.id AND invited_user_id = $1 AND status = 'pending')
+		)`
+	}
+
+	// Time-window filter. Playdates that have been cancelled still appear in
+	// the user's list so they get closure (and they can read the chat).
+	switch params.When {
+	case "upcoming":
+		query += fmt.Sprintf(` AND date >= $%d`, idx)
+		args = append(args, nowISO)
+		idx++
+		query += ` ORDER BY date ASC`
+	case "past":
+		query += fmt.Sprintf(` AND date < $%d`, idx)
+		args = append(args, nowISO)
+		idx++
+		query += ` ORDER BY date DESC`
+	default:
+		query += ` ORDER BY date ASC`
+	}
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.Playdate{}
+	}
+	defer rows.Close()
+
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+
+	out := make([]domain.Playdate, 0, len(ids))
+	for _, id := range ids {
+		enriched, err := s.GetPlaydateForUser(id, params.UserID)
+		if err != nil || enriched == nil {
+			continue
+		}
+		out = append(out, *enriched)
+	}
+	return out
+}
+
+// GetPlaydateChatMute returns whether the user is currently host-muted in the
+// playdate's chat and the expiry timestamp (nil for indefinite). Expired rows
+// are lazily deleted — same pattern as GetGroupMute.
+func (s *PostgresStore) GetPlaydateChatMute(userID string, playdateID string) (bool, *time.Time) {
+	var until *time.Time
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT muted_until FROM playdate_chat_mutes WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID).Scan(&until)
+	if err != nil {
+		return false, nil
+	}
+	if until != nil && until.Before(time.Now().UTC()) {
+		// Expired — drop the row and report as unmuted.
+		_, _ = s.pool.Exec(s.ctx(),
+			`DELETE FROM playdate_chat_mutes WHERE playdate_id=$1 AND user_id=$2`,
+			playdateID, userID)
+		return false, nil
+	}
+	return true, until
+}
+
+// SetPlaydateChatMute upserts a moderation mute. Organizer-only. An `until` of
+// nil represents an indefinite mute. Also posts a `member_muted` system message
+// into the playdate conversation so the chat history reflects the action.
+func (s *PostgresStore) SetPlaydateChatMute(hostID string, playdateID string, targetUserID string, until *time.Time) error {
+	if hostID == targetUserID {
+		return fmt.Errorf("you can't mute yourself")
+	}
+	var organizerID, convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id, COALESCE(conversation_id, '') FROM playdates WHERE id = $1`,
+		playdateID).Scan(&organizerID, &convID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if organizerID != hostID {
+		return fmt.Errorf("only the organizer can mute members")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`INSERT INTO playdate_chat_mutes (playdate_id, user_id, muted_by, muted_until)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (playdate_id, user_id) DO UPDATE SET muted_by = EXCLUDED.muted_by, muted_until = EXCLUDED.muted_until`,
+		playdateID, targetUserID, hostID, until)
+	if err != nil {
+		return err
+	}
+	if convID != "" {
+		var firstName string
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COALESCE(first_name, '') FROM user_profiles WHERE user_id = $1`,
+			targetUserID).Scan(&firstName)
+		s.insertSystemMessage(convID, "member_muted", map[string]any{
+			"kind":      "member_muted",
+			"userId":    targetUserID,
+			"firstName": firstName,
+		})
+	}
+	return nil
+}
+
+// UnsetPlaydateChatMute removes a moderation mute. Organizer-only. Posts no
+// system message — the unmute is quiet on purpose.
+func (s *PostgresStore) UnsetPlaydateChatMute(hostID string, playdateID string, targetUserID string) error {
+	var organizerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id FROM playdates WHERE id = $1`, playdateID).Scan(&organizerID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if organizerID != hostID {
+		return fmt.Errorf("only the organizer can unmute members")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`DELETE FROM playdate_chat_mutes WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, targetUserID)
+	return err
+}
+
+// ListPlaydateChatMutedUsers returns the set of currently-muted user ids for a
+// playdate. Used to surface `chatMutedUserIds` on the detail response for the
+// host. Expired mutes are filtered out but not deleted — GetPlaydateChatMute
+// handles the lazy cleanup.
+func (s *PostgresStore) ListPlaydateChatMutedUsers(playdateID string) []string {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT user_id, muted_until FROM playdate_chat_mutes WHERE playdate_id=$1`,
+		playdateID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	now := time.Now().UTC()
+	out := []string{}
+	for rows.Next() {
+		var uid string
+		var until *time.Time
+		if err := rows.Scan(&uid, &until); err != nil {
+			continue
+		}
+		if until != nil && until.Before(now) {
+			continue
+		}
+		out = append(out, uid)
+	}
+	return out
+}
+
+// SendPlaydateMessageEx is the enriched playdate send path: validates
+// conversation membership, blocks host-muted senders, rate-limits, enforces
+// the 1000-char max length, and supports text/image/pet_share types.
+func (s *PostgresStore) SendPlaydateMessageEx(userID string, playdateID string, in SendGroupMessageInput) (domain.Message, error) {
+	var convID, organizerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(conversation_id,''), organizer_id FROM playdates WHERE id = $1`,
+		playdateID).Scan(&convID, &organizerID)
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("playdate not found")
+	}
+	if convID == "" {
+		return domain.Message{}, fmt.Errorf("playdate has no conversation")
+	}
+
+	// Membership: caller must be in conversations.user_ids. (Organizer is added
+	// on create; attendees are added on join.)
+	var userIDs []string
+	if err := s.pool.QueryRow(s.ctx(),
+		`SELECT user_ids FROM conversations WHERE id = $1`, convID).Scan(&userIDs); err != nil {
+		return domain.Message{}, fmt.Errorf("conversation not found")
+	}
+	member := false
+	for _, uid := range userIDs {
+		if uid == userID {
+			member = true
+			break
+		}
+	}
+	if !member {
+		return domain.Message{}, fmt.Errorf("not a playdate member")
+	}
+
+	// Host mute check
+	if muted, _ := s.GetPlaydateChatMute(userID, playdateID); muted {
+		return domain.Message{}, fmt.Errorf("you are muted by the host")
+	}
+
+	// Rate limit
+	if !CheckChatRateLimit(userID) {
+		return domain.Message{}, fmt.Errorf("sending too fast, please slow down")
+	}
+
+	msgType := strings.TrimSpace(in.Type)
+	if msgType == "" {
+		msgType = "text"
+	}
+	body := strings.TrimSpace(in.Body)
+	imageURL := strings.TrimSpace(in.ImageURL)
+
+	// Max length — applies to every type's body field. 1000 chars is enough
+	// for a paragraph without encouraging long-form monologues in a chat.
+	const maxChatMessageLength = 1000
+	if len(body) > maxChatMessageLength {
+		return domain.Message{}, fmt.Errorf("message too long (max %d characters)", maxChatMessageLength)
+	}
+
+	switch msgType {
+	case "text":
+		if body == "" {
+			return domain.Message{}, fmt.Errorf("body required")
+		}
+	case "image":
+		if imageURL == "" {
+			return domain.Message{}, fmt.Errorf("imageUrl required")
+		}
+	case "pet_share":
+		if in.Metadata == nil {
+			return domain.Message{}, fmt.Errorf("metadata required")
+		}
+		if petID, _ := in.Metadata["petId"].(string); petID == "" {
+			return domain.Message{}, fmt.Errorf("metadata.petId required")
+		}
+	default:
+		return domain.Message{}, fmt.Errorf("invalid message type")
+	}
+
+	metaJSON := []byte("{}")
+	if len(in.Metadata) > 0 {
+		if b, err := json.Marshal(in.Metadata); err == nil {
+			metaJSON = b
+		}
+	}
+
+	var senderName, senderAvatar string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(first_name, ''), COALESCE(avatar_url, '') FROM user_profiles WHERE user_id = $1`, userID).
+		Scan(&senderName, &senderAvatar)
+
+	msgID := newID("message")
+	now := time.Now().UTC()
+
+	_, err = s.pool.Exec(s.ctx(),
+		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, sender_avatar_url,
+		                        message_type, body, image_url, metadata, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+		msgID, convID, userID, senderName, senderAvatar, msgType, body,
+		nullableText(imageURL), string(metaJSON), now)
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("send playdate message: %w", err)
+	}
+
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET last_message_at = $2 WHERE id = $1`, convID, now)
+
+	_ = organizerID // kept for future moderation audit hooks
+	return domain.Message{
+		ID:              msgID,
+		ConversationID:  convID,
+		SenderProfileID: userID,
+		SenderName:      senderName,
+		SenderAvatarURL: senderAvatar,
+		Type:            msgType,
+		Body:            body,
+		ImageURL:        imageURL,
+		Metadata:        in.Metadata,
+		CreatedAt:       now.Format(time.RFC3339),
+		IsMine:          true,
+	}, nil
+}
+
+// DeleteConversationMessage soft-deletes a message in any conversation. The
+// actor must be the message author, the playdate organizer, or — for group
+// chat conversations — a group admin/owner. Used by the unified
+// /v1/conversations/{id}/messages/{msgId}/delete endpoint; the legacy
+// /v1/groups/{gid}/messages/{mid} handler still wraps DeleteGroupMessage.
+func (s *PostgresStore) DeleteConversationMessage(actorUserID string, conversationID string, messageID string) error {
+	// Load the message so we can check ownership + conversation association.
+	var senderID, storedConvID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(sender_profile_id,''), conversation_id FROM messages WHERE id = $1`,
+		messageID).Scan(&senderID, &storedConvID)
+	if err != nil {
+		return fmt.Errorf("message not found")
+	}
+	if storedConvID != conversationID {
+		return fmt.Errorf("message not found")
+	}
+
+	// Self-delete is always allowed.
+	authorised := senderID == actorUserID
+
+	if !authorised {
+		// Playdate organizer?
+		if pd := s.GetPlaydateByConversation(conversationID); pd != nil && pd.OrganizerID == actorUserID {
+			authorised = true
+		}
+	}
+	if !authorised {
+		// Group admin? (reuse the existing group-admin check)
+		if group := s.GetGroupByConversation(conversationID); group != nil {
+			if isAdmin, _ := s.IsGroupAdmin(actorUserID, group.ID); isAdmin {
+				authorised = true
+			}
+		}
+	}
+	if !authorised {
+		return fmt.Errorf("not authorised to delete this message")
+	}
+
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE messages SET deleted_at = NOW(), deleted_by = $1, body = '' WHERE id = $2`,
+		actorUserID, messageID)
+	return err
+}
+
+// MuteConversation silences OS push for this (user, conversation) pair. The
+// user still receives the message over WebSocket — this only suppresses
+// SendExpoPush in the handler's push fan-out.
+func (s *PostgresStore) MuteConversation(userID string, conversationID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO conversation_mutes (conversation_id, user_id) VALUES ($1, $2)
+		 ON CONFLICT (conversation_id, user_id) DO NOTHING`,
+		conversationID, userID)
+	return err
+}
+
+// UnmuteConversation removes the per-user notification mute.
+func (s *PostgresStore) UnmuteConversation(userID string, conversationID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+		conversationID, userID)
+	return err
+}
+
+// IsConversationMuted reports whether this user has silenced push for this
+// conversation. Used by the send-message handler's push fan-out loop.
+func (s *PostgresStore) IsConversationMuted(userID string, conversationID string) bool {
+	var one int
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT 1 FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+		conversationID, userID).Scan(&one)
+	return err == nil
+}
+
 // insertSystemMessage drops a system message into a group's conversation. Used
 // for member_joined / member_kicked / member_muted / admin_promoted events.
 func (s *PostgresStore) insertSystemMessage(conversationID string, body string, metadata map[string]any) {
@@ -2141,6 +2803,11 @@ func nullableText(v string) any {
 // the originating mutation.
 func (s *PostgresStore) sendModPush(targetUserID string, title string, body string, data map[string]string) {
 	if targetUserID == "" {
+		return
+	}
+	// v0.11.0 — moderation actions live in the Groups category so users who
+	// opt out of group activity stop getting kicked/promoted/muted pushes.
+	if !s.ShouldSendPush(targetUserID, "groups") {
 		return
 	}
 	userTokens := s.GetUserPushTokens(targetUserID)
@@ -3311,13 +3978,44 @@ func (s *PostgresStore) CreateDiaryEntry(userID string, petID string, body strin
 // Playdates & Groups
 // ================================================================
 
+// ErrPlaydateWaitlisted is returned when a join lands on the waitlist instead of attendees.
+var ErrPlaydateWaitlisted = fmt.Errorf("playdate full, added to waitlist")
+
 func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playdate {
 	query := `SELECT id, organizer_id, title, description, date, location, max_pets, attendees, created_at,
 	                  COALESCE(latitude, 0), COALESCE(longitude, 0),
-	                  COALESCE(city_label, ''), COALESCE(cover_image_url, '')
+	                  COALESCE(city_label, ''), COALESCE(cover_image_url, ''),
+	                  COALESCE(rules, '{}'), COALESCE(status, 'active'),
+	                  COALESCE(conversation_id, ''), COALESCE(waitlist, '{}'),
+	                  COALESCE(visibility, 'public'), COALESCE(locked, FALSE),
+	                  COALESCE(venue_id, '')
 	           FROM playdates WHERE 1=1`
 	args := []any{}
 	idx := 1
+
+	// Hide cancelled playdates from anyone not already in them. Also hide
+	// private playdates unless the caller is the organizer, a current attendee,
+	// or has been explicitly invited. And hide already-ended playdates from
+	// discovery — v0.15.1 moves "events I missed" into My Playdates → Past and
+	// keeps the discovery feed forward-looking only. Callers who already have
+	// a relationship to the playdate still see it via `GetPlaydateForUser`.
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	if params.UserID != "" {
+		query += fmt.Sprintf(` AND (status = 'active' OR $%d = ANY(attendees) OR organizer_id = $%d)`, idx, idx)
+		query += fmt.Sprintf(` AND (
+			visibility = 'public'
+			OR organizer_id = $%d
+			OR $%d = ANY(attendees)
+			OR EXISTS (SELECT 1 FROM playdate_invites WHERE playdate_id = playdates.id AND invited_user_id = $%d)
+		)`, idx, idx, idx)
+		args = append(args, params.UserID)
+		idx++
+	} else {
+		query += " AND status = 'active' AND visibility = 'public'"
+	}
+	query += fmt.Sprintf(` AND date >= $%d`, idx)
+	args = append(args, nowISO)
+	idx++
 
 	if params.Search != "" {
 		query += fmt.Sprintf(" AND (title ILIKE '%%' || $%d || '%%' OR description ILIKE '%%' || $%d || '%%')", idx, idx)
@@ -3347,13 +4045,26 @@ func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playd
 	for rows.Next() {
 		var p domain.Playdate
 		var img *string
+		// created_at is TIMESTAMPTZ — pgx can't scan it directly into a
+		// string, so take it through time.Time and format downstream.
+		var createdAt time.Time
 		if err := rows.Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date,
-			&p.Location, &p.MaxPets, &p.Attendees, &p.CreatedAt,
-			&p.Latitude, &p.Longitude, &p.CityLabel, &img); err != nil {
+			&p.Location, &p.MaxPets, &p.Attendees, &createdAt,
+			&p.Latitude, &p.Longitude, &p.CityLabel, &img,
+			&p.Rules, &p.Status, &p.ConversationID, &p.Waitlist,
+			&p.Visibility, &p.Locked, &p.VenueID); err != nil {
+			log.Printf("[PLAYDATES-SCAN-ERR] %v", err)
 			continue
 		}
+		p.CreatedAt = createdAt.Format(time.RFC3339)
 		if p.Attendees == nil {
 			p.Attendees = []string{}
+		}
+		if p.Rules == nil {
+			p.Rules = []string{}
+		}
+		if p.Waitlist == nil {
+			p.Waitlist = []string{}
 		}
 		if img != nil {
 			p.CoverImageURL = *img
@@ -3365,11 +4076,51 @@ func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playd
 					break
 				}
 			}
+			for _, uid := range p.Waitlist {
+				if uid == params.UserID {
+					p.IsWaitlisted = true
+					break
+				}
+			}
+			p.IsOrganizer = p.OrganizerID == params.UserID
 		}
 		if hasCaller && p.Latitude != 0 && p.Longitude != 0 {
 			p.Distance = service.Haversine(params.Lat, params.Lng, p.Latitude, p.Longitude)
 		}
+		// Never leak conversation id through the list view.
+		p.ConversationID = ""
 		out = append(out, p)
+	}
+
+	// ── v0.11.0: populate pet-level slot count in the list view ──────
+	// Before this, ListPlaydates left SlotsUsed at 0, so a freshly-created
+	// playdate showed "0 / 10" on the card even though the host had already
+	// been auto-joined. We batch a single GROUP BY query for all rows we
+	// just scanned and patch the SlotsUsed field per playdate.
+	if len(out) > 0 {
+		ids := make([]string, 0, len(out))
+		for i := range out {
+			ids = append(ids, out[i].ID)
+		}
+		countRows, cerr := s.pool.Query(s.ctx(),
+			`SELECT playdate_id, COUNT(*) FROM playdate_pet_attendees
+			 WHERE playdate_id = ANY($1) GROUP BY playdate_id`, ids)
+		if cerr == nil {
+			counts := make(map[string]int, len(out))
+			for countRows.Next() {
+				var pid string
+				var c int
+				if err := countRows.Scan(&pid, &c); err == nil {
+					counts[pid] = c
+				}
+			}
+			countRows.Close()
+			for i := range out {
+				if c, ok := counts[out[i].ID]; ok {
+					out[i].SlotsUsed = c
+				}
+			}
+		}
 	}
 
 	// Sort: distance first (with no-location rows pushed to the end) or
@@ -3397,27 +4148,233 @@ func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playd
 	return out
 }
 
-func (s *PostgresStore) GetPlaydate(playdateID string) (*domain.Playdate, error) {
+// getPlaydateRow reads a single playdate row without enrichment.
+func (s *PostgresStore) getPlaydateRow(playdateID string) (*domain.Playdate, error) {
 	var p domain.Playdate
 	var img *string
+	var cancelledAt *time.Time
+	// created_at is TIMESTAMPTZ — scan into time.Time and format below.
+	var createdAt time.Time
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT id, organizer_id, title, description, date, location, max_pets, attendees, created_at,
 		        COALESCE(latitude, 0), COALESCE(longitude, 0),
-		        COALESCE(city_label, ''), COALESCE(cover_image_url, '')
+		        COALESCE(city_label, ''), COALESCE(cover_image_url, ''),
+		        COALESCE(rules, '{}'), COALESCE(status, 'active'),
+		        cancelled_at, COALESCE(conversation_id, ''), COALESCE(waitlist, '{}'),
+		        COALESCE(visibility, 'public'), COALESCE(locked, FALSE),
+		        COALESCE(venue_id, '')
 		 FROM playdates WHERE id = $1`, playdateID).
 		Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date, &p.Location,
-			&p.MaxPets, &p.Attendees, &p.CreatedAt,
-			&p.Latitude, &p.Longitude, &p.CityLabel, &img)
+			&p.MaxPets, &p.Attendees, &createdAt,
+			&p.Latitude, &p.Longitude, &p.CityLabel, &img,
+			&p.Rules, &p.Status, &cancelledAt, &p.ConversationID, &p.Waitlist,
+			&p.Visibility, &p.Locked, &p.VenueID)
 	if err != nil {
 		return nil, fmt.Errorf("playdate not found")
 	}
+	p.CreatedAt = createdAt.Format(time.RFC3339)
 	if p.Attendees == nil {
 		p.Attendees = []string{}
+	}
+	if p.Rules == nil {
+		p.Rules = []string{}
+	}
+	if p.Waitlist == nil {
+		p.Waitlist = []string{}
 	}
 	if img != nil {
 		p.CoverImageURL = *img
 	}
+	if cancelledAt != nil {
+		p.CancelledAt = cancelledAt.Format(time.RFC3339)
+	}
 	return &p, nil
+}
+
+// GetPlaydate returns a fully-enriched playdate view for the given caller.
+// The caller's UserID drives per-user computed fields (isAttending, isWaitlisted,
+// isOrganizer) and chat gating (conversationId is blanked unless the caller has
+// access).
+func (s *PostgresStore) GetPlaydate(playdateID string) (*domain.Playdate, error) {
+	return s.GetPlaydateForUser(playdateID, "")
+}
+
+func (s *PostgresStore) GetPlaydateForUser(playdateID string, userID string) (*domain.Playdate, error) {
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Host enrichment (user_profiles + app_users.verified)
+	var host domain.PlaydateHost
+	host.UserID = p.OrganizerID
+	var firstName, avatarURL string
+	var verified bool
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(up.first_name, ''), COALESCE(up.avatar_url, ''), COALESCE(au.verified, false)
+		 FROM user_profiles up
+		 LEFT JOIN app_users au ON au.id = up.user_id
+		 WHERE up.user_id = $1`, p.OrganizerID).Scan(&firstName, &avatarURL, &verified)
+	host.FirstName = firstName
+	host.AvatarURL = avatarURL
+	host.IsVerified = verified
+	p.HostInfo = &host
+
+	// ── Pet-level attendance (v0.12.0 source of truth) ─────────────────
+	// Load every (user_id, pet_id, joined_at) row for this playdate, ordered
+	// by join time so the UI can show chronological attendance.
+	// v0.11.0 — LATERAL join instead of a correlated subquery so pg's planner
+	// can use the new idx_pet_photos_pet_id_order index and not run one scan
+	// per attendee. This is the hot-path fix for the "detail sayfa çok yavaş"
+	// report — measured ~5-10x improvement on playdates with 8+ attendees.
+	attRows, _ := s.pool.Query(s.ctx(),
+		`SELECT ppa.user_id, ppa.pet_id, ppa.joined_at,
+		        COALESCE(up.first_name, ''), COALESCE(up.avatar_url, ''),
+		        COALESCE(p.name, ''), COALESCE(p.breed_label, ''),
+		        COALESCE(ph.url, '')
+		 FROM playdate_pet_attendees ppa
+		 LEFT JOIN user_profiles up ON up.user_id = ppa.user_id
+		 LEFT JOIN pets p ON p.id = ppa.pet_id
+		 LEFT JOIN LATERAL (
+		     SELECT url FROM pet_photos WHERE pet_id = p.id
+		     ORDER BY display_order LIMIT 1
+		 ) ph ON TRUE
+		 WHERE ppa.playdate_id = $1
+		 ORDER BY ppa.joined_at ASC`, playdateID)
+	type attKey = string
+	attByUser := map[attKey]*domain.PlaydateAttendee{}
+	orderedUsers := []string{}
+	slotsUsed := 0
+	myPetIds := []string{}
+	distinctAttendees := []string{}
+	if attRows != nil {
+		for attRows.Next() {
+			var uid, petID, petName, breedLabel, petPhoto, fName, avatar string
+			var joinedAt time.Time
+			if err := attRows.Scan(&uid, &petID, &joinedAt, &fName, &avatar, &petName, &breedLabel, &petPhoto); err != nil {
+				continue
+			}
+			slotsUsed++
+			if _, ok := attByUser[uid]; !ok {
+				attByUser[uid] = &domain.PlaydateAttendee{
+					UserID:    uid,
+					FirstName: fName,
+					AvatarURL: avatar,
+					Pets:      []domain.MemberPet{},
+				}
+				orderedUsers = append(orderedUsers, uid)
+				distinctAttendees = append(distinctAttendees, uid)
+			}
+			// A legacy sentinel (pet not joined via new flow) has no matching row in `pets`.
+			if petName != "" {
+				attByUser[uid].Pets = append(attByUser[uid].Pets, domain.MemberPet{
+					ID:       petID,
+					Name:     petName,
+					PhotoURL: petPhoto,
+				})
+			}
+			if uid == userID && petName != "" {
+				myPetIds = append(myPetIds, petID)
+			}
+			_ = breedLabel
+		}
+		attRows.Close()
+	}
+
+	p.AttendeesInfo = make([]domain.PlaydateAttendee, 0, len(orderedUsers))
+	for _, uid := range orderedUsers {
+		p.AttendeesInfo = append(p.AttendeesInfo, *attByUser[uid])
+	}
+	// Keep the legacy Attendees slice in sync with the new source of truth so
+	// older clients still get a list of distinct user ids.
+	p.Attendees = distinctAttendees
+	p.SlotsUsed = slotsUsed
+
+	// Waitlist (pet-level). Distinct user ids here too, ordered by joined_at.
+	p.Waitlist = []string{}
+	myWaitlist := []string{}
+	wlRows, _ := s.pool.Query(s.ctx(),
+		`SELECT user_id, pet_id FROM playdate_pet_waitlist
+		 WHERE playdate_id = $1 ORDER BY joined_at ASC`, playdateID)
+	if wlRows != nil {
+		seen := map[string]struct{}{}
+		for wlRows.Next() {
+			var uid, petID string
+			if err := wlRows.Scan(&uid, &petID); err != nil {
+				continue
+			}
+			if _, ok := seen[uid]; !ok {
+				seen[uid] = struct{}{}
+				p.Waitlist = append(p.Waitlist, uid)
+			}
+			if uid == userID {
+				myWaitlist = append(myWaitlist, petID)
+			}
+		}
+		wlRows.Close()
+	}
+
+	// Per-user computed fields
+	if userID != "" {
+		p.IsOrganizer = p.OrganizerID == userID
+		p.IsAttending = len(myPetIds) > 0
+		p.IsWaitlisted = len(myWaitlist) > 0
+		p.MyPetIds = myPetIds
+		p.MyWaitlistPets = myWaitlist
+
+		// Look up this caller's invite status (if any) for visibility gating.
+		var inviteID, inviteStatus string
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT id, status FROM playdate_invites WHERE playdate_id=$1 AND invited_user_id=$2`,
+			playdateID, userID).Scan(&inviteID, &inviteStatus)
+		p.MyInviteID = inviteID
+		p.MyInviteStatus = inviteStatus
+	}
+
+	// Pending invite count — only meaningful for the host.
+	if p.IsOrganizer {
+		var pending int
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COUNT(*) FROM playdate_invites WHERE playdate_id=$1 AND status='pending'`,
+			playdateID).Scan(&pending)
+		p.PendingInvites = pending
+		// Host sees the full list of currently-muted attendees.
+		p.ChatMutedUserIDs = s.ListPlaydateChatMutedUsers(playdateID)
+	}
+
+	// Caller's chat state: moderation mute + notification mute toggle.
+	if userID != "" {
+		if muted, _ := s.GetPlaydateChatMute(userID, playdateID); muted {
+			p.MyChatMuted = true
+		}
+		if p.ConversationID != "" {
+			p.MyConvMuted = s.IsConversationMuted(userID, p.ConversationID)
+		}
+	}
+
+	// Visibility gating for private playdates: everyone except the host, current
+	// attendees, waitlisted users, and invitees get a "not found" error.
+	if p.Visibility == "private" && userID != "" && !p.IsOrganizer &&
+		!p.IsAttending && !p.IsWaitlisted && p.MyInviteStatus == "" {
+		return nil, fmt.Errorf("playdate not found")
+	}
+
+	// Attendee visibility: pending invitees of a private playdate can see the
+	// detail page but not the attendee list until they accept.
+	if p.Visibility == "private" && p.MyInviteStatus == "pending" &&
+		!p.IsOrganizer && !p.IsAttending {
+		p.AttendeesInfo = []domain.PlaydateAttendee{}
+		p.Attendees = []string{}
+		p.SlotsUsed = 0
+	}
+
+	// Chat gating: only organizer, current attendees, or waitlisted users see the
+	// conversation id. Everyone else can read all other details.
+	if !(p.IsOrganizer || p.IsAttending || p.IsWaitlisted) {
+		p.ConversationID = ""
+	}
+
+	return p, nil
 }
 
 func (s *PostgresStore) CreatePlaydate(userID string, playdate domain.Playdate) domain.Playdate {
@@ -3427,18 +4384,994 @@ func (s *PostgresStore) CreatePlaydate(userID string, playdate domain.Playdate) 
 	if playdate.Attendees == nil {
 		playdate.Attendees = []string{}
 	}
+	if playdate.Rules == nil {
+		playdate.Rules = []string{}
+	}
+	if playdate.Waitlist == nil {
+		playdate.Waitlist = []string{}
+	}
+	if playdate.Status == "" {
+		playdate.Status = "active"
+	}
+	if playdate.MaxPets <= 0 {
+		playdate.MaxPets = 5
+	}
+	if playdate.Visibility != "private" {
+		playdate.Visibility = "public"
+	}
+
+	// Create the dedicated conversation thread for this playdate, seeded with the
+	// organizer. Attendees get added to conversations.user_ids on join.
+	convID := newID("conversation")
+	convTitle := playdate.Title
+	if convTitle == "" {
+		convTitle = "Playdate"
+	}
+	_, convErr := s.pool.Exec(s.ctx(),
+		`INSERT INTO conversations (id, match_id, title, subtitle, last_message_at, user_ids)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		convID, "", convTitle, "Playdate chat", time.Now().UTC(), []string{userID})
+	if convErr == nil {
+		playdate.ConversationID = convID
+	}
+
 	s.pool.Exec(s.ctx(),
-		`INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at,latitude,longitude,city_label,cover_image_url)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		`INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at,latitude,longitude,city_label,cover_image_url,rules,status,conversation_id,waitlist,visibility,venue_id)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		playdate.ID, playdate.OrganizerID, playdate.Title, playdate.Description,
 		playdate.Date, playdate.Location, playdate.MaxPets, playdate.Attendees, playdate.CreatedAt,
-		playdate.Latitude, playdate.Longitude, playdate.CityLabel, nilIfEmpty(playdate.CoverImageURL))
+		playdate.Latitude, playdate.Longitude, playdate.CityLabel, nilIfEmpty(playdate.CoverImageURL),
+		playdate.Rules, playdate.Status, playdate.ConversationID, playdate.Waitlist,
+		playdate.Visibility, nilIfEmpty(playdate.VenueID))
+
+	// Auto-join the host with their selected pets so the creator immediately
+	// occupies their own playdate. We ignore waitlist logic here — the creator
+	// decides the maxPets, so capacity is guaranteed at create time.
+	if len(playdate.CreatorPetIds) > 0 {
+		if err := s.validatePetOwnership(userID, playdate.CreatorPetIds); err == nil {
+			for _, pid := range playdate.CreatorPetIds {
+				s.pool.Exec(s.ctx(),
+					`INSERT INTO playdate_pet_attendees (playdate_id, pet_id, user_id)
+					 VALUES ($1, $2, $3)
+					 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+					playdate.ID, pid, userID)
+			}
+			s.pool.Exec(s.ctx(),
+				`UPDATE playdates SET attendees = array_append(attendees, $1)
+				 WHERE id=$2 AND NOT ($1 = ANY(attendees))`, userID, playdate.ID)
+		}
+	}
+
+	playdate.IsOrganizer = true
 	return playdate
 }
 
+// validatePetOwnership checks that every pet in petIds belongs to userID and is visible.
+// Returns an error if any pet is missing, hidden, or owned by someone else.
+func (s *PostgresStore) validatePetOwnership(userID string, petIds []string) error {
+	if len(petIds) == 0 {
+		return fmt.Errorf("select at least one pet")
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id FROM pets WHERE id = ANY($1) AND owner_id = $2 AND is_hidden = false`,
+		petIds, userID)
+	if err != nil {
+		return fmt.Errorf("validate pets: %w", err)
+	}
+	defer rows.Close()
+	found := map[string]struct{}{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			found[id] = struct{}{}
+		}
+	}
+	for _, pid := range petIds {
+		if _, ok := found[pid]; !ok {
+			return fmt.Errorf("pet %s is not owned by this user", pid)
+		}
+	}
+	return nil
+}
+
+// slotsUsed returns the current pet-level attendance count for a playdate.
+func (s *PostgresStore) playdateSlotsUsed(playdateID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM playdate_pet_attendees WHERE playdate_id = $1`,
+		playdateID).Scan(&n)
+	return n
+}
+
+// JoinPlaydateWithPets atomically joins a user with one or more pets. Each pet
+// consumes one slot. If capacity is insufficient for the whole request, every
+// pet is placed on the FIFO waitlist instead and ErrPlaydateWaitlisted is
+// returned. An optional note is posted as a user message into the playdate
+// conversation on success.
+func (s *PostgresStore) JoinPlaydateWithPets(userID string, playdateID string, petIds []string, note string) error {
+	if err := s.validatePetOwnership(userID, petIds); err != nil {
+		return err
+	}
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return err
+	}
+	if p.Status == "cancelled" {
+		return fmt.Errorf("playdate cancelled")
+	}
+	// Reject joins on past events — the v0.15.1 state vocabulary treats
+	// "ended" as terminal, and the mobile UI already hides the Join CTA for
+	// past playdates. Guarding here prevents direct API abuse.
+	if when, perr := time.Parse(time.RFC3339, p.Date); perr == nil && when.Before(time.Now().UTC()) {
+		return fmt.Errorf("playdate already ended")
+	}
+	// Lock is a "soft close" — the state is never surfaced as a user badge
+	// per spec, so we return the same "full" message the mobile UI already
+	// handles gracefully from the shared state helper.
+	if p.Locked {
+		return fmt.Errorf("playdate is no longer accepting new attendees")
+	}
+
+	// Filter out pets the user already has in attendees or waitlist.
+	existingAttPets := map[string]struct{}{}
+	existingWlPets := map[string]struct{}{}
+	attRows, _ := s.pool.Query(s.ctx(),
+		`SELECT pet_id FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID)
+	if attRows != nil {
+		for attRows.Next() {
+			var pid string
+			if err := attRows.Scan(&pid); err == nil {
+				existingAttPets[pid] = struct{}{}
+			}
+		}
+		attRows.Close()
+	}
+	wlRows, _ := s.pool.Query(s.ctx(),
+		`SELECT pet_id FROM playdate_pet_waitlist WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID)
+	if wlRows != nil {
+		for wlRows.Next() {
+			var pid string
+			if err := wlRows.Scan(&pid); err == nil {
+				existingWlPets[pid] = struct{}{}
+			}
+		}
+		wlRows.Close()
+	}
+
+	fresh := make([]string, 0, len(petIds))
+	for _, pid := range petIds {
+		if _, ok := existingAttPets[pid]; ok {
+			continue
+		}
+		if _, ok := existingWlPets[pid]; ok {
+			continue
+		}
+		fresh = append(fresh, pid)
+	}
+	if len(fresh) == 0 {
+		// Already joined with all requested pets — no-op success.
+		return nil
+	}
+
+	slotsUsed := s.playdateSlotsUsed(playdateID)
+	capacityAvailable := p.MaxPets - slotsUsed
+	goToWaitlist := p.MaxPets > 0 && len(fresh) > capacityAvailable
+
+	if goToWaitlist {
+		for _, pid := range fresh {
+			s.pool.Exec(s.ctx(),
+				`INSERT INTO playdate_pet_waitlist (playdate_id, pet_id, user_id)
+				 VALUES ($1, $2, $3)
+				 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+				playdateID, pid, userID)
+		}
+		return ErrPlaydateWaitlisted
+	}
+
+	// Was the user already an attendee? Determines whether to post the
+	// "member_joined" system message below (only on first-time join).
+	wasAttendee := false
+	for _, uid := range p.Attendees {
+		if uid == userID {
+			wasAttendee = true
+			break
+		}
+	}
+
+	// Space available for all: insert attendee rows and sync conversation membership.
+	for _, pid := range fresh {
+		s.pool.Exec(s.ctx(),
+			`INSERT INTO playdate_pet_attendees (playdate_id, pet_id, user_id)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+			playdateID, pid, userID)
+	}
+	// Mirror into the legacy attendees array so older listeners still see the user.
+	s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET attendees = array_append(attendees, $1)
+		 WHERE id=$2 AND NOT ($1 = ANY(attendees))`, userID, playdateID)
+	if p.ConversationID != "" {
+		s.pool.Exec(s.ctx(),
+			`UPDATE conversations SET user_ids = array_append(user_ids, $1)
+			 WHERE id = $2 AND NOT ($1 = ANY(user_ids))`, userID, p.ConversationID)
+
+		// Fire a "member_joined" system message the first time a user comes in.
+		// If they're adding more pets to an existing join we stay quiet.
+		if !wasAttendee {
+			var firstName string
+			_ = s.pool.QueryRow(s.ctx(),
+				`SELECT COALESCE(first_name, '') FROM user_profiles WHERE user_id = $1`,
+				userID).Scan(&firstName)
+			s.insertSystemMessage(p.ConversationID, "member_joined", map[string]any{
+				"kind":      "member_joined",
+				"userId":    userID,
+				"firstName": firstName,
+			})
+		}
+
+		// Optional first-message note. Insert it via the conversation path so
+		// it shows up as a normal user message from the joiner.
+		if trimmed := strings.TrimSpace(note); trimmed != "" {
+			var senderName, senderAvatar string
+			_ = s.pool.QueryRow(s.ctx(),
+				`SELECT COALESCE(first_name, ''), COALESCE(avatar_url, '') FROM user_profiles WHERE user_id = $1`,
+				userID).Scan(&senderName, &senderAvatar)
+			msgID := newID("message")
+			now := time.Now().UTC()
+			s.pool.Exec(s.ctx(),
+				`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name, sender_avatar_url, message_type, body, created_at)
+				 VALUES ($1, $2, $3, $4, $5, 'text', $6, $7)`,
+				msgID, p.ConversationID, userID, senderName, senderAvatar, trimmed, now)
+			s.pool.Exec(s.ctx(),
+				`UPDATE conversations SET last_message_at = $2 WHERE id = $1`, p.ConversationID, now)
+		}
+	}
+	return nil
+}
+
+// JoinPlaydate is the legacy user-level join — kept for interface compatibility.
+// It now joins using the user's first visible pet so existing callers still work.
 func (s *PostgresStore) JoinPlaydate(userID string, playdateID string) error {
-	_, err := s.pool.Exec(s.ctx(), `UPDATE playdates SET attendees = array_append(attendees, $1) WHERE id=$2 AND NOT ($1 = ANY(attendees))`, userID, playdateID)
+	var petID string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT id FROM pets WHERE owner_id = $1 AND is_hidden = false
+		 ORDER BY created_at LIMIT 1`, userID).Scan(&petID)
+	if petID == "" {
+		return fmt.Errorf("add a pet before joining a playdate")
+	}
+	return s.JoinPlaydateWithPets(userID, playdateID, []string{petID}, "")
+}
+
+// promoteFromWaitlist pops up to `slots` pets from the head of the waitlist
+// and inserts them into attendees. Returns the list of user ids that had at
+// least one pet promoted.
+func (s *PostgresStore) promoteFromWaitlist(playdateID string, slots int, conversationID string) []string {
+	if slots <= 0 {
+		return nil
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT pet_id, user_id FROM playdate_pet_waitlist
+		 WHERE playdate_id = $1 ORDER BY joined_at ASC LIMIT $2`,
+		playdateID, slots)
+	if err != nil {
+		return nil
+	}
+	type head struct{ petID, userID string }
+	var heads []head
+	for rows.Next() {
+		var h head
+		if err := rows.Scan(&h.petID, &h.userID); err == nil {
+			heads = append(heads, h)
+		}
+	}
+	rows.Close()
+
+	promoted := []string{}
+	seen := map[string]struct{}{}
+	for _, h := range heads {
+		// move from waitlist to attendees
+		s.pool.Exec(s.ctx(),
+			`INSERT INTO playdate_pet_attendees (playdate_id, pet_id, user_id)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+			playdateID, h.petID, h.userID)
+		s.pool.Exec(s.ctx(),
+			`DELETE FROM playdate_pet_waitlist WHERE playdate_id=$1 AND pet_id=$2`,
+			playdateID, h.petID)
+		s.pool.Exec(s.ctx(),
+			`UPDATE playdates SET attendees = array_append(attendees, $1)
+			 WHERE id=$2 AND NOT ($1 = ANY(attendees))`, h.userID, playdateID)
+		if conversationID != "" {
+			s.pool.Exec(s.ctx(),
+				`UPDATE conversations SET user_ids = array_append(user_ids, $1)
+				 WHERE id = $2 AND NOT ($1 = ANY(user_ids))`, h.userID, conversationID)
+		}
+		if _, ok := seen[h.userID]; !ok {
+			seen[h.userID] = struct{}{}
+			promoted = append(promoted, h.userID)
+		}
+	}
+	return promoted
+}
+
+// LeavePlaydateWithPets leaves specific pets (or all of them if petIds is
+// empty) from either the attendee roster or the waitlist. Returns any user
+// ids promoted from the waitlist as freed seats open up.
+func (s *PostgresStore) LeavePlaydateWithPets(userID string, playdateID string, petIds []string) ([]string, error) {
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return nil, err
+	}
+	if p.OrganizerID == userID {
+		return nil, fmt.Errorf("organizer cannot leave; cancel instead")
+	}
+
+	// Determine which pets the user currently has in attendees vs waitlist.
+	userAttPets := []string{}
+	userWlPets := []string{}
+	attRows, _ := s.pool.Query(s.ctx(),
+		`SELECT pet_id FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID)
+	if attRows != nil {
+		for attRows.Next() {
+			var pid string
+			if err := attRows.Scan(&pid); err == nil {
+				userAttPets = append(userAttPets, pid)
+			}
+		}
+		attRows.Close()
+	}
+	wlRows, _ := s.pool.Query(s.ctx(),
+		`SELECT pet_id FROM playdate_pet_waitlist WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID)
+	if wlRows != nil {
+		for wlRows.Next() {
+			var pid string
+			if err := wlRows.Scan(&pid); err == nil {
+				userWlPets = append(userWlPets, pid)
+			}
+		}
+		wlRows.Close()
+	}
+
+	if len(userAttPets) == 0 && len(userWlPets) == 0 {
+		return nil, fmt.Errorf("user is not part of this playdate")
+	}
+
+	// Build target set. Empty input means "leave everything".
+	targetAll := len(petIds) == 0
+	targetSet := map[string]struct{}{}
+	for _, pid := range petIds {
+		targetSet[pid] = struct{}{}
+	}
+
+	freedAttSlots := 0
+	for _, pid := range userAttPets {
+		if targetAll {
+			s.pool.Exec(s.ctx(),
+				`DELETE FROM playdate_pet_attendees WHERE playdate_id=$1 AND pet_id=$2 AND user_id=$3`,
+				playdateID, pid, userID)
+			freedAttSlots++
+			continue
+		}
+		if _, ok := targetSet[pid]; ok {
+			s.pool.Exec(s.ctx(),
+				`DELETE FROM playdate_pet_attendees WHERE playdate_id=$1 AND pet_id=$2 AND user_id=$3`,
+				playdateID, pid, userID)
+			freedAttSlots++
+		}
+	}
+	for _, pid := range userWlPets {
+		if targetAll {
+			s.pool.Exec(s.ctx(),
+				`DELETE FROM playdate_pet_waitlist WHERE playdate_id=$1 AND pet_id=$2 AND user_id=$3`,
+				playdateID, pid, userID)
+			continue
+		}
+		if _, ok := targetSet[pid]; ok {
+			s.pool.Exec(s.ctx(),
+				`DELETE FROM playdate_pet_waitlist WHERE playdate_id=$1 AND pet_id=$2 AND user_id=$3`,
+				playdateID, pid, userID)
+		}
+	}
+
+	// If the user has no more attendee rows, remove them from the legacy
+	// cache and the conversation — and post a "member_left" system message so
+	// the chat history reflects the departure.
+	var remaining int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID).Scan(&remaining)
+	if remaining == 0 {
+		s.pool.Exec(s.ctx(),
+			`UPDATE playdates SET attendees = array_remove(attendees, $1) WHERE id=$2`,
+			userID, playdateID)
+		if p.ConversationID != "" {
+			// Announce the departure BEFORE removing the user from user_ids
+			// so the hub still pushes this last message to them.
+			var firstName string
+			_ = s.pool.QueryRow(s.ctx(),
+				`SELECT COALESCE(first_name, '') FROM user_profiles WHERE user_id = $1`,
+				userID).Scan(&firstName)
+			s.insertSystemMessage(p.ConversationID, "member_left", map[string]any{
+				"kind":      "member_left",
+				"userId":    userID,
+				"firstName": firstName,
+			})
+			s.pool.Exec(s.ctx(),
+				`UPDATE conversations SET user_ids = array_remove(user_ids, $1) WHERE id=$2`,
+				userID, p.ConversationID)
+		}
+	}
+
+	promoted := s.promoteFromWaitlist(playdateID, freedAttSlots, p.ConversationID)
+	return promoted, nil
+}
+
+// LeavePlaydate is the legacy user-level leave — removes all of the caller's
+// pets from this playdate. The signature is kept for interface compatibility;
+// the returned string is the first promoted user (or "") rather than a single
+// id, which matches the old semantics as closely as possible.
+func (s *PostgresStore) LeavePlaydate(userID string, playdateID string) (string, error) {
+	promoted, err := s.LeavePlaydateWithPets(userID, playdateID, nil)
+	if err != nil {
+		return "", err
+	}
+	if len(promoted) > 0 {
+		return promoted[0], nil
+	}
+	return "", nil
+}
+
+// UpdateAttendeePets replaces the caller's pet set on an active playdate.
+// Pets being added must fit in the remaining capacity; otherwise the call
+// returns an error without mutating state. Pets removed free their slots and
+// trigger waitlist promotion.
+func (s *PostgresStore) UpdateAttendeePets(userID string, playdateID string, petIds []string) error {
+	if err := s.validatePetOwnership(userID, petIds); err != nil {
+		return err
+	}
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return err
+	}
+	if p.Status == "cancelled" {
+		return fmt.Errorf("playdate cancelled")
+	}
+	if p.OrganizerID == userID {
+		return fmt.Errorf("organizer cannot edit their own pet list this way")
+	}
+
+	currentRows, err := s.pool.Query(s.ctx(),
+		`SELECT pet_id FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, userID)
+	if err != nil {
+		return err
+	}
+	currentSet := map[string]struct{}{}
+	for currentRows.Next() {
+		var pid string
+		if err := currentRows.Scan(&pid); err == nil {
+			currentSet[pid] = struct{}{}
+		}
+	}
+	currentRows.Close()
+
+	if len(currentSet) == 0 {
+		return fmt.Errorf("join the playdate first")
+	}
+
+	desiredSet := map[string]struct{}{}
+	for _, pid := range petIds {
+		desiredSet[pid] = struct{}{}
+	}
+
+	additions := []string{}
+	for pid := range desiredSet {
+		if _, ok := currentSet[pid]; !ok {
+			additions = append(additions, pid)
+		}
+	}
+	removals := []string{}
+	for pid := range currentSet {
+		if _, ok := desiredSet[pid]; !ok {
+			removals = append(removals, pid)
+		}
+	}
+
+	if len(desiredSet) == 0 {
+		return fmt.Errorf("keep at least one pet or leave the playdate instead")
+	}
+
+	// Capacity check: treat the mutation as atomic — removals free first, then
+	// additions fill. Slots available after the churn = maxPets - (used - removals).
+	slotsUsed := s.playdateSlotsUsed(playdateID)
+	available := p.MaxPets - (slotsUsed - len(removals))
+	if p.MaxPets > 0 && len(additions) > available {
+		return fmt.Errorf("not enough space for the added pets")
+	}
+
+	for _, pid := range removals {
+		s.pool.Exec(s.ctx(),
+			`DELETE FROM playdate_pet_attendees WHERE playdate_id=$1 AND pet_id=$2 AND user_id=$3`,
+			playdateID, pid, userID)
+	}
+	for _, pid := range additions {
+		s.pool.Exec(s.ctx(),
+			`INSERT INTO playdate_pet_attendees (playdate_id, pet_id, user_id)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (playdate_id, pet_id) DO NOTHING`,
+			playdateID, pid, userID)
+	}
+	// After churn, promote from waitlist for any slots still free.
+	s.promoteFromWaitlist(playdateID, len(removals)-len(additions), p.ConversationID)
+	return nil
+}
+
+// CancelPlaydate soft-cancels a playdate. Organizer-only.
+func (s *PostgresStore) CancelPlaydate(userID string, playdateID string) error {
+	var organizerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id FROM playdates WHERE id = $1`, playdateID).Scan(&organizerID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if organizerID != userID {
+		return fmt.Errorf("only the organizer can cancel this playdate")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET status = 'cancelled', cancelled_at = NOW() WHERE id = $1`,
+		playdateID)
 	return err
+}
+
+// UpdatePlaydate patches mutable fields. Organizer-only.
+func (s *PostgresStore) UpdatePlaydate(userID string, playdateID string, patch domain.Playdate) (*domain.Playdate, error) {
+	// Load the current state so we can enforce "no edits after the event
+	// starts" and keep downstream notifications fact-checked.
+	current, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return nil, fmt.Errorf("playdate not found")
+	}
+	if current.OrganizerID != userID {
+		return nil, fmt.Errorf("only the organizer can edit this playdate")
+	}
+	if current.Status == "cancelled" {
+		return nil, fmt.Errorf("cannot edit a cancelled playdate")
+	}
+	if when, perr := time.Parse(time.RFC3339, current.Date); perr == nil && when.Before(time.Now().UTC()) {
+		return nil, fmt.Errorf("cannot edit a playdate that has already started")
+	}
+	if patch.Rules == nil {
+		patch.Rules = []string{}
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET
+		   title = $1,
+		   description = $2,
+		   date = $3,
+		   location = $4,
+		   max_pets = $5,
+		   latitude = $6,
+		   longitude = $7,
+		   city_label = $8,
+		   cover_image_url = $9,
+		   rules = $10,
+		   venue_id = $12
+		 WHERE id = $11`,
+		patch.Title, patch.Description, patch.Date, patch.Location, patch.MaxPets,
+		patch.Latitude, patch.Longitude, patch.CityLabel,
+		nilIfEmpty(patch.CoverImageURL), patch.Rules, playdateID, nilIfEmpty(patch.VenueID))
+	if err != nil {
+		return nil, err
+	}
+	// Keep conversation title in sync with playdate title.
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET title = $1
+		 WHERE id = (SELECT conversation_id FROM playdates WHERE id = $2)`,
+		patch.Title, playdateID)
+	return s.GetPlaydateForUser(playdateID, userID)
+}
+
+// SetPlaydateLock flips the soft-close flag on a playdate. Organizer-only.
+// Spec: "Lock state not visible to users (no badge)" — the store simply sets
+// the flag, and `JoinPlaydateWithPets` rejects new joins with the generic
+// "no longer accepting new attendees" error. Existing attendees + chat are
+// unaffected.
+func (s *PostgresStore) SetPlaydateLock(hostID string, playdateID string, locked bool) error {
+	var organizerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id FROM playdates WHERE id = $1`, playdateID).Scan(&organizerID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if organizerID != hostID {
+		return fmt.Errorf("only the organizer can lock this playdate")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET locked = $1 WHERE id = $2`, locked, playdateID)
+	return err
+}
+
+// KickPlaydateAttendee silently removes every pet belonging to `targetUserID`
+// from the playdate, then pops the waitlist FIFO-style to backfill the freed
+// seats. Unlike `LeavePlaydateWithPets` this path posts NO system message and
+// triggers NO chat-visible event per spec ("silent removal"). Organizer-only.
+// Returns promoted user ids so the handler can send them the "You're in!"
+// push.
+func (s *PostgresStore) KickPlaydateAttendee(hostID string, playdateID string, targetUserID string) ([]string, error) {
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return nil, fmt.Errorf("playdate not found")
+	}
+	if p.OrganizerID != hostID {
+		return nil, fmt.Errorf("only the organizer can remove attendees")
+	}
+	if targetUserID == hostID {
+		return nil, fmt.Errorf("you can't remove yourself — cancel the playdate instead")
+	}
+
+	// Count the pets we'll free up so the waitlist-promotion call knows how
+	// many slots to pop.
+	var freed int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, targetUserID).Scan(&freed)
+
+	// Hard remove from attendees + waitlist in one shot. No system message —
+	// this is a silent kick per spec.
+	_, _ = s.pool.Exec(s.ctx(),
+		`DELETE FROM playdate_pet_attendees WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, targetUserID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`DELETE FROM playdate_pet_waitlist WHERE playdate_id=$1 AND user_id=$2`,
+		playdateID, targetUserID)
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET attendees = array_remove(attendees, $1) WHERE id=$2`,
+		targetUserID, playdateID)
+	if p.ConversationID != "" {
+		_, _ = s.pool.Exec(s.ctx(),
+			`UPDATE conversations SET user_ids = array_remove(user_ids, $1) WHERE id=$2`,
+			targetUserID, p.ConversationID)
+	}
+
+	promoted := s.promoteFromWaitlist(playdateID, freed, p.ConversationID)
+	return promoted, nil
+}
+
+// TransferPlaydateOwnership hands the host role to another user who is
+// already an attendee. Organizer-only. Posts a `host_changed` system message
+// into the chat so everyone sees the transition in their timeline.
+func (s *PostgresStore) TransferPlaydateOwnership(currentHostID string, playdateID string, newOwnerID string) error {
+	p, err := s.getPlaydateRow(playdateID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if p.OrganizerID != currentHostID {
+		return fmt.Errorf("only the current organizer can transfer ownership")
+	}
+	if newOwnerID == "" || newOwnerID == currentHostID {
+		return fmt.Errorf("pick a different attendee")
+	}
+	// The new owner must already be an attendee.
+	isAttendee := false
+	for _, uid := range p.Attendees {
+		if uid == newOwnerID {
+			isAttendee = true
+			break
+		}
+	}
+	if !isAttendee {
+		return fmt.Errorf("new owner must be an attendee first")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE playdates SET organizer_id = $1 WHERE id = $2`, newOwnerID, playdateID)
+	if err != nil {
+		return err
+	}
+	if p.ConversationID != "" {
+		var newName string
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COALESCE(first_name, '') FROM user_profiles WHERE user_id = $1`,
+			newOwnerID).Scan(&newName)
+		s.insertSystemMessage(p.ConversationID, "host_changed", map[string]any{
+			"kind":      "host_changed",
+			"userId":    newOwnerID,
+			"firstName": newName,
+		})
+	}
+	return nil
+}
+
+// PinConversationMessage is a generalised pin toggle that authorises the
+// actor as either a group admin (for group conversations) or a playdate
+// organizer (for playdate conversations). This is the v0.16.0 equivalent of
+// the group-only `SetGroupMessagePinned`, used by the unified
+// /v1/conversations/{id}/messages/{msgId}/pin endpoint.
+func (s *PostgresStore) PinConversationMessage(actorUserID string, conversationID string, messageID string, pinned bool) error {
+	// Confirm the message belongs to this conversation.
+	var storedConvID string
+	if err := s.pool.QueryRow(s.ctx(),
+		`SELECT conversation_id FROM messages WHERE id = $1`, messageID).Scan(&storedConvID); err != nil {
+		return fmt.Errorf("message not found")
+	}
+	if storedConvID != conversationID {
+		return fmt.Errorf("message not found")
+	}
+
+	// Authorise: group admin OR playdate organizer.
+	authorised := false
+	if group := s.GetGroupByConversation(conversationID); group != nil {
+		if isAdmin, _ := s.IsGroupAdmin(actorUserID, group.ID); isAdmin {
+			authorised = true
+		}
+	}
+	if !authorised {
+		if pd := s.GetPlaydateByConversation(conversationID); pd != nil && pd.OrganizerID == actorUserID {
+			authorised = true
+		}
+	}
+	if !authorised {
+		return fmt.Errorf("not authorised to pin messages here")
+	}
+
+	if pinned {
+		_, err := s.pool.Exec(s.ctx(),
+			`UPDATE messages SET pinned_at = NOW(), pinned_by = $1 WHERE id = $2`,
+			actorUserID, messageID)
+		return err
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE messages SET pinned_at = NULL, pinned_by = NULL WHERE id = $1`, messageID)
+	return err
+}
+
+// ListConversationPinnedMessages returns every non-deleted pinned message in
+// a conversation, newest pin first. Used by the unified /pinned endpoint.
+func (s *PostgresStore) ListConversationPinnedMessages(conversationID string) ([]domain.Message, error) {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, conversation_id, COALESCE(sender_profile_id,''),
+		        COALESCE(sender_name,''), COALESCE(sender_avatar_url,''),
+		        COALESCE(message_type,'text'), COALESCE(body,''),
+		        image_url, COALESCE(metadata::text,'{}'),
+		        created_at, deleted_at, COALESCE(deleted_by,''),
+		        pinned_at, COALESCE(pinned_by, '')
+		 FROM messages
+		 WHERE conversation_id = $1 AND deleted_at IS NULL AND pinned_at IS NOT NULL
+		 ORDER BY pinned_at DESC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Message{}
+	for rows.Next() {
+		var m domain.Message
+		var img, metaRaw *string
+		var createdAt time.Time
+		var deletedAt, pinnedAt *time.Time
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderProfileID,
+			&m.SenderName, &m.SenderAvatarURL,
+			&m.Type, &m.Body, &img, &metaRaw, &createdAt,
+			&deletedAt, &m.DeletedBy, &pinnedAt, &m.PinnedBy); err != nil {
+			continue
+		}
+		if img != nil {
+			m.ImageURL = *img
+		}
+		if metaRaw != nil && *metaRaw != "" {
+			var meta map[string]any
+			if err := json.Unmarshal([]byte(*metaRaw), &meta); err == nil {
+				m.Metadata = meta
+			}
+		}
+		m.CreatedAt = createdAt.Format(time.RFC3339)
+		if pinnedAt != nil {
+			s := pinnedAt.Format(time.RFC3339)
+			m.PinnedAt = &s
+		}
+		if deletedAt != nil {
+			s := deletedAt.Format(time.RFC3339)
+			m.DeletedAt = &s
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// PostPlaydateAnnouncement posts a host announcement into the playdate's
+// dedicated conversation as a system message. Organizer-only.
+func (s *PostgresStore) PostPlaydateAnnouncement(userID string, playdateID string, body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("announcement body required")
+	}
+	var organizerID, convID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id, COALESCE(conversation_id, '') FROM playdates WHERE id = $1`,
+		playdateID).Scan(&organizerID, &convID)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if organizerID != userID {
+		return fmt.Errorf("only the organizer can post announcements")
+	}
+	if convID == "" {
+		return fmt.Errorf("playdate has no conversation")
+	}
+	// Insert the announcement as a system message AND pin it so it surfaces
+	// in the chat's pinned banner until the host dismisses it. We can't
+	// reuse `insertSystemMessage` directly because it doesn't return the new
+	// id — inline the insert here instead.
+	meta := map[string]any{"type": "playdate_announcement", "kind": "playdate_announcement"}
+	metaJSON, _ := json.Marshal(meta)
+	msgID := newID("message")
+	now := time.Now().UTC()
+	if _, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO messages (id, conversation_id, sender_profile_id, sender_name,
+		                        message_type, body, metadata, created_at, pinned_at, pinned_by)
+		 VALUES ($1, $2, '', '', 'system', $3, $4::jsonb, $5, $5, $6)`,
+		msgID, convID, body, string(metaJSON), now, userID); err != nil {
+		return fmt.Errorf("post announcement: %w", err)
+	}
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE conversations SET last_message_at = $2 WHERE id = $1`, convID, now)
+	return nil
+}
+
+// ── Playdate invites (v0.13.0) ───────────────────────────────────────
+
+// CreatePlaydateInvites inserts one pending invite per target user. Host-only.
+// Returns the list of invites actually created (skipping duplicates, the host
+// themselves, and users already attending).
+func (s *PostgresStore) CreatePlaydateInvites(hostID string, playdateID string, invitedUserIds []string) ([]domain.PlaydateInvite, error) {
+	var organizerID string
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id FROM playdates WHERE id = $1`, playdateID).Scan(&organizerID)
+	if err != nil {
+		return nil, fmt.Errorf("playdate not found")
+	}
+	if organizerID != hostID {
+		return nil, fmt.Errorf("only the organizer can invite")
+	}
+
+	created := []domain.PlaydateInvite{}
+	for _, uid := range invitedUserIds {
+		if uid == "" || uid == hostID {
+			continue
+		}
+		inviteID := newID("pdinv")
+		tag, err := s.pool.Exec(s.ctx(),
+			`INSERT INTO playdate_invites (id, playdate_id, host_user_id, invited_user_id, status)
+			 VALUES ($1, $2, $3, $4, 'pending')
+			 ON CONFLICT (playdate_id, invited_user_id) DO NOTHING`,
+			inviteID, playdateID, hostID, uid)
+		if err != nil {
+			log.Printf("[PLAYDATE-INVITE-ERR] %v", err)
+			continue
+		}
+		if tag.RowsAffected() == 0 {
+			continue
+		}
+		created = append(created, domain.PlaydateInvite{
+			ID:            inviteID,
+			PlaydateID:    playdateID,
+			HostUserID:    hostID,
+			InvitedUserID: uid,
+			Status:        "pending",
+			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	return created, nil
+}
+
+// ListInvitableUsers returns only users the host has a live match with —
+// v0.11.0 tightens the definition after the product team said group
+// acquaintances and DMs should not surface as inviteable, only reciprocal
+// matches. Users already invited or attending are excluded.
+//
+// The query resolves match peers via pets.owner_id: for every match row
+// involving one of the host's pets, the peer pet's owner is the candidate.
+func (s *PostgresStore) ListInvitableUsers(hostID string, playdateID string) ([]domain.InvitableUser, error) {
+	hostPetIDs := s.getUserPetIDs(hostID)
+	if len(hostPetIDs) == 0 {
+		return []domain.InvitableUser{}, nil
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`WITH peer_pets AS (
+			SELECT CASE WHEN m.pet_a_id = ANY($3) THEN m.pet_b_id ELSE m.pet_a_id END AS peer_pet_id
+			FROM matches m
+			WHERE (m.pet_a_id = ANY($3) OR m.pet_b_id = ANY($3))
+			  AND m.status = 'active'
+		),
+		peer_users AS (
+			SELECT DISTINCT p.owner_id AS uid
+			FROM peer_pets pp
+			JOIN pets p ON p.id = pp.peer_pet_id
+			WHERE p.owner_id IS NOT NULL AND p.owner_id != $1
+		)
+		SELECT up.user_id,
+		       COALESCE(up.first_name, ''),
+		       COALESCE(up.avatar_url, '')
+		FROM peer_users c
+		JOIN user_profiles up ON up.user_id = c.uid
+		WHERE c.uid NOT IN (
+		    SELECT invited_user_id FROM playdate_invites WHERE playdate_id = $2
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM playdate_pet_attendees ppa
+		    WHERE ppa.playdate_id = $2 AND ppa.user_id = c.uid
+		  )
+		ORDER BY up.first_name`, hostID, playdateID, hostPetIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.InvitableUser{}
+	for rows.Next() {
+		var u domain.InvitableUser
+		if err := rows.Scan(&u.UserID, &u.FirstName, &u.AvatarURL); err == nil {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+// ListMyPendingPlaydateInvites returns every pending invite the caller has.
+// Used by the invitee inbox / notifications screen.
+func (s *PostgresStore) ListMyPendingPlaydateInvites(userID string) []domain.PlaydateInvite {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT pi.id, pi.playdate_id, pi.host_user_id, pi.invited_user_id, pi.status, pi.created_at,
+		        COALESCE(p.title,''), COALESCE(p.date,''), COALESCE(p.city_label,''),
+		        COALESCE(up.first_name,''), COALESCE(up.avatar_url,'')
+		 FROM playdate_invites pi
+		 JOIN playdates p ON p.id = pi.playdate_id
+		 LEFT JOIN user_profiles up ON up.user_id = pi.host_user_id
+		 WHERE pi.invited_user_id = $1 AND pi.status = 'pending' AND p.status = 'active'
+		 ORDER BY pi.created_at DESC`, userID)
+	if err != nil {
+		return []domain.PlaydateInvite{}
+	}
+	defer rows.Close()
+	out := []domain.PlaydateInvite{}
+	for rows.Next() {
+		var inv domain.PlaydateInvite
+		var createdAt time.Time
+		if err := rows.Scan(&inv.ID, &inv.PlaydateID, &inv.HostUserID, &inv.InvitedUserID, &inv.Status, &createdAt,
+			&inv.PlaydateTitle, &inv.PlaydateDate, &inv.PlaydateCity,
+			&inv.HostFirstName, &inv.HostAvatarURL); err != nil {
+			continue
+		}
+		inv.CreatedAt = createdAt.Format(time.RFC3339)
+		out = append(out, inv)
+	}
+	return out
+}
+
+// RespondToPlaydateInvite marks an invite as accepted or declined. The caller
+// must be the invitee. On accept we do NOT auto-join — the mobile flow then
+// calls the existing pet-level JoinPlaydateWithPets so the invitee picks which
+// pets to bring.
+func (s *PostgresStore) RespondToPlaydateInvite(userID string, inviteID string, accept bool) (playdateID string, err error) {
+	var invitedUserID string
+	err = s.pool.QueryRow(s.ctx(),
+		`SELECT playdate_id, invited_user_id FROM playdate_invites WHERE id = $1`,
+		inviteID).Scan(&playdateID, &invitedUserID)
+	if err != nil {
+		return "", fmt.Errorf("invite not found")
+	}
+	if invitedUserID != userID {
+		return "", fmt.Errorf("this invite is not yours")
+	}
+	status := "declined"
+	if accept {
+		status = "accepted"
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`UPDATE playdate_invites SET status = $1, responded_at = NOW() WHERE id = $2`,
+		status, inviteID)
+	return playdateID, err
 }
 
 func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {
@@ -4265,6 +6198,81 @@ func (s *PostgresStore) AwardMilestone(petID string, milestoneType string, title
 func nilIfEmpty(s string) *string {
 	if s == "" { return nil }
 	return &s
+}
+
+// ── v0.11.0: Notification preferences ─────────────────────────────────
+// Defaults are "everything on" — a missing row means the user never opened
+// the notification-settings page, which should not silence them.
+
+func defaultPrefs() domain.NotificationPreferences {
+	return domain.NotificationPreferences{
+		Matches:   true,
+		Messages:  true,
+		Playdates: true,
+		Groups:    true,
+	}
+}
+
+func (s *PostgresStore) GetNotificationPrefs(userID string) domain.NotificationPreferences {
+	prefs := defaultPrefs()
+	if userID == "" {
+		return prefs
+	}
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT matches, messages, playdates, groups FROM notification_preferences WHERE user_id = $1`,
+		userID).Scan(&prefs.Matches, &prefs.Messages, &prefs.Playdates, &prefs.Groups)
+	if err != nil {
+		// Row not found or other read error: fall back to defaults.
+		return defaultPrefs()
+	}
+	return prefs
+}
+
+func (s *PostgresStore) UpsertNotificationPrefs(userID string, prefs domain.NotificationPreferences) error {
+	if userID == "" {
+		return fmt.Errorf("user id required")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO notification_preferences (user_id, matches, messages, playdates, groups, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())
+		 ON CONFLICT (user_id) DO UPDATE
+		 SET matches = EXCLUDED.matches,
+		     messages = EXCLUDED.messages,
+		     playdates = EXCLUDED.playdates,
+		     groups = EXCLUDED.groups,
+		     updated_at = NOW()`,
+		userID, prefs.Matches, prefs.Messages, prefs.Playdates, prefs.Groups)
+	return err
+}
+
+// ShouldSendPush is called by every push fan-out call site before enqueuing
+// an Expo push for `userID`. An unknown category returns true (fail-open) so
+// a typo never silently drops production notifications.
+func (s *PostgresStore) ShouldSendPush(userID string, category string) bool {
+	if userID == "" {
+		return true
+	}
+	prefs := s.GetNotificationPrefs(userID)
+	switch category {
+	case "matches":
+		return prefs.Matches
+	case "messages":
+		return prefs.Messages
+	case "playdates":
+		return prefs.Playdates
+	case "groups":
+		return prefs.Groups
+	default:
+		return true
+	}
+}
+
+// ── v0.11.0: Unified explore feed ─────────────────────────────────────
+// Mobile Discover → Events calls this single endpoint instead of making two
+// round-trips. Returning both slices keeps the API dumb; the mobile side
+// merges + chips them.
+func (s *PostgresStore) ListExploreFeed(params ListPlaydatesParams) ([]domain.ExploreEvent, []domain.Playdate) {
+	return s.ListEvents(), s.ListPlaydates(params)
 }
 
 // Ensure unused imports compile
