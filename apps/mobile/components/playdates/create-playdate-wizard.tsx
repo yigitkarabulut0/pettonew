@@ -864,10 +864,18 @@ function Step2Details(props: {
             </View>
           )}
           {coverUploading && effectiveCover ? (
+            // NOTE: RN Fabric does NOT support the CSS `inset` shorthand on
+            // <View> — it's an unknown raw prop that `RawPropsParser::preparse`
+            // rejects with std::terminate when this node is later re-cloned
+            // during a safe-area change (iOS 26+). Expand to top/left/right/
+            // bottom so the overlay renders on every architecture.
             <View
               style={{
                 position: "absolute",
-                inset: 0,
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
                 backgroundColor: "rgba(0,0,0,0.35)",
                 alignItems: "center",
                 justifyContent: "center"
