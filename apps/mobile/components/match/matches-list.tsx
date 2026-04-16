@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native"
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { Check, Heart, ImageIcon } from "lucide-react-native";
+import { Check, Heart } from "lucide-react-native";
 
 import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
@@ -130,7 +130,9 @@ export function MatchesList({
                         borderWidth: 3,
                         borderColor: theme.colors.primary,
                         overflow: "hidden",
-                        backgroundColor: theme.colors.background,
+                        backgroundColor: ownerAvatar ? theme.colors.background : theme.colors.primaryBg,
+                        alignItems: "center",
+                        justifyContent: "center",
                         ...mobileTheme.shadow.sm
                       }}
                     >
@@ -142,18 +144,15 @@ export function MatchesList({
                           transition={200}
                         />
                       ) : (
-                        <View
+                        <Text
                           style={{
-                            flex: 1,
-                            justifyContent: "center",
-                            alignItems: "center"
+                            fontSize: 26,
+                            fontFamily: "Inter_700Bold",
+                            color: theme.colors.primary
                           }}
                         >
-                          <ImageIcon
-                            size={24}
-                            color={theme.colors.muted}
-                          />
-                        </View>
+                          {(match.matchedOwnerName || pet.name || "?").charAt(0).toUpperCase()}
+                        </Text>
                       )}
                     </View>
                     {/* Small circle = pet photo */}
@@ -414,13 +413,21 @@ function MatchRow({ match, onPress }: MatchRowProps) {
               width: 56,
               height: 56,
               borderRadius: 28,
-              backgroundColor: theme.colors.background,
+              backgroundColor: theme.colors.primaryBg,
               justifyContent: "center",
               alignItems: "center",
               ...mobileTheme.shadow.sm
             }}
           >
-            <ImageIcon size={22} color={theme.colors.muted} />
+            <Text
+              style={{
+                fontSize: 22,
+                fontFamily: "Inter_700Bold",
+                color: theme.colors.primary
+              }}
+            >
+              {(match.matchedOwnerName || "?").charAt(0).toUpperCase()}
+            </Text>
           </View>
         )}
         {petPhoto && (
