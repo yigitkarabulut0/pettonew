@@ -42,7 +42,6 @@ import {
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import { Avatar } from "@/components/avatar";
-import { CreatePlaydateWizard } from "@/components/playdates/create-playdate-wizard";
 import { computePlaydateState } from "@/lib/playdate-state";
 
 type Tab = "upcoming" | "past";
@@ -58,7 +57,6 @@ export default function MyPlaydatesPage() {
 
   const [tab, setTab] = useState<Tab>("upcoming");
   const [hostedOnly, setHostedOnly] = useState(false);
-  const [repeatTemplate, setRepeatTemplate] = useState<Playdate | null>(null);
 
   const queryKey = useMemo(
     () => ["my-playdates", tab, hostedOnly ? "hosted" : "all"] as const,
@@ -369,7 +367,12 @@ export default function MyPlaydatesPage() {
               theme={theme}
               icon={<Copy size={13} color={theme.colors.primary} />}
               label={t("playdates.myPlaydates.repeat") as string}
-              onPress={() => setRepeatTemplate(item)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/playdates/create",
+                  params: { templateJson: JSON.stringify(item) }
+                } as any)
+              }
             />
           )}
         </View>
@@ -538,14 +541,6 @@ export default function MyPlaydatesPage() {
         />
       )}
 
-      {/* Repeat wizard — pre-fills with the selected past playdate */}
-      {repeatTemplate ? (
-        <CreatePlaydateWizard
-          visible={Boolean(repeatTemplate)}
-          onClose={() => setRepeatTemplate(null)}
-          template={repeatTemplate}
-        />
-      ) : null}
     </View>
   );
 }

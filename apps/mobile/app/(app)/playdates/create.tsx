@@ -1,12 +1,11 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -48,20 +47,7 @@ import { useSessionStore } from "@/store/session";
 
 type Step = 1 | 2 | 3;
 
-type CreatePlaydateWizardProps = {
-  visible: boolean;
-  onClose: () => void;
-  userLocation?: { latitude: number; longitude: number } | null;
-  /** Optional template — used when duplicating an existing playdate. */
-  template?: Playdate | null;
-};
-
-export function CreatePlaydateWizard({
-  visible,
-  onClose,
-  userLocation,
-  template = null
-}: CreatePlaydateWizardProps) {
+export default function CreatePlaydatePage() {
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -69,6 +55,30 @@ export function CreatePlaydateWizard({
   const queryClient = useQueryClient();
   const session = useSessionStore((s) => s.session);
   const token = session?.tokens.accessToken ?? "";
+
+  const { lat, lng, templateJson } = useLocalSearchParams<{
+    lat?: string;
+    lng?: string;
+    templateJson?: string;
+  }>();
+
+  const userLocation = useMemo(() => {
+    const latitude = lat ? parseFloat(lat) : NaN;
+    const longitude = lng ? parseFloat(lng) : NaN;
+    if (!isNaN(latitude) && !isNaN(longitude) && (latitude !== 0 || longitude !== 0)) {
+      return { latitude, longitude };
+    }
+    return null;
+  }, [lat, lng]);
+
+  const template: Playdate | null = useMemo(() => {
+    if (!templateJson) return null;
+    try {
+      return JSON.parse(templateJson) as Playdate;
+    } catch {
+      return null;
+    }
+  }, [templateJson]);
 
   const [step, setStep] = useState<Step>(1);
   // Step 1
@@ -95,7 +105,7 @@ export function CreatePlaydateWizard({
   const petsQuery = useQuery({
     queryKey: ["my-pets"],
     queryFn: () => listMyPets(token),
-    enabled: Boolean(token && visible)
+    enabled: Boolean(token)
   });
   const pets = useMemo(
     () => (petsQuery.data ?? []).filter((p) => !p.isHidden),
@@ -107,7 +117,7 @@ export function CreatePlaydateWizard({
     queryKey: ["venues-for-playdate"],
     queryFn: () =>
       listExploreVenues(token, userLocation?.latitude, userLocation?.longitude),
-    enabled: Boolean(token && visible && step === 2)
+    enabled: Boolean(token && step === 2)
   });
   const venues = venuesQuery.data ?? [];
   const filteredVenues = useMemo(() => {
@@ -135,9 +145,8 @@ export function CreatePlaydateWizard({
     [t]
   );
 
-  // Reset / hydrate whenever the modal opens.
+  // Hydrate from template on mount (for duplicate flow).
   useEffect(() => {
-    if (!visible) return;
     setStep(1);
     setDateError(null);
     setCustomCoverUrl(null);
@@ -166,7 +175,7 @@ export function CreatePlaydateWizard({
       setSelectedVenueId(null);
       setSelectedPetIds([]);
     }
-  }, [visible, template]);
+  }, [template]);
 
   // v0.11.0 — pick + upload a custom cover photo. The uploaded R2 URL is
   // stored in `customCoverUrl` and takes precedence over the venue image
@@ -239,7 +248,7 @@ export function CreatePlaydateWizard({
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["playdates"] });
       queryClient.invalidateQueries({ queryKey: ["my-playdates"] });
-      onClose();
+      router.back();
       if (created?.id) {
         router.push({
           pathname: "/(app)/playdates/[id]",
@@ -264,54 +273,37 @@ export function CreatePlaydateWizard({
     }
   };
   const goBack = () => {
-    if (step === 2) setStep(1);
-    else if (step === 3) setStep(2);
+    if (step === 1) {
+      router.back();
+    } else if (step === 2) {
+      setStep(1);
+    } else if (step === 3) {
+      setStep(2);
+    }
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(22,21,20,0.45)",
-          justifyContent: "flex-end"
-        }}
+    <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
+        {/* Header row: back + title + close */}
+        <View
           style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 14,
-            paddingBottom: insets.bottom + 20,
-            maxHeight: "96%"
+            paddingTop: insets.top + 10,
+            paddingHorizontal: 22,
+            paddingBottom: 10,
+            backgroundColor: theme.colors.surface
           }}
         >
-          <View
-            style={{
-              width: 44,
-              height: 5,
-              borderRadius: 3,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 12
-            }}
-          />
-
-          {/* Header row: back + title + close */}
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
               gap: 10,
-              paddingHorizontal: 22,
               marginBottom: 10
             }}
           >
@@ -359,7 +351,7 @@ export function CreatePlaydateWizard({
               </Text>
             </View>
             <Pressable
-              onPress={onClose}
+              onPress={() => router.back()}
               hitSlop={12}
               style={{
                 width: 36,
@@ -378,9 +370,7 @@ export function CreatePlaydateWizard({
           <View
             style={{
               flexDirection: "row",
-              gap: 6,
-              paddingHorizontal: 22,
-              marginBottom: 14
+              gap: 6
             }}
           >
             {[1, 2, 3].map((s) => (
@@ -396,138 +386,143 @@ export function CreatePlaydateWizard({
               />
             ))}
           </View>
+        </View>
 
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            {step === 1 ? (
-              <Step1Pets
-                pets={pets}
-                loading={petsQuery.isLoading}
-                selectedIds={selectedPetIds}
-                onToggle={togglePet}
-                onAddPet={() => {
-                  onClose();
-                  router.push("/onboarding/pets" as any);
-                }}
-              />
-            ) : step === 2 ? (
-              <Step2Details
-                theme={theme}
-                t={t}
-                title={title}
-                onTitleChange={setTitle}
-                titleTemplates={titleTemplates}
-                description={description}
-                onDescriptionChange={setDescription}
-                selectedDate={selectedDate}
-                setSelectedDate={setSelectedDate}
-                showDatePicker={showDatePicker}
-                setShowDatePicker={setShowDatePicker}
-                dateError={dateError}
-                setDateError={setDateError}
-                dateIsValid={dateIsValid}
-                maxPets={maxPets}
-                setMaxPets={setMaxPets}
-                visibility={visibility}
-                setVisibility={setVisibility}
-                venueSearch={venueSearch}
-                setVenueSearch={setVenueSearch}
-                filteredVenues={filteredVenues}
-                venuesLoading={venuesQuery.isLoading}
-                selectedVenueId={selectedVenueId}
-                setSelectedVenueId={setSelectedVenueId}
-                rules={rules}
-                setRules={setRules}
-                customCoverUrl={customCoverUrl}
-                coverUploading={coverUploading}
-                onPickCover={pickCoverImage}
-                onClearCover={() => setCustomCoverUrl(null)}
-                selectedVenueCover={selectedVenue?.imageUrl ?? ""}
-              />
-            ) : (
-              <Step3Review
-                theme={theme}
-                t={t}
-                pets={pets.filter((p) => selectedPetIds.includes(p.id))}
-                title={title}
-                description={description}
-                selectedDate={selectedDate}
-                venueName={resolvedVenueName}
-                cityLabel={resolvedCity}
-                maxPets={maxPets}
-                visibility={visibility}
-                rules={rules}
-                onEditStep={(s) => setStep(s)}
-              />
-            )}
-          </KeyboardAvoidingView>
+        {/* Step content */}
+        <View style={{ flex: 1 }}>
+          {step === 1 ? (
+            <Step1Pets
+              pets={pets}
+              loading={petsQuery.isLoading}
+              selectedIds={selectedPetIds}
+              onToggle={togglePet}
+              onAddPet={() => {
+                router.back();
+                router.push("/onboarding/pets" as any);
+              }}
+            />
+          ) : step === 2 ? (
+            <Step2Details
+              theme={theme}
+              t={t}
+              title={title}
+              onTitleChange={setTitle}
+              titleTemplates={titleTemplates}
+              description={description}
+              onDescriptionChange={setDescription}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              showDatePicker={showDatePicker}
+              setShowDatePicker={setShowDatePicker}
+              dateError={dateError}
+              setDateError={setDateError}
+              dateIsValid={dateIsValid}
+              maxPets={maxPets}
+              setMaxPets={setMaxPets}
+              visibility={visibility}
+              setVisibility={setVisibility}
+              venueSearch={venueSearch}
+              setVenueSearch={setVenueSearch}
+              filteredVenues={filteredVenues}
+              venuesLoading={venuesQuery.isLoading}
+              selectedVenueId={selectedVenueId}
+              setSelectedVenueId={setSelectedVenueId}
+              rules={rules}
+              setRules={setRules}
+              customCoverUrl={customCoverUrl}
+              coverUploading={coverUploading}
+              onPickCover={pickCoverImage}
+              onClearCover={() => setCustomCoverUrl(null)}
+              selectedVenueCover={selectedVenue?.imageUrl ?? ""}
+            />
+          ) : (
+            <Step3Review
+              theme={theme}
+              t={t}
+              pets={pets.filter((p) => selectedPetIds.includes(p.id))}
+              title={title}
+              description={description}
+              selectedDate={selectedDate}
+              venueName={resolvedVenueName}
+              cityLabel={resolvedCity}
+              maxPets={maxPets}
+              visibility={visibility}
+              rules={rules}
+              onEditStep={(s) => setStep(s)}
+            />
+          )}
+        </View>
 
-          {/* Sticky CTA */}
-          <View style={{ paddingHorizontal: 22, paddingTop: 12 }}>
-            {step < 3 ? (
-              <Pressable
-                onPress={goNext}
-                disabled={
-                  (step === 1 && !step1Valid) || (step === 2 && !step2Valid)
-                }
-                style={({ pressed }) => ({
-                  paddingVertical: 15,
-                  borderRadius: mobileTheme.radius.pill,
-                  backgroundColor:
+        {/* Sticky CTA */}
+        <View
+          style={{
+            paddingHorizontal: 22,
+            paddingTop: 12,
+            paddingBottom: insets.bottom + 20
+          }}
+        >
+          {step < 3 ? (
+            <Pressable
+              onPress={goNext}
+              disabled={
+                (step === 1 && !step1Valid) || (step === 2 && !step2Valid)
+              }
+              style={({ pressed }) => ({
+                paddingVertical: 15,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor:
+                  (step === 1 && step1Valid) || (step === 2 && step2Valid)
+                    ? theme.colors.primary
+                    : theme.colors.border,
+                alignItems: "center",
+                opacity: pressed ? 0.88 : 1,
+                ...mobileTheme.shadow.sm
+              })}
+            >
+              <Text
+                style={{
+                  color:
                     (step === 1 && step1Valid) || (step === 2 && step2Valid)
-                      ? theme.colors.primary
-                      : theme.colors.border,
-                  alignItems: "center",
-                  opacity: pressed ? 0.88 : 1,
-                  ...mobileTheme.shadow.sm
-                })}
+                      ? theme.colors.white
+                      : theme.colors.muted,
+                  fontSize: 15,
+                  fontFamily: "Inter_700Bold"
+                }}
               >
+                {t("playdates.wizard.next")}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => createMutation.mutate()}
+              disabled={createMutation.isPending}
+              style={({ pressed }) => ({
+                paddingVertical: 15,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: theme.colors.primary,
+                alignItems: "center",
+                opacity: pressed ? 0.88 : 1,
+                ...mobileTheme.shadow.sm
+              })}
+            >
+              {createMutation.isPending ? (
+                <ActivityIndicator size="small" color={theme.colors.white} />
+              ) : (
                 <Text
                   style={{
-                    color:
-                      (step === 1 && step1Valid) || (step === 2 && step2Valid)
-                        ? theme.colors.white
-                        : theme.colors.muted,
+                    color: theme.colors.white,
                     fontSize: 15,
                     fontFamily: "Inter_700Bold"
                   }}
                 >
-                  {t("playdates.wizard.next")}
+                  {t("playdates.wizard.createCta")}
                 </Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => createMutation.mutate()}
-                disabled={createMutation.isPending}
-                style={({ pressed }) => ({
-                  paddingVertical: 15,
-                  borderRadius: mobileTheme.radius.pill,
-                  backgroundColor: theme.colors.primary,
-                  alignItems: "center",
-                  opacity: pressed ? 0.88 : 1,
-                  ...mobileTheme.shadow.sm
-                })}
-              >
-                {createMutation.isPending ? (
-                  <ActivityIndicator size="small" color={theme.colors.white} />
-                ) : (
-                  <Text
-                    style={{
-                      color: theme.colors.white,
-                      fontSize: 15,
-                      fontFamily: "Inter_700Bold"
-                    }}
-                  >
-                    {t("playdates.wizard.createCta")}
-                  </Text>
-                )}
-              </Pressable>
-            )}
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+              )}
+            </Pressable>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -632,13 +627,15 @@ function Step1Pets({
 
   return (
     <ScrollView
-      style={{ maxHeight: 440 }}
+      style={{ flex: 1 }}
       contentContainerStyle={{
         paddingHorizontal: 22,
         paddingBottom: 8,
         gap: 10
       }}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
     >
       {pets.map((pet) => {
         const selected = selectedIds.includes(pet.id);
@@ -801,7 +798,7 @@ function Step2Details(props: {
 
   return (
     <ScrollView
-      style={{ maxHeight: 460 }}
+      style={{ flex: 1 }}
       contentContainerStyle={{
         paddingHorizontal: 22,
         paddingBottom: 10,
@@ -809,6 +806,7 @@ function Step2Details(props: {
       }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
     >
       {/* v0.11.0 — Cover photo picker. User-uploaded image wins; venue image
           remains the fallback if the user skips this step. */}
@@ -1489,13 +1487,15 @@ function Step3Review(props: {
 
   return (
     <ScrollView
-      style={{ maxHeight: 480 }}
+      style={{ flex: 1 }}
       contentContainerStyle={{
         paddingHorizontal: 22,
         paddingBottom: 10,
         gap: 14
       }}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
     >
       {/* Pets */}
       <ReviewRow
@@ -1560,7 +1560,7 @@ function Step3Review(props: {
             fontFamily: "Inter_700Bold"
           }}
         >
-          {title || "—"}
+          {title || "\u2014"}
         </Text>
         {description ? (
           <Text
@@ -1642,7 +1642,7 @@ function Step3Review(props: {
             }}
             numberOfLines={1}
           >
-            {venueName || "—"}
+            {venueName || "\u2014"}
           </Text>
         </View>
         {cityLabel ? (

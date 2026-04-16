@@ -3,7 +3,7 @@
     "name": "Petto",
     "slug": "petto-mobile",
     "scheme": "petto",
-    "version": "0.11.2",
+    "version": "0.11.3",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,

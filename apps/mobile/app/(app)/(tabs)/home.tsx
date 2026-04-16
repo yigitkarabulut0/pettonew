@@ -170,6 +170,8 @@ export default function HomePage() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsMultipleSelection: false,
+      allowsEditing: true,
+      aspect: [4, 3],
       quality: 0.8
     });
     if (result.canceled) return;

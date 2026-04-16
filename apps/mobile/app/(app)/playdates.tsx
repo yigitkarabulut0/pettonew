@@ -35,7 +35,6 @@ import {
   type SortMode,
   type TimeFilter
 } from "@/components/playdates/playdate-filters";
-import { CreatePlaydateWizard } from "@/components/playdates/create-playdate-wizard";
 
 const NEARBY_THRESHOLD_KM = 25;
 
@@ -71,7 +70,6 @@ export default function PlaydatesHubPage() {
   const [sort, setSort] = useState<SortMode>("distance");
   const [location, setLocation] = useState<CachedLocation | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
 
   // Seed the location from cache on mount so the first render has a
   // distance sort — then kick off a fresh fix in the background.
@@ -228,7 +226,15 @@ export default function PlaydatesHubPage() {
             <RefreshCw size={18} color={theme.colors.ink} />
           </Pressable>
           <Pressable
-            onPress={() => setCreateOpen(true)}
+            onPress={() =>
+              router.push({
+                pathname: "/(app)/playdates/create",
+                params: {
+                  lat: String(location?.latitude ?? ""),
+                  lng: String(location?.longitude ?? "")
+                }
+              } as any)
+            }
             hitSlop={10}
             style={{
               width: 40,
@@ -309,7 +315,15 @@ export default function PlaydatesHubPage() {
             theme={theme}
             title={t("playdates.noPlaydates") as string}
             body={t("playdates.noPlaydatesDescription") as string}
-            onCreate={() => setCreateOpen(true)}
+            onCreate={() =>
+              router.push({
+                pathname: "/(app)/playdates/create",
+                params: {
+                  lat: String(location?.latitude ?? ""),
+                  lng: String(location?.longitude ?? "")
+                }
+              } as any)
+            }
             ctaLabel={t("playdates.createPlaydate") as string}
           />
         ) : (
@@ -355,15 +369,6 @@ export default function PlaydatesHubPage() {
         )}
       </ScrollView>
 
-      <CreatePlaydateWizard
-        visible={createOpen}
-        onClose={() => setCreateOpen(false)}
-        userLocation={
-          location
-            ? { latitude: location.latitude, longitude: location.longitude }
-            : null
-        }
-      />
     </View>
   );
 }

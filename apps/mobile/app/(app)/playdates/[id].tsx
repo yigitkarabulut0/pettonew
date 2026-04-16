@@ -63,7 +63,6 @@ import { formatCountdown } from "@/lib/time";
 import { Avatar } from "@/components/avatar";
 import { WeatherWidget } from "@/components/weather-widget";
 import { CreatePlaydateModal } from "@/components/playdates/create-playdate-modal";
-import { CreatePlaydateWizard } from "@/components/playdates/create-playdate-wizard";
 import { HostToolsSheet } from "@/components/playdates/host-tools-sheet";
 import { JoinPlaydateModal } from "@/components/playdates/join-playdate-modal";
 import { InvitePeopleModal } from "@/components/playdates/invite-people-modal";
@@ -103,7 +102,6 @@ export default function PlaydateDetailPage() {
   const [announceText, setAnnounceText] = useState("");
   const [joinOpen, setJoinOpen] = useState(false);
   const [editPetsOpen, setEditPetsOpen] = useState(false);
-  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [hostToolsOpen, setHostToolsOpen] = useState(false);
 
@@ -900,7 +898,12 @@ export default function PlaydateDetailPage() {
           {/* Duplicate shortcut — pre-fills the wizard with this playdate. */}
           {playdate ? (
             <Pressable
-              onPress={() => setDuplicateOpen(true)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/playdates/create",
+                  params: { templateJson: JSON.stringify(playdate) }
+                } as any)
+              }
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
@@ -1222,15 +1225,6 @@ export default function PlaydateDetailPage() {
                 break;
             }
           }}
-        />
-      ) : null}
-
-      {/* Duplicate — opens the wizard pre-filled with this playdate. */}
-      {playdate ? (
-        <CreatePlaydateWizard
-          visible={duplicateOpen}
-          onClose={() => setDuplicateOpen(false)}
-          template={playdate}
         />
       ) : null}
 

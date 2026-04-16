@@ -140,6 +140,8 @@ export default function ProfileOnboardingPage() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsMultipleSelection: false,
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.85
     });
 
