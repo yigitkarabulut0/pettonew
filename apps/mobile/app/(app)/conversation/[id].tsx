@@ -77,14 +77,18 @@ export default function ConversationPage() {
     return () => setActiveConversationId(null);
   }, [id]);
 
-  // v0.11.8 — mark messages as read when the chat opens and whenever
-  // new messages arrive. This resets the unread badge on the matches/
-  // conversations list for this conversation.
+  // v0.11.8 — mark messages as read when the chat opens. On unmount
+  // (leaving the chat), invalidate matches + conversations queries so
+  // the list immediately reflects the cleared unread count.
   useEffect(() => {
     if (session?.tokens.accessToken && id) {
       markMessagesRead(session.tokens.accessToken, id).catch(() => {});
     }
-  }, [id, session?.tokens.accessToken]);
+    return () => {
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    };
+  }, [id, session?.tokens.accessToken, queryClient]);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
