@@ -524,7 +524,7 @@ function MatchRow({ match, onPress }: MatchRowProps) {
         <View
           style={{
             position: "absolute",
-            top: 16,
+            bottom: 14,
             right: 16,
             minWidth: 18,
             height: 18,
