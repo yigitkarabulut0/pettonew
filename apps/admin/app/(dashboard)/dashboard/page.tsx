@@ -1,110 +1,355 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import {
+  Activity,
+  FileText,
+  Flag,
+  Heart,
+  ImageIcon,
+  MapPin,
+  PawPrint,
+  Radio,
+  Tag,
+  Users
+} from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import * as React from "react";
 
-import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { StatCard } from "@/components/common/StatCard";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiRequest } from "@/lib/api/client";
 import { getDashboard } from "@/lib/admin-api";
+import { fmtInitials } from "@/lib/format";
 
 const GrowthChart = dynamic(
-  () => import("@/components/growth-chart").then((module) => module.GrowthChart),
+  () => import("@/components/growth-chart").then((m) => m.GrowthChart),
   { ssr: false }
 );
 
+type DashboardMetrics = {
+  dau?: number;
+  mau?: number;
+  newUsers24h?: number;
+  matches24h?: number;
+  swipes24h?: number;
+  posts24h?: number;
+  reportsOpen: number;
+  reportsOverdue: number;
+  byKey?: Record<string, string>;
+  growth?: Array<{ label: string; users: number; pets: number; matches: number }>;
+};
+
+type ActiveUser = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  cityLabel?: string;
+  lastAt: string;
+};
+
 export default function DashboardPage() {
-  const { data } = useQuery({
+  const dashboardQuery = useQuery({
     queryKey: ["admin-dashboard"],
     queryFn: getDashboard
   });
+  const metricsQuery = useQuery<DashboardMetrics>({
+    queryKey: ["admin-dashboard-metrics"],
+    queryFn: () => apiRequest<DashboardMetrics>("/dashboard/metrics"),
+    refetchInterval: 20_000
+  });
+  // Real-time presence: backend returns everyone with a heartbeat within the
+  // last 60s. Poll every 5s so the UI flips green/grey in near-real-time
+  // when a user opens or closes the mobile app.
+  const activeUsersQuery = useQuery<ActiveUser[]>({
+    queryKey: ["admin-active-users"],
+    queryFn: () => apiRequest<ActiveUser[]>("/active-users"),
+    refetchInterval: 5_000
+  });
+  const venuesQuery = useQuery({
+    queryKey: ["admin-venues"],
+    queryFn: () => apiRequest<any[]>("/venues")
+  });
+
+  const snap = dashboardQuery.data;
+  const metrics = metricsQuery.data;
+
+  const dau = metrics?.dau ?? 0;
+  const mau = metrics?.mau ?? 0;
+  const newToday = metrics?.newUsers24h ?? 0;
+  const matches24h = metrics?.matches24h ?? 0;
+  const swipes24h = metrics?.swipes24h ?? 0;
+  const posts24h = metrics?.posts24h ?? 0;
+  const reportsOpen = metrics?.reportsOpen ?? 0;
+  const byKey = metrics?.byKey ?? {};
+  // Backend already applies the 60-second liveness window, so every row it
+  // returns represents a user currently online.
+  const activeUsers = activeUsersQuery.data ?? [];
+  const liveUsers = activeUsers;
+  const topVenues = (venuesQuery.data ?? []).slice(0, 5);
 
   return (
-    <div className="space-y-5">
-      <Card className="bg-[linear-gradient(135deg,rgba(255,252,248,0.95),rgba(247,201,188,0.75))]">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[var(--petto-primary)]">Weekly view</p>
-        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-5xl text-[var(--petto-ink)]">A curated dashboard for a fast-growing pet network.</h1>
-            <p className="mt-3 max-w-2xl text-lg leading-8 text-[var(--petto-muted)]">
-              Balance growth, moderation, taxonomy hygiene, and engagement from one carefully tuned control surface.
-            </p>
-          </div>
-          <Badge tone="success">System stable</Badge>
-        </div>
-      </Card>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Dashboard"
+        description="Live community health, growth funnel, and moderation queue."
+        actions={
+          <Badge tone={liveUsers.length > 0 ? "success" : "neutral"}>
+            <Radio className="h-3 w-3" /> {liveUsers.length} live now
+          </Badge>
+        }
+      />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {data?.metrics.map((metric) => (
-          <Card key={metric.id}>
-            <p className="text-sm uppercase tracking-[0.25em] text-[var(--petto-muted)]">{metric.label}</p>
-            <p className="mt-3 text-4xl font-semibold text-[var(--petto-ink)]">{metric.value}</p>
-            <p className="mt-2 text-sm font-semibold text-[var(--petto-secondary)]">{metric.delta} vs last week</p>
-          </Card>
-        ))}
+      {/* KPI row 1 — audience */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Live now"
+          value={liveUsers.length.toLocaleString()}
+          hint="Active within last 5 minutes"
+          icon={Radio}
+          tone={liveUsers.length > 0 ? "success" : "neutral"}
+        />
+        <StatCard
+          label="Daily active"
+          value={dau.toLocaleString()}
+          hint="Distinct messaging users · 24h"
+          icon={Activity}
+        />
+        <StatCard
+          label="Monthly active"
+          value={mau.toLocaleString()}
+          hint="Unique users · 30d"
+          icon={Users}
+        />
+        <StatCard
+          label="Signups 24h"
+          value={newToday.toLocaleString()}
+          hint={`${byKey.users ?? "—"} total users`}
+          icon={Users}
+        />
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+      {/* KPI row 2 — engagement */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Swipes 24h"
+          value={swipes24h.toLocaleString()}
+          hint="Discovery activity"
+          icon={Tag}
+        />
+        <StatCard
+          label="Matches 24h"
+          value={matches24h.toLocaleString()}
+          icon={Heart}
+          tone={matches24h > 0 ? "success" : "neutral"}
+        />
+        <StatCard
+          label="Posts 24h"
+          value={posts24h.toLocaleString()}
+          hint={`${byKey.posts ?? "—"} total posts`}
+          icon={ImageIcon}
+        />
+        <StatCard
+          label="Open reports"
+          value={reportsOpen.toLocaleString()}
+          icon={Flag}
+          tone={reportsOpen > 10 ? "danger" : reportsOpen > 0 ? "warning" : "success"}
+          hint={reportsOpen > 0 ? "Needs attention" : "Queue is clear"}
+        />
+      </section>
+
+      {/* KPI row 3 — footprint */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Pets" value={byKey.pets ?? "—"} icon={PawPrint} />
+        <StatCard label="Venues" value={byKey.venues ?? "—"} icon={MapPin} />
+        <StatCard label="Events" value={byKey.events ?? "—"} icon={FileText} />
+        <StatCard label="Reports all-time" value={byKey.reports ?? "—"} icon={Flag} />
+      </section>
+
+      {/* Charts */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
         <Card>
-          <div className="mb-6 space-y-2">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Growth</p>
-            <h2 className="text-3xl text-[var(--petto-ink)]">Users and matches across the week</h2>
-          </div>
-          <GrowthChart data={data?.growth ?? []} />
+          <CardHeader>
+            <CardTitle>Growth</CardTitle>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Daily signups, pets added, and matches across the last week.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <GrowthChart data={snap?.growth ?? []} />
+          </CardContent>
         </Card>
+
         <Card>
-          <div className="space-y-2">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Recent reports</p>
-            <h2 className="text-3xl text-[var(--petto-ink)]">What needs human attention</h2>
-          </div>
-          <div className="mt-6 space-y-4">
-            {data?.recentReports.map((report) => (
-              <div key={report.id} className="rounded-3xl border border-[var(--petto-border)] bg-white/70 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <p className="font-semibold text-[var(--petto-ink)]">{report.reason}</p>
-                  <Badge tone={report.status === "open" ? "warning" : "neutral"}>{report.status}</Badge>
-                </div>
-                <p className="mt-2 text-sm text-[var(--petto-muted)]">
-                  {report.targetType} • {report.targetLabel} • by {report.reporterName}
-                </p>
-              </div>
-            ))}
-          </div>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Active users</CardTitle>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Wrote or checked in within 24h · refreshes every 15s.
+              </p>
+            </div>
+            <Badge tone="info" className="uppercase">
+              {activeUsers.length}
+            </Badge>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1.5">
+            {activeUsers.length === 0 ? (
+              <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                No user activity in the last 24h.
+              </p>
+            ) : (
+              activeUsers.slice(0, 10).map((u) => {
+                const live = true;
+                return (
+                  <Link
+                    key={u.id}
+                    href={`/users/${u.id}`}
+                    className="flex items-center gap-3 rounded-md border border-[var(--border)] px-3 py-2 hover:bg-[var(--muted)]"
+                  >
+                    <div className="relative">
+                      <Avatar className="h-7 w-7">
+                        {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.name} /> : null}
+                        <AvatarFallback>{fmtInitials(u.name || u.email)}</AvatarFallback>
+                      </Avatar>
+                      {live ? (
+                        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--card)] bg-[var(--success)]" />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{u.name || u.email}</div>
+                      <div className="truncate text-[11px] text-[var(--muted-foreground)]">
+                        {u.cityLabel || u.email}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-[var(--muted-foreground)]">
+                      <RelativeTime value={u.lastAt} />
+                    </span>
+                  </Link>
+                );
+              })
+            )}
+          </CardContent>
         </Card>
       </div>
 
+      {/* Recent reports + top venues */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent reports</CardTitle>
+            <p className="text-xs text-[var(--muted-foreground)]">Latest flagged items.</p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1.5">
+            {(snap?.recentReports ?? []).length === 0 ? (
+              <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                Nothing in the queue 🎉
+              </p>
+            ) : (
+              snap?.recentReports.slice(0, 6).map((report) => (
+                <Link
+                  key={report.id}
+                  href={`/reports/${report.id}`}
+                  className="flex items-start justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 transition-colors hover:bg-[var(--muted)]"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                      {report.reason}
+                    </div>
+                    <div className="truncate text-[11px] text-[var(--muted-foreground)]">
+                      {report.targetType} · {report.targetLabel} · by {report.reporterName}
+                    </div>
+                  </div>
+                  <StatusBadge status={report.status} />
+                </Link>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top venues</CardTitle>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Recently curated pet-friendly places.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1.5">
+            {topVenues.length === 0 ? (
+              <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                No venues yet.
+              </p>
+            ) : (
+              topVenues.map((v: any) => (
+                <Link
+                  key={v.id}
+                  href={`/venues/${v.id}`}
+                  className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] px-3 py-2 hover:bg-[var(--muted)]"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{v.name}</div>
+                    <div className="truncate text-[11px] text-[var(--muted-foreground)]">
+                      {v.category} · {v.cityLabel}
+                    </div>
+                  </div>
+                  <Badge tone="neutral">{v.checkInCount ?? 0} check-ins</Badge>
+                </Link>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top posts */}
       <Card>
-        <div className="space-y-2">
-          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Top posts</p>
-          <h2 className="text-3xl text-[var(--petto-ink)]">Most liked community posts right now</h2>
-        </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          {data?.topPosts.map((post) => (
-            <div key={post.id} className="rounded-[24px] border border-[var(--petto-border)] bg-white/75 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-semibold text-[var(--petto-ink)]">
-                    {post.author.firstName} {post.author.lastName}
-                  </p>
-                  <p className="text-sm text-[var(--petto-muted)]">{post.author.cityLabel}</p>
-                </div>
-                <Badge tone="success">{post.likeCount} likes</Badge>
-              </div>
-              <p className="mt-4 text-sm leading-7 text-[var(--petto-muted)]">{post.body}</p>
-              {post.taggedPets.length ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {post.taggedPets.map((pet) => (
-                    <span
-                      key={pet.id}
-                      className="rounded-full bg-[var(--petto-primary-soft)] px-3 py-1 text-xs font-semibold text-[var(--petto-secondary)]"
-                    >
-                      {pet.name}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
+        <CardHeader>
+          <CardTitle>Top posts</CardTitle>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Highest-liked community posts in the current window.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-2 lg:grid-cols-2">
+          {(snap?.topPosts ?? []).length === 0 ? (
+            <div className="col-span-full rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+              No posts yet.
             </div>
-          ))}
-        </div>
+          ) : (
+            snap?.topPosts.slice(0, 6).map((post) => (
+              <div
+                key={post.id}
+                className="flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                      {post.author.firstName} {post.author.lastName}
+                    </div>
+                    <div className="text-[11px] text-[var(--muted-foreground)]">
+                      {post.author.cityLabel} · <RelativeTime value={post.createdAt} />
+                    </div>
+                  </div>
+                  <Badge tone="success">{post.likeCount} likes</Badge>
+                </div>
+                <p className="line-clamp-3 text-xs text-[var(--muted-foreground)]">{post.body}</p>
+                {post.taggedPets.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {post.taggedPets.map((pet) => (
+                      <Badge key={pet.id} tone="neutral">
+                        <PawPrint className="h-3 w-3" /> {pet.name}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))
+          )}
+        </CardContent>
       </Card>
     </div>
   );

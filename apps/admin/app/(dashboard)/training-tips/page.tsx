@@ -99,8 +99,8 @@ export default function TrainingTipsPage() {
     <div className="space-y-5">
       {/* Hero */}
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Training Tips</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Create rich training content for pet owners</h1>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Training Tips</p>
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">Create rich training content for pet owners</h1>
       </Card>
 
       {/* Creation Form */}
@@ -198,7 +198,7 @@ export default function TrainingTipsPage() {
         </div>
       )}
       {!isLoading && tips.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No training tips found.
         </div>
       )}
@@ -210,11 +210,11 @@ export default function TrainingTipsPage() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <p className="font-semibold text-[var(--petto-ink)]">{tip.title}</p>
-                {(tip as Record<string, unknown>).summary && (
+                {(tip as Record<string, unknown>).summary ? (
                   <p className="mt-1 text-sm text-[var(--petto-muted)] line-clamp-2">
-                    {(tip as Record<string, unknown>).summary as string}
+                    {String((tip as Record<string, unknown>).summary ?? "")}
                   </p>
-                )}
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge tone={tip.difficulty === "hard" ? "warning" : tip.difficulty === "medium" ? "warning" : "neutral"}>
                     {tip.difficulty}

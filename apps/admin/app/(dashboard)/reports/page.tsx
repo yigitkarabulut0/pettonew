@@ -1,132 +1,164 @@
 "use client";
 
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Flag, Image as ImageIcon, MessageSquare, PawPrint, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, MessageSquare, ImageIcon, PawPrint } from "lucide-react";
+import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { StatCard } from "@/components/common/StatCard";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableToolbar, FacetFilter } from "@/components/data-table/DataTableToolbar";
+import { useDataTable } from "@/components/data-table/useDataTable";
 import { Badge } from "@/components/ui/badge";
-import { getReports } from "@/lib/admin-api";
 import type { ReportSummary } from "@petto/contracts";
+import { getReports } from "@/lib/admin-api";
 
-const TYPE_ICON: Record<string, typeof MessageSquare> = {
+const TYPE_ICON = {
   chat: MessageSquare,
+  post: ImageIcon,
   pet: PawPrint,
-  post: ImageIcon
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  chat: "Chat",
-  pet: "Pet",
-  post: "Post"
-};
-
-type FilterStatus = "all" | "open" | "in_review" | "resolved";
+  user: Shield
+} as const;
 
 export default function ReportsPage() {
   const router = useRouter();
-  const [filter, setFilter] = useState<FilterStatus>("all");
-  const { data: reports = [] } = useQuery({
+  const { state, setState, selection, setSelection } = useDataTable();
+
+  const query = useQuery({
     queryKey: ["admin-reports"],
     queryFn: getReports
   });
 
-  const filtered =
-    filter === "all" ? reports : reports.filter((r) => r.status === filter);
+  const all = query.data ?? [];
+  const status = (state.filters.status as string | undefined) ?? undefined;
+  const targetType = (state.filters.targetType as string | undefined) ?? undefined;
+
+  const filtered = React.useMemo(() => {
+    const q = state.search.trim().toLowerCase();
+    return all.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (targetType && r.targetType !== targetType) return false;
+      if (q && ![r.reason, r.reporterName, r.targetLabel].some((v) => v?.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [all, state.search, status, targetType]);
+
+  const paged = React.useMemo(() => {
+    const start = (state.page - 1) * state.pageSize;
+    return filtered.slice(start, start + state.pageSize);
+  }, [filtered, state.page, state.pageSize]);
+
+  const openCount = all.filter((r) => r.status === "open").length;
+  const resolvedCount = all.filter((r) => r.status === "resolved").length;
+  const dismissedCount = all.filter((r) => (r.status as string) === "dismissed").length;
+
+  const columns = React.useMemo<ColumnDef<ReportSummary, unknown>[]>(
+    () => [
+      {
+        accessorKey: "targetType",
+        header: "Type",
+        cell: ({ row }) => {
+          const Icon = TYPE_ICON[row.original.targetType as keyof typeof TYPE_ICON] ?? Flag;
+          return (
+            <Badge tone="neutral">
+              <Icon className="h-3 w-3" /> {row.original.targetType}
+            </Badge>
+          );
+        }
+      },
+      {
+        accessorKey: "reason",
+        header: "Reason",
+        cell: ({ row }) => (
+          <div className="max-w-[400px] truncate text-sm">{row.original.reason}</div>
+        )
+      },
+      {
+        accessorKey: "targetLabel",
+        header: "Target",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">{row.original.targetLabel || "—"}</span>
+        )
+      },
+      {
+        accessorKey: "reporterName",
+        header: "Reporter",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">{row.original.reporterName}</span>
+        )
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge status={row.original.status} />
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Reported",
+        cell: ({ row }) => <RelativeTime value={row.original.createdAt} />
+      }
+    ],
+    []
+  );
 
   return (
-    <Card>
-      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
-        Reports
-      </p>
-      <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
-        Moderation inbox
-      </h1>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Reports"
+        description="Everything flagged by users. Open any report to see the full context and resolve with notes."
+      />
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        {(["all", "open", "in_review", "resolved"] as const).map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilter(status)}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-              filter === status
-                ? "bg-[var(--petto-primary)] text-white"
-                : "bg-[var(--petto-background)] text-[var(--petto-ink)] hover:bg-gray-200"
-            }`}
-          >
-            {status === "all" ? "All" : status.replace("_", " ")}
-            <span className="ml-1.5 opacity-70">
-              (
-              {status === "all"
-                ? reports.length
-                : reports.filter((r) => r.status === status).length}
-              )
-            </span>
-          </button>
-        ))}
+      <div className="grid gap-3 sm:grid-cols-4">
+        <StatCard label="Open" value={openCount} icon={Flag} tone={openCount > 0 ? "warning" : "neutral"} />
+        <StatCard label="Resolved" value={resolvedCount} icon={Shield} tone="success" />
+        <StatCard label="Dismissed" value={dismissedCount} />
+        <StatCard label="Total" value={all.length} />
       </div>
 
-      <div className="mt-6 space-y-3">
-        {filtered.length === 0 && (
-          <p className="py-12 text-center text-[var(--petto-muted)]">
-            No reports found.
-          </p>
-        )}
-        {filtered.map((report) => {
-          const Icon = TYPE_ICON[report.targetType] ?? ImageIcon;
-          return (
-            <button
-              key={report.id}
-              onClick={() => router.push(`/reports/${report.id}`)}
-              className="group flex items-center gap-4 rounded-[20px] border border-[var(--petto-border)] bg-white/70 p-4 text-left transition-all hover:border-[var(--petto-primary)] hover:shadow-md md:p-5"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--petto-background)]">
-                <Icon className="h-5 w-5 text-[var(--petto-secondary)]" />
-              </div>
+      <DataTableToolbar
+        searchValue={state.search}
+        onSearchChange={(value) => setState({ search: value, page: 1 })}
+        searchPlaceholder="Search by reason, target, reporter"
+      >
+        <FacetFilter
+          label="Status"
+          value={status}
+          onChange={(value) => setState({ filters: { ...state.filters, status: value ?? "" }, page: 1 })}
+          options={[
+            { value: "open", label: "Open" },
+            { value: "resolved", label: "Resolved" },
+            { value: "dismissed", label: "Dismissed" }
+          ]}
+        />
+        <FacetFilter
+          label="Type"
+          value={targetType}
+          onChange={(value) => setState({ filters: { ...state.filters, targetType: value ?? "" }, page: 1 })}
+          options={[
+            { value: "chat", label: "Chat" },
+            { value: "post", label: "Post" },
+            { value: "pet", label: "Pet" },
+            { value: "user", label: "User" }
+          ]}
+        />
+      </DataTableToolbar>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    tone={
-                      report.targetType === "chat"
-                        ? "neutral"
-                        : report.targetType === "pet"
-                          ? "warning"
-                          : "success"
-                    }
-                  >
-                    {TYPE_LABEL[report.targetType] ?? report.targetType}
-                  </Badge>
-                  <span className="text-sm text-[var(--petto-muted)]">
-                    {report.reason}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-[var(--petto-muted)] truncate">
-                  {report.targetLabel} &middot; reported by{" "}
-                  {report.reporterName}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <Badge
-                  tone={
-                    report.status === "open"
-                      ? "warning"
-                      : report.status === "in_review"
-                        ? "neutral"
-                        : "success"
-                  }
-                >
-                  {report.status.replace("_", " ")}
-                </Badge>
-                <ChevronRight className="h-4 w-4 text-[var(--petto-muted)] group-hover:text-[var(--petto-primary)] transition-colors" />
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </Card>
+      <DataTable<ReportSummary>
+        data={paged}
+        columns={columns}
+        rowId={(r) => r.id}
+        total={filtered.length}
+        state={state}
+        onStateChange={setState}
+        loading={query.isLoading}
+        selection={selection}
+        onSelectionChange={setSelection}
+        onRowClick={(r) => router.push(`/reports/${r.id}`)}
+      />
+    </div>
   );
 }

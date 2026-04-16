@@ -41,10 +41,10 @@ export default function NotificationsPage() {
     <div className="space-y-5">
       {/* Send Notification Form */}
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Notifications
         </p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">
           Push Notifications
         </h1>
 
@@ -134,10 +134,10 @@ export default function NotificationsPage() {
 
       {/* Notification History */}
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           History
         </p>
-        <h2 className="mt-2 text-2xl text-[var(--petto-ink)]">
+        <h2 className="mt-2 text-base font-semibold text-[var(--foreground)]">
           Sent Notifications
         </h2>
 

@@ -1,172 +1,164 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, Heart, Image as ImageIcon, MapPin, Trash2 } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Heart, Image as ImageIcon } from "lucide-react";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { Card } from "@/components/ui/card";
+import { useConfirm } from "@/components/common/ConfirmDialog";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { UserCell } from "@/components/common/UserCell";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableToolbar } from "@/components/data-table/DataTableToolbar";
+import { RowActions } from "@/components/data-table/columns";
+import { useDataTable } from "@/components/data-table/useDataTable";
 import { Badge } from "@/components/ui/badge";
+import type { HomePost } from "@petto/contracts";
 import { deletePost, getPosts } from "@/lib/admin-api";
 
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 export default function PostsPage() {
-  const queryClient = useQueryClient();
-  const { data: posts = [], isLoading } = useQuery({
-    queryKey: ["admin-posts"],
-    queryFn: getPosts
+  const qc = useQueryClient();
+  const { state, setState, selection, setSelection } = useDataTable();
+  const { confirm, node: confirmNode } = useConfirm();
+
+  const query = useQuery({ queryKey: ["admin-posts"], queryFn: getPosts });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deletePost(id),
+    onSuccess: () => {
+      toast.success("Post deleted");
+      qc.invalidateQueries({ queryKey: ["admin-posts"] });
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed")
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: deletePost,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-posts"] });
-    }
-  });
+  const all = query.data ?? [];
+  const filtered = React.useMemo(() => {
+    const q = state.search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((p) =>
+      [p.body, p.author?.firstName, p.author?.lastName, p.venueName, p.eventName].some((v) =>
+        v?.toLowerCase().includes(q)
+      )
+    );
+  }, [all, state.search]);
+  const paged = React.useMemo(() => {
+    const start = (state.page - 1) * state.pageSize;
+    return filtered.slice(start, start + state.pageSize);
+  }, [filtered, state.page, state.pageSize]);
+
+  const columns = React.useMemo<ColumnDef<HomePost, unknown>[]>(
+    () => [
+      {
+        accessorKey: "author",
+        header: "Author",
+        cell: ({ row }) => {
+          const a = row.original.author;
+          return (
+            <UserCell
+              id={a.id}
+              name={`${a.firstName ?? ""} ${a.lastName ?? ""}`.trim()}
+              subtitle={a.cityLabel ?? undefined}
+              avatarUrl={a.avatarUrl}
+            />
+          );
+        }
+      },
+      {
+        accessorKey: "body",
+        header: "Content",
+        cell: ({ row }) => (
+          <div className="max-w-[340px] truncate text-sm text-[var(--foreground)]">
+            {row.original.body || <em className="text-[var(--muted-foreground)]">(empty)</em>}
+          </div>
+        )
+      },
+      {
+        id: "media",
+        header: "Media",
+        cell: ({ row }) =>
+          row.original.imageUrl ? (
+            <Badge tone="neutral">
+              <ImageIcon className="h-3 w-3" /> image
+            </Badge>
+          ) : (
+            <span className="text-[11px] text-[var(--muted-foreground)]">—</span>
+          )
+      },
+      {
+        id: "venue",
+        header: "Venue",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">{row.original.venueName || "—"}</span>
+        )
+      },
+      {
+        accessorKey: "likeCount",
+        header: "Likes",
+        cell: ({ row }) => (
+          <Badge tone={row.original.likeCount > 0 ? "success" : "neutral"}>
+            <Heart className="h-3 w-3" /> {row.original.likeCount}
+          </Badge>
+        )
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Posted",
+        cell: ({ row }) => <RelativeTime value={row.original.createdAt} />
+      },
+      {
+        id: "_actions",
+        header: "",
+        cell: ({ row }) => (
+          <RowActions
+            items={[
+              {
+                label: "Delete post",
+                destructive: true,
+                onSelect: async () => {
+                  await confirm({
+                    title: "Delete this post?",
+                    description: "The post will be removed for everyone.",
+                    destructive: true,
+                    requireReason: true,
+                    confirmLabel: "Delete",
+                    onConfirm: () => deleteMut.mutateAsync(row.original.id)
+                  });
+                }
+              }
+            ]}
+          />
+        )
+      }
+    ],
+    [confirm, deleteMut]
+  );
 
   return (
-    <div className="space-y-5">
-      <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
-          Posts
-        </p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
-          Community publishing overview
-        </h1>
-      </Card>
-
-      {isLoading && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
-        </div>
-      )}
-      {!isLoading && posts.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
-          No items found.
-        </div>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {posts.map((post) => (
-          <Card key={post.id}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                {post.author.avatarUrl ? (
-                  <img
-                    src={post.author.avatarUrl}
-                    alt={post.author.firstName}
-                    className="h-10 w-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--petto-primary-soft)] text-sm font-bold text-[var(--petto-primary)]">
-                    {post.author.firstName[0]}
-                    {post.author.lastName?.[0] ?? ""}
-                  </div>
-                )}
-                <div>
-                  <p className="font-semibold text-[var(--petto-ink)]">
-                    {post.author.firstName} {post.author.lastName}
-                  </p>
-                  <div className="flex items-center gap-1 text-xs text-[var(--petto-muted)]">
-                    <MapPin size={11} />
-                    {post.author.cityLabel}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => deleteMutation.mutate(post.id)}
-                  disabled={deleteMutation.isPending}
-                  className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100 disabled:opacity-50"
-                  title="Delete post"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-2 flex items-center gap-3 text-xs text-[var(--petto-muted)]">
-              <span className="flex items-center gap-1">
-                <Clock size={11} />
-                {formatTime(post.createdAt)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Heart size={11} />
-                {post.likeCount} likes
-              </span>
-              <span className="text-[10px] font-mono opacity-50">
-                {post.id}
-              </span>
-            </div>
-
-            {post.imageUrl ? (
-              <div className="mt-3 overflow-hidden rounded-lg border border-[var(--petto-border)]">
-                <img
-                  src={post.imageUrl}
-                  alt="Post"
-                  className="h-52 w-full object-cover"
-                />
-              </div>
-            ) : (
-              <div className="mt-3 flex h-24 items-center justify-center rounded-lg border border-dashed border-[var(--petto-border)] text-xs text-[var(--petto-muted)]">
-                <ImageIcon size={14} className="mr-1.5 opacity-50" />
-                No image
-              </div>
-            )}
-
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[var(--petto-ink)]">
-              {post.body}
-            </p>
-
-            {post.taggedPets.length ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--petto-muted)]">
-                  Tagged pets
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {post.taggedPets.map((pet) => (
-                    <div
-                      key={pet.id}
-                      className="flex items-center gap-2 rounded-full border border-[var(--petto-border)] bg-[var(--petto-surface)] px-2.5 py-1"
-                    >
-                      {pet.photos[0]?.url ? (
-                        <img
-                          src={pet.photos[0].url}
-                          alt={pet.name}
-                          className="h-5 w-5 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--petto-primary-soft)] text-[9px] font-bold text-[var(--petto-primary)]">
-                          {pet.name[0]}
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-xs font-semibold text-[var(--petto-ink)]">
-                          {pet.name}
-                        </span>
-                        <span className="ml-1 text-[10px] text-[var(--petto-muted)]">
-                          {pet.breedLabel} &middot; {pet.speciesLabel} &middot;{" "}
-                          {pet.ageYears}y
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </Card>
-        ))}
-      </div>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Posts"
+        description="Moderate community posts — delete spam, bullying, or anything that breaks the rules."
+      />
+      <DataTableToolbar
+        searchValue={state.search}
+        onSearchChange={(value) => setState({ search: value, page: 1 })}
+        searchPlaceholder="Search body, author, venue"
+      />
+      <DataTable<HomePost>
+        data={paged}
+        columns={columns}
+        rowId={(row) => row.id}
+        total={filtered.length}
+        state={state}
+        onStateChange={setState}
+        loading={query.isLoading}
+        selection={selection}
+        onSelectionChange={setSelection}
+      />
+      {confirmNode}
     </div>
   );
 }

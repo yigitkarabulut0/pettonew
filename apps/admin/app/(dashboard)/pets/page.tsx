@@ -1,83 +1,140 @@
 "use client";
 
-import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import { PawPrint } from "lucide-react";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableToolbar } from "@/components/data-table/DataTableToolbar";
+import { RowActions } from "@/components/data-table/columns";
+import { useDataTable } from "@/components/data-table/useDataTable";
+import type { Pet } from "@petto/contracts";
 import { getPets, updatePetVisibility } from "@/lib/admin-api";
 
 export default function PetsPage() {
-  const queryClient = useQueryClient();
-  const { data: pets = [], isLoading } = useQuery({
-    queryKey: ["admin-pets"],
-    queryFn: getPets
-  });
+  const qc = useQueryClient();
+  const router = useRouter();
+  const { state, setState, selection, setSelection } = useDataTable();
+
+  const query = useQuery({ queryKey: ["admin-pets"], queryFn: getPets });
   const mutation = useMutation({
     mutationFn: ({ petId, hidden }: { petId: string; hidden: boolean }) =>
       updatePetVisibility(petId, hidden),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-pets"] });
-    }
+      toast.success("Visibility updated");
+      qc.invalidateQueries({ queryKey: ["admin-pets"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed")
   });
 
-  return (
-    <Card>
-      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
-        Pets
-      </p>
-      <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
-        Discovery inventory
-      </h1>
-      {isLoading && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
-        </div>
-      )}
-      {!isLoading && pets.length === 0 && (
-        <div className="mt-6 rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
-          No items found.
-        </div>
-      )}
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {pets.map((pet) => (
-          <div
-            key={pet.id}
-            className="rounded-[28px] border border-[var(--petto-border)] bg-white/70 p-5"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-2xl text-[var(--petto-ink)]">{pet.name}</h2>
-              <Badge tone={pet.isHidden ? "warning" : "success"}>
-                {pet.isHidden ? "Hidden" : "Visible"}
-              </Badge>
+  const all = query.data ?? [];
+  const filtered = React.useMemo(() => {
+    const q = state.search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((p) =>
+      [p.name, p.breedLabel, p.speciesLabel, p.cityLabel, p.bio].some((v) =>
+        v?.toLowerCase().includes(q)
+      )
+    );
+  }, [all, state.search]);
+  const paged = React.useMemo(() => {
+    const start = (state.page - 1) * state.pageSize;
+    return filtered.slice(start, start + state.pageSize);
+  }, [filtered, state.page, state.pageSize]);
+
+  const columns = React.useMemo<ColumnDef<Pet, unknown>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Pet",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--muted)] text-[var(--muted-foreground)]">
+              <PawPrint className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-2 text-sm text-[var(--petto-secondary)]">
-              {pet.speciesLabel} &middot; {pet.breedLabel} &middot;{" "}
-              {pet.cityLabel}
-            </p>
-            <p className="mt-3 text-sm leading-6 text-[var(--petto-muted)]">
-              {pet.bio}
-            </p>
-            <div className="mt-5 flex gap-2">
-              <Link
-                href={`/pets/${pet.id}`}
-                className="inline-flex items-center justify-center rounded-full border border-[var(--petto-border)] bg-white/60 px-4 py-2.5 text-sm font-semibold text-[var(--petto-secondary)] transition-all hover:bg-white"
-              >
-                View details
-              </Link>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  mutation.mutate({ petId: pet.id, hidden: !pet.isHidden })
-                }
-              >
-                {pet.isHidden ? "Show in discovery" : "Hide from discovery"}
-              </Button>
+            <div className="leading-tight">
+              <div className="text-sm font-medium text-[var(--foreground)]">{row.original.name}</div>
+              <div className="text-[11px] text-[var(--muted-foreground)]">
+                {row.original.speciesLabel || "—"} · {row.original.breedLabel || "mixed"}
+              </div>
             </div>
           </div>
-        ))}
-      </div>
-    </Card>
+        )
+      },
+      {
+        accessorKey: "cityLabel",
+        header: "City",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">{row.original.cityLabel || "—"}</span>
+        )
+      },
+      {
+        accessorKey: "isHidden",
+        header: "Visibility",
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.isHidden ? "hidden" : "active"} />
+        )
+      },
+      {
+        accessorKey: "ageYears",
+        header: "Age",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">
+            {row.original.ageYears != null ? `${row.original.ageYears}y` : "—"}
+          </span>
+        )
+      },
+      {
+        id: "_actions",
+        header: "",
+        cell: ({ row }) => {
+          const p = row.original;
+          return (
+            <RowActions
+              items={[
+                { label: "View details", href: `/pets/${p.id}` },
+                {
+                  label: p.isHidden ? "Show in discovery" : "Hide from discovery",
+                  onSelect: () => mutation.mutate({ petId: p.id, hidden: !p.isHidden })
+                }
+              ]}
+            />
+          );
+        }
+      }
+    ],
+    [mutation]
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Pets"
+        description="Every pet profile in the network. Toggle visibility, open a pet for health and album moderation."
+      />
+      <DataTableToolbar
+        searchValue={state.search}
+        onSearchChange={(value) => setState({ search: value, page: 1 })}
+        searchPlaceholder="Search by name, breed, or city"
+      />
+      <DataTable<Pet>
+        data={paged}
+        columns={columns}
+        rowId={(row) => row.id}
+        total={filtered.length}
+        state={state}
+        onStateChange={setState}
+        loading={query.isLoading}
+        selection={selection}
+        onSelectionChange={setSelection}
+        onRowClick={(row) => router.push(`/pets/${row.id}`)}
+      />
+    </div>
   );
 }

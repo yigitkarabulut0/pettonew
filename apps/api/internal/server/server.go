@@ -183,6 +183,9 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/blocks", s.handleBlockUser)
 			router.Post("/reports", s.handleReport)
 			router.Post("/push-token", s.handleSavePushToken)
+			// Presence — foreground heartbeat + offline ping.
+			router.Post("/presence/heartbeat", s.handlePresenceHeartbeat)
+			router.Post("/presence/offline", s.handlePresenceOffline)
 			router.Post("/media/upload", s.handleUpload)
 			router.Post("/media/presign", s.handleMediaPresign)
 			// Health
@@ -364,11 +367,88 @@ func (s *Server) Routes() http.Handler {
 				router.Get("/lost-pets", s.handleAdminLostPets)
 				router.Patch("/lost-pets/{alertID}", s.handleAdminUpdateLostPet)
 
-				// Badges
-				router.Get("/badges", s.handleAdminBadges)
+				// Badges (legacy — user awards list)
+				router.Get("/badges/awards", s.handleAdminBadges)
 
 				// Media (reuse app handler)
 				router.Post("/media/presign", s.handleMediaPresign)
+
+				// === v0.17.0 admin panel rebuild — new endpoints ===
+
+				// Users: ban workflow, badge awards, aggregate slices
+				router.Post("/users/{userID}/ban", s.handleAdminBanUser)
+				router.Post("/users/{userID}/unban", s.handleAdminUnbanUser)
+				router.Get("/users/{userID}/bans", s.handleAdminUserBans)
+				router.Post("/users/{userID}/award-badge", s.handleAdminUserAwardBadge)
+				router.Get("/users/{userID}/playdates", s.handleAdminUserPlaydates)
+				router.Get("/users/{userID}/groups", s.handleAdminUserGroups)
+				router.Get("/users/{userID}/reports", s.handleAdminUserReports)
+				router.Get("/users/{userID}/activity", s.handleAdminUserActivity)
+				router.Get("/users/{userID}/location", s.handleAdminUserLocation)
+				router.Get("/active-users", s.handleAdminActiveUsers)
+				router.Get("/pets/{petID}/playdates", s.handleAdminPetPlaydates)
+				router.Get("/pets/{petID}/photos", s.handleAdminPetPhotos)
+
+				// Admin accounts (RBAC)
+				router.Get("/admins", s.handleAdminListAdmins)
+				router.Post("/admins", s.handleAdminCreateAdmin)
+				router.Patch("/admins/{adminID}", s.handleAdminUpdateAdmin)
+				router.Post("/admins/{adminID}/reset-password", s.handleAdminResetAdminPassword)
+				router.Delete("/admins/{adminID}", s.handleAdminDeleteAdmin)
+
+				// Audit
+				router.Get("/audit-logs", s.handleAdminAuditLogs)
+
+				// Moderation — conversations, matches, swipes, blocks
+				router.Get("/conversations", s.handleAdminConversations)
+				router.Get("/conversations/{conversationID}/messages", s.handleAdminConversationMessages)
+				router.Delete("/conversations/{conversationID}/messages/{messageID}", s.handleAdminDeleteConversationMessage)
+				router.Get("/matches", s.handleAdminMatches)
+				router.Delete("/matches/{matchID}", s.handleAdminDeleteMatch)
+				router.Get("/swipes", s.handleAdminSwipes)
+				router.Get("/blocks", s.handleAdminBlocks)
+
+				// Venue check-ins & reviews, event RSVPs
+				router.Get("/venue-check-ins", s.handleAdminVenueCheckIns)
+				router.Delete("/venue-check-ins/{id}", s.handleAdminDeleteVenueCheckIn)
+				router.Get("/venue-reviews", s.handleAdminVenueReviews)
+				router.Delete("/venue-reviews/{id}", s.handleAdminDeleteVenueReview)
+				router.Get("/events/{eventID}/rsvps", s.handleAdminEventRSVPs)
+
+				// Pet albums, milestones
+				router.Get("/pets/{petID}/albums", s.handleAdminPetAlbums)
+				router.Get("/pets/{petID}/milestones", s.handleAdminPetMilestones)
+				router.Delete("/pet-albums/{albumID}", s.handleAdminDeletePetAlbum)
+
+				// Directory updates (close CRUD gaps)
+				router.Put("/vet-clinics/{clinicID}", s.handleAdminUpdateVetClinic)
+				router.Put("/pet-sitters/{sitterID}", s.handleAdminUpdatePetSitter)
+				router.Put("/walk-routes/{routeID}", s.handleAdminUpdateWalkRoute)
+
+				// Groups & playdates (full moderation)
+				router.Put("/groups/{groupID}", s.handleAdminUpdateGroup)
+				router.Get("/groups/{groupID}/members", s.handleAdminGroupMembers)
+				router.Delete("/groups/{groupID}/members/{userID}", s.handleAdminKickGroupMember)
+				router.Patch("/playdates/{playdateID}", s.handleAdminUpdatePlaydate)
+				router.Post("/playdates/{playdateID}/cancel", s.handleAdminCancelPlaydate)
+
+				// Reports
+				router.Post("/reports/bulk-resolve", s.handleAdminReportsBulkResolve)
+				router.Get("/reports/stats", s.handleAdminReportsStats)
+
+				// System: announcements, feature flags, broadcast, metrics, badges CRUD
+				router.Get("/announcements", s.handleAdminAnnouncements)
+				router.Post("/announcements", s.handleAdminCreateAnnouncement)
+				router.Patch("/announcements/{id}", s.handleAdminUpdateAnnouncement)
+				router.Delete("/announcements/{id}", s.handleAdminDeleteAnnouncement)
+				router.Get("/feature-flags", s.handleAdminFeatureFlags)
+				router.Put("/feature-flags/{key}", s.handleAdminUpdateFeatureFlag)
+				router.Post("/broadcast", s.handleAdminBroadcast)
+				router.Get("/dashboard/metrics", s.handleAdminDashboardMetrics)
+				router.Get("/badges", s.handleAdminListBadgesAll)
+				router.Post("/badges", s.handleAdminCreateBadge)
+				router.Put("/badges/{id}", s.handleAdminUpdateBadge)
+				router.Delete("/badges/{id}", s.handleAdminDeleteBadge)
 			})
 		})
 	})

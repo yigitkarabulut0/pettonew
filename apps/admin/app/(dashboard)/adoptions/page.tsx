@@ -36,10 +36,10 @@ export default function AdoptionsPage() {
   return (
     <div className="space-y-5">
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Adoptions
         </p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">
           Pet adoption listings
         </h1>
       </Card>
@@ -50,7 +50,7 @@ export default function AdoptionsPage() {
         </div>
       )}
       {!isLoading && listings.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No adoption listings found.
         </div>
       )}

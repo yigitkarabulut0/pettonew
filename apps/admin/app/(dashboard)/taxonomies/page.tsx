@@ -76,9 +76,9 @@ export default function TaxonomiesPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <Card className="bg-[linear-gradient(135deg,rgba(255,252,248,0.98),rgba(245,229,216,0.92))]">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Taxonomies</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Manage pet profile data</h1>
+      <Card className="">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Taxonomies</p>
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">Manage pet profile data</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--petto-muted)]">
           Species, breeds, hobbies, compatibility tags, and character traits flow into the mobile pet creation experience.
         </p>
@@ -135,7 +135,7 @@ export default function TaxonomiesPage() {
         {/* Items List */}
         <div className="mt-6 space-y-2">
           {items.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--petto-border)] bg-white/50 py-10 text-center text-sm text-[var(--petto-muted)]">
+            <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/50 py-10 text-center text-sm text-[var(--petto-muted)]">
               No {meta.label.toLowerCase()} added yet
             </div>
           ) : (
@@ -193,7 +193,7 @@ function AddForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--petto-border)] bg-white/70 p-4 space-y-3">
+    <form onSubmit={handleSubmit} className="rounded-md border border-[var(--petto-border)] bg-white/70 p-4 space-y-3">
       {isBreeds && (
         <>
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--petto-muted)]">Select species first, then add breeds quickly</p>
@@ -267,7 +267,7 @@ function ItemRow({
   };
 
   return (
-    <div className="group rounded-2xl border border-[var(--petto-border)] bg-[rgba(255,252,248,0.92)] px-4 py-3 transition-colors hover:border-[var(--petto-primary-light)]">
+    <div className="group rounded-md border border-[var(--petto-border)] bg-[rgba(255,252,248,0.92)] px-4 py-3 transition-colors hover:border-[var(--petto-primary-light)]">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <p className="font-semibold text-[var(--petto-ink)] truncate">{item.label}</p>

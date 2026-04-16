@@ -1,83 +1,101 @@
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2, PawPrint } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { adminLogin } from "@/lib/admin-api";
+import { Label } from "@/components/ui/label";
+import { apiLogin } from "@/lib/api/client";
 
 const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8)
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters")
 });
 
 type FormValues = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
-    formState: { isSubmitting }
-  } = useForm<FormValues>({
-    defaultValues: {
-      email: "",
-      password: ""
-    },
-    resolver: zodResolver(schema)
-  });
+    formState: { errors, isSubmitting }
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+
+  const onSubmit = async (values: FormValues) => {
+    try {
+      await apiLogin(values.email, values.password);
+      toast.success("Welcome back");
+      router.replace("/dashboard");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to sign in");
+    }
+  };
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-16">
-      <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="flex flex-col justify-center gap-6">
-          <span className="text-sm font-semibold uppercase tracking-[0.35em] text-[var(--petto-primary)]">
-            Fetcht Admin
-          </span>
-          <h1 className="max-w-2xl text-6xl leading-none text-[var(--petto-ink)]">
-            Moderation and growth in one warm, sharply organized cockpit.
-          </h1>
-          <p className="max-w-xl text-lg leading-8 text-[var(--petto-muted)]">
-            Manage pet taxonomies, review reports, watch growth, and keep the matching ecosystem healthy.
-          </p>
+    <div className="flex min-h-screen items-center justify-center bg-[var(--muted)] px-5">
+      <Card className="w-full max-w-sm p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
+            <PawPrint className="h-3.5 w-3.5" />
+          </div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tracking-tight">Petto</div>
+            <div className="font-mono text-[10px] text-[var(--muted-foreground)]">admin console</div>
+          </div>
         </div>
-        <Card className="p-8">
-          <form
-            className="space-y-4"
-            onSubmit={handleSubmit(async (values) => {
-              try {
-                await adminLogin(values.email, values.password);
-                router.replace("/dashboard");
-                router.refresh();
-              } catch (error) {
-                setErrorMessage(error instanceof Error ? error.message : "Unable to sign in.");
-              }
-            })}
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
-                Sign in
-              </p>
-              <h2 className="text-4xl">Control the system.</h2>
-            </div>
-            <Input placeholder="Email" {...register("email")} />
-            <Input placeholder="Password" type="password" {...register("password")} />
-            {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
-            <Button className="w-full" type="submit">
-              {isSubmitting ? "Signing in..." : "Sign in"}
-            </Button>
-            <p className="text-sm leading-6 text-[var(--petto-muted)]">
-              Sign in with your Fetcht admin credentials to manage live users, pets, taxonomies, and reports.
-            </p>
-          </form>
-        </Card>
-      </div>
-    </main>
+
+        <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
+        <p className="mb-5 mt-0.5 text-xs text-[var(--muted-foreground)]">
+          Use your admin credentials to continue.
+        </p>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="admin@petto.app"
+              {...register("email")}
+            />
+            {errors.email ? (
+              <p className="text-[11px] text-[var(--destructive)]">{errors.email.message}</p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              {...register("password")}
+            />
+            {errors.password ? (
+              <p className="text-[11px] text-[var(--destructive)]">{errors.password.message}</p>
+            ) : null}
+          </div>
+
+          <Button type="submit" size="md" disabled={isSubmitting} className="mt-1">
+            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {isSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+
+        <p className="mt-4 text-center text-[11px] text-[var(--muted-foreground)]">
+          Access is recorded in the audit trail.
+        </p>
+      </Card>
+    </div>
   );
 }

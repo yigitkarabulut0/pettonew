@@ -120,8 +120,8 @@ export default function VetClinicsPage() {
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`
         );
         const json = (await res.json()) as { features: GeocodingFeature[] };
-        if (json.features.length > 0) {
-          const place = json.features[0];
+        const place = json.features?.[0];
+        if (place) {
           setValue("address", place.place_name);
           setAddressQuery(place.place_name);
         }
@@ -245,10 +245,10 @@ export default function VetClinicsPage() {
     <div className="space-y-5">
       {/* Header */}
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Vet Clinics
         </p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">
           Manage veterinary clinic listings
         </h1>
       </Card>
@@ -400,7 +400,7 @@ export default function VetClinicsPage() {
 
       {/* Empty state */}
       {!isLoading && clinics.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No vet clinics found. Add your first clinic above.
         </div>
       )}

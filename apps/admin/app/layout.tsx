@@ -5,8 +5,8 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fetcht Admin",
-  description: "Fetcht moderation, taxonomy, and growth dashboard."
+  title: "Petto Admin",
+  description: "Petto moderation, community, and growth console."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,4 +18,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

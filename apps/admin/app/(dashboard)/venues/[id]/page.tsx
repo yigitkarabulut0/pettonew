@@ -320,7 +320,7 @@ export default function VenueDetailPage() {
             <div className="space-y-2">
               <label className="text-sm font-semibold text-[var(--petto-ink)]">Venue Image</label>
               <div className="flex items-center gap-3">
-                <label className="cursor-pointer rounded-2xl border border-dashed border-[var(--petto-border)] px-4 py-3 text-sm text-[var(--petto-muted)] hover:border-[var(--petto-primary)]">
+                <label className="cursor-pointer rounded-md border border-dashed border-[var(--petto-border)] px-4 py-3 text-sm text-[var(--petto-muted)] hover:border-[var(--petto-primary)]">
                   {imageFile ? imageFile.name : "Choose new image..."}
                   <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                 </label>

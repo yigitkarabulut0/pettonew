@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -306,8 +307,107 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		}
 	}
 
+	// ── v0.17.0: Admin panel rebuild ─────────────────────────────────
+	// user_bans: ban workflow with reason, duration, audit trail.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS user_bans (
+		id          TEXT PRIMARY KEY,
+		user_id     TEXT NOT NULL,
+		admin_id    TEXT NOT NULL,
+		reason      TEXT NOT NULL,
+		notes       TEXT,
+		starts_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		ends_at     TIMESTAMPTZ,
+		revoked_at  TIMESTAMPTZ,
+		revoked_by  TEXT,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_user_bans_user ON user_bans (user_id, created_at DESC)`)
+
+	// feature_flags: runtime toggles + JSON payloads for mobile.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS feature_flags (
+		key         TEXT PRIMARY KEY,
+		enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+		description TEXT,
+		payload     JSONB,
+		updated_by  TEXT,
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+
+	// admin_announcements: banners shown in the mobile app.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS admin_announcements (
+		id             TEXT PRIMARY KEY,
+		title          TEXT NOT NULL,
+		body           TEXT NOT NULL,
+		severity       TEXT NOT NULL DEFAULT 'info',
+		starts_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		ends_at        TIMESTAMPTZ,
+		target_segment JSONB,
+		created_by     TEXT,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+
+	// admin_users RBAC columns.
+	pool.Exec(ctx, `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'superadmin'`)
+	pool.Exec(ctx, `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`)
+	pool.Exec(ctx, `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`)
+	pool.Exec(ctx, `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ`)
+
+	// Search / pagination indexes for admin list endpoints.
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_app_users_created ON app_users (created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_posts_created ON posts (created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_reports_status_created ON reports (status, created_at DESC)`)
+
+	// audit_logs: persisted admin action trail consumed by /admin/audit-logs.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS audit_logs (
+		id             TEXT PRIMARY KEY,
+		actor_admin_id TEXT NOT NULL,
+		action         TEXT NOT NULL,
+		entity_type    TEXT NOT NULL,
+		entity_id      TEXT,
+		payload        JSONB,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_logs_admin   ON audit_logs (actor_admin_id, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_audit_logs_entity  ON audit_logs (entity_type, entity_id)`)
+
+	// badge_catalog: admin-managed badge definitions (the existing `badges`
+	// table is per-user awards; the catalog lists the templates).
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS badge_catalog (
+		id          TEXT PRIMARY KEY,
+		name        TEXT NOT NULL,
+		description TEXT,
+		icon_url    TEXT,
+		criteria    TEXT,
+		active      BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+
+	// user_presence: real-time online status + last known coordinates.
+	// Mobile app posts a heartbeat every ~20s while the app is in the
+	// foreground; when the app goes to the background/terminates the
+	// client POSTs to /v1/presence/offline. The admin dashboard reads
+	// `is_online=true AND last_seen_at > NOW()-60s` for the live user
+	// count, and the user detail map reads `lat/lng` for live location.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS user_presence (
+		user_id       TEXT PRIMARY KEY,
+		is_online     BOOLEAN NOT NULL DEFAULT FALSE,
+		app_state     TEXT NOT NULL DEFAULT 'foreground',
+		latitude      DOUBLE PRECISION,
+		longitude     DOUBLE PRECISION,
+		accuracy      DOUBLE PRECISION,
+		platform      TEXT,
+		last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_user_presence_online ON user_presence (is_online, last_seen_at DESC)`)
+
 	return &PostgresStore{pool: pool}, nil
 }
+
+// Pool exposes the underlying connection pool so server-level admin handlers
+// can run ad-hoc read queries without inflating the Store interface.
+func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
 
 // Close shuts down the connection pool.
 func (s *PostgresStore) Close() error {
@@ -6200,14 +6300,154 @@ func (s *PostgresStore) ResolveReport(reportID string, notes string) error {
 
 func (s *PostgresStore) GetReportDetail(reportID string) (*domain.ReportDetail, error) {
 	var r domain.ReportSummary
-	var notes, resolvedAt *string
-	err := s.pool.QueryRow(s.ctx(), `SELECT id, reason, reporter_id, reporter_name, target_type, target_id, target_label, status, notes, resolved_at, created_at FROM reports WHERE id=$1`, reportID).
-		Scan(&r.ID, &r.Reason, &r.ReporterID, &r.ReporterName, &r.TargetType, &r.TargetID, &r.TargetLabel, &r.Status, &notes, &resolvedAt, &r.CreatedAt)
-	if err != nil { return nil, fmt.Errorf("report not found") }
-	if notes != nil { r.Notes = *notes }
-	if resolvedAt != nil { r.ResolvedAt = *resolvedAt }
+	var notes sql.NullString
+	var resolvedAt, createdAt sql.NullTime
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, reason, reporter_id, reporter_name, target_type, target_id, target_label, status, notes, resolved_at, created_at
+		 FROM reports WHERE id=$1`, reportID).
+		Scan(&r.ID, &r.Reason, &r.ReporterID, &r.ReporterName, &r.TargetType, &r.TargetID, &r.TargetLabel, &r.Status, &notes, &resolvedAt, &createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("report not found: %w", err)
+	}
+	if notes.Valid {
+		r.Notes = notes.String
+	}
+	if resolvedAt.Valid {
+		r.ResolvedAt = resolvedAt.Time.UTC().Format(time.RFC3339)
+	}
+	if createdAt.Valid {
+		r.CreatedAt = createdAt.Time.UTC().Format(time.RFC3339)
+	}
 	detail := &domain.ReportDetail{ReportSummary: r}
+
+	// Hydrate target-specific context for the admin detail page.
+	switch r.TargetType {
+	case "post":
+		if post, err := s.getReportPostBrief(r.TargetID); err == nil {
+			detail.Post = post
+		}
+	case "pet":
+		if pet, err := s.getReportPetBrief(r.TargetID); err == nil {
+			detail.Pet = pet
+		}
+	case "chat":
+		detail.ChatMessages, detail.ChatUsers = s.getReportChatContext(r.TargetID)
+	}
 	return detail, nil
+}
+
+func (s *PostgresStore) getReportPostBrief(postID string) (*domain.ReportPostBrief, error) {
+	var out domain.ReportPostBrief
+	var imageURL sql.NullString
+	var avatarURL sql.NullString
+	var createdAt sql.NullTime
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT po.id, COALESCE(po.body,''), po.image_url, po.author_user_id,
+		        COALESCE(p.first_name || ' ' || p.last_name, u.email, '') AS author_name,
+		        p.avatar_url,
+		        COALESCE(po.like_count, 0), po.created_at
+		 FROM posts po
+		 LEFT JOIN user_profiles p ON p.user_id = po.author_user_id
+		 LEFT JOIN app_users u ON u.id = po.author_user_id
+		 WHERE po.id = $1`, postID).
+		Scan(&out.ID, &out.Body, &imageURL, &out.AuthorID, &out.AuthorName, &avatarURL, &out.LikeCount, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	if imageURL.Valid {
+		v := imageURL.String
+		out.ImageURL = &v
+	}
+	if avatarURL.Valid {
+		v := avatarURL.String
+		out.AuthorAvatarURL = &v
+	}
+	if createdAt.Valid {
+		out.CreatedAt = createdAt.Time.UTC().Format(time.RFC3339)
+	}
+	return &out, nil
+}
+
+func (s *PostgresStore) getReportPetBrief(petID string) (*domain.ReportPetBrief, error) {
+	var out domain.ReportPetBrief
+	var ownerAvatarURL sql.NullString
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT p.id, p.name, COALESCE(p.species_label,''), COALESCE(p.breed_label,''),
+		        COALESCE(p.is_hidden, false), p.owner_id,
+		        COALESCE(up.first_name || ' ' || up.last_name, u.email, '') AS owner_name,
+		        up.avatar_url
+		 FROM pets p
+		 LEFT JOIN user_profiles up ON up.user_id = p.owner_id
+		 LEFT JOIN app_users u ON u.id = p.owner_id
+		 WHERE p.id = $1`, petID).
+		Scan(&out.ID, &out.Name, &out.SpeciesLabel, &out.BreedLabel, &out.IsHidden, &out.OwnerID, &out.OwnerName, &ownerAvatarURL)
+	if err != nil {
+		return nil, err
+	}
+	if ownerAvatarURL.Valid {
+		v := ownerAvatarURL.String
+		out.OwnerAvatarURL = &v
+	}
+	photoRows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, url FROM pet_photos WHERE pet_id = $1 ORDER BY display_order LIMIT 12`, petID)
+	if photoRows != nil {
+		defer photoRows.Close()
+		for photoRows.Next() {
+			var p domain.PetPhoto
+			if err := photoRows.Scan(&p.ID, &p.URL); err == nil {
+				out.Photos = append(out.Photos, p)
+			}
+		}
+	}
+	if out.Photos == nil {
+		out.Photos = []domain.PetPhoto{}
+	}
+	return &out, nil
+}
+
+func (s *PostgresStore) getReportChatContext(conversationID string) ([]domain.ReportMessage, []domain.ReportUserBrief) {
+	var messages []domain.ReportMessage
+	var users []domain.ReportUserBrief
+	msgRows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, sender_profile_id, COALESCE(sender_name,''),
+		        COALESCE(body,''), created_at
+		 FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 500`, conversationID)
+	if msgRows != nil {
+		defer msgRows.Close()
+		for msgRows.Next() {
+			var m domain.ReportMessage
+			var createdAt sql.NullTime
+			if err := msgRows.Scan(&m.ID, &m.SenderProfileID, &m.SenderName, &m.Body, &createdAt); err == nil {
+				if createdAt.Valid {
+					m.CreatedAt = createdAt.Time.UTC().Format(time.RFC3339)
+				}
+				messages = append(messages, m)
+			}
+		}
+	}
+	var userIDs []string
+	_ = s.pool.QueryRow(s.ctx(), `SELECT user_ids FROM conversations WHERE id = $1`, conversationID).Scan(&userIDs)
+	if len(userIDs) > 0 {
+		uRows, _ := s.pool.Query(s.ctx(),
+			`SELECT u.id, COALESCE(p.first_name,''), COALESCE(p.last_name,''), p.avatar_url
+			 FROM app_users u LEFT JOIN user_profiles p ON p.user_id = u.id
+			 WHERE u.id = ANY($1)`, userIDs)
+		if uRows != nil {
+			defer uRows.Close()
+			for uRows.Next() {
+				var u domain.ReportUserBrief
+				var avatarURL sql.NullString
+				if err := uRows.Scan(&u.ID, &u.FirstName, &u.LastName, &avatarURL); err == nil {
+					if avatarURL.Valid {
+						v := avatarURL.String
+						u.AvatarURL = &v
+					}
+					users = append(users, u)
+				}
+			}
+		}
+	}
+	return messages, users
 }
 
 // ================================================================

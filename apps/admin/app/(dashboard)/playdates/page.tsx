@@ -1,49 +1,113 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Calendar, MapPin } from "lucide-react";
+import * as React from "react";
 
-import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableToolbar } from "@/components/data-table/DataTableToolbar";
+import { useDataTable } from "@/components/data-table/useDataTable";
+import { Badge } from "@/components/ui/badge";
 import { getAdminPlaydates } from "@/lib/admin-api";
 
+type Playdate = {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  location: string;
+  maxPets: number;
+  attendees: string[];
+  createdAt: string;
+};
+
 export default function PlaydatesPage() {
-  const { data: playdates = [], isLoading } = useQuery({
-    queryKey: ["admin-playdates"],
-    queryFn: getAdminPlaydates
-  });
+  const { state, setState, selection, setSelection } = useDataTable();
+  const query = useQuery({ queryKey: ["admin-playdates"], queryFn: getAdminPlaydates });
+
+  const all = (query.data as Playdate[] | undefined) ?? [];
+  const filtered = React.useMemo(() => {
+    const q = state.search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((p) =>
+      [p.title, p.description, p.location].some((v) => v?.toLowerCase().includes(q))
+    );
+  }, [all, state.search]);
+  const paged = React.useMemo(() => {
+    const start = (state.page - 1) * state.pageSize;
+    return filtered.slice(start, start + state.pageSize);
+  }, [filtered, state.page, state.pageSize]);
+
+  const columns = React.useMemo<ColumnDef<Playdate, unknown>[]>(
+    () => [
+      {
+        accessorKey: "title",
+        header: "Title",
+        cell: ({ row }) => <span className="text-sm font-medium">{row.original.title}</span>
+      },
+      {
+        accessorKey: "location",
+        header: "Location",
+        cell: ({ row }) => (
+          <span className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+            <MapPin className="h-3 w-3" /> {row.original.location || "—"}
+          </span>
+        )
+      },
+      {
+        accessorKey: "date",
+        header: "Date",
+        cell: ({ row }) => <RelativeTime value={row.original.date} />
+      },
+      {
+        accessorKey: "attendees",
+        header: "Attendees",
+        cell: ({ row }) => (
+          <Badge tone="neutral">
+            {row.original.attendees?.length ?? 0}/{row.original.maxPets}
+          </Badge>
+        )
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Created",
+        cell: ({ row }) => <RelativeTime value={row.original.createdAt} />
+      }
+    ],
+    []
+  );
 
   return (
-    <div className="space-y-5">
-      <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Playdates</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">All scheduled playdates</h1>
-      </Card>
-
-      {isLoading && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
-        </div>
-      )}
-      {!isLoading && playdates.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
-          No items found.
-        </div>
-      )}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {playdates.map((playdate) => (
-          <Card key={playdate.id}>
-            <div>
-              <p className="font-semibold text-[var(--petto-ink)]">{playdate.title}</p>
-              <p className="text-sm text-[var(--petto-muted)]">
-                {playdate.location}
-              </p>
-            </div>
-            <p className="mt-3 text-sm leading-7 text-[var(--petto-muted)]">{playdate.description}</p>
-            <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[var(--petto-muted)]">
-              {new Date(playdate.date).toLocaleString("en-GB")} • Max {playdate.maxPets} pets • {playdate.attendees.length} attendees
-            </p>
-          </Card>
-        ))}
-      </div>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Playdates"
+        description="All user-organized pet meetups. Use the row menu to edit or cancel."
+      />
+      <DataTableToolbar
+        searchValue={state.search}
+        onSearchChange={(value) => setState({ search: value, page: 1 })}
+        searchPlaceholder="Search title, description, location"
+      />
+      <DataTable<Playdate>
+        data={paged}
+        columns={columns}
+        rowId={(row) => row.id}
+        total={filtered.length}
+        state={state}
+        onStateChange={setState}
+        loading={query.isLoading}
+        selection={selection}
+        onSelectionChange={setSelection}
+        emptyState={
+          <div className="flex flex-col items-center gap-2 py-6 text-sm text-[var(--muted-foreground)]">
+            <Calendar className="h-5 w-5" />
+            <div>No playdates yet.</div>
+          </div>
+        }
+      />
     </div>
   );
 }

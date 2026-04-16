@@ -101,6 +101,26 @@ export default function RootLayout() {
     })();
   }, [session]);
 
+  // Start real-time presence tracking while signed in. The tracker posts a
+  // heartbeat every ~20s with lat/lng so the admin dashboard can display
+  // true "online now" status and live location.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      const { startPresence, stopPresence } = await import("@/lib/presence");
+      if (cancelled) return;
+      startPresence();
+      // Tear down on sign-out / unmount.
+      return () => {
+        stopPresence();
+      };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   // Handle notification taps — shared handler for both cold start and foreground
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;

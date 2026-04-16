@@ -69,8 +69,8 @@ export default function EventsPage() {
   return (
     <div className="space-y-5">
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Events</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Create attendance-based meetups with rules</h1>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Events</p>
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">Create attendance-based meetups with rules</h1>
       </Card>
 
       <Card>
@@ -116,7 +116,7 @@ export default function EventsPage() {
         </div>
       )}
       {!isLoading && events.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No items found.
         </div>
       )}

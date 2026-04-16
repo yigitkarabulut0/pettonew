@@ -1,18 +1,25 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const cookieName = "petto_admin_session";
+const TOKEN_COOKIE = "admin_token";
+const LEGACY_COOKIE = "petto_admin_session";
 
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const hasSession = Boolean(request.cookies.get(cookieName)?.value);
+
+  const isAssetRoute =
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/auth/login") ||
+    pathname === "/favicon.ico" ||
+    /\.(png|jpg|jpeg|gif|svg|ico|webp|woff2?)$/.test(pathname);
+
+  if (isAssetRoute) return NextResponse.next();
+
+  const hasSession =
+    Boolean(request.cookies.get(TOKEN_COOKIE)?.value) ||
+    Boolean(request.cookies.get(LEGACY_COOKIE)?.value);
 
   const isAuthRoute = pathname.startsWith("/login");
-  const isAssetRoute = pathname.startsWith("/_next") || pathname === "/favicon.ico";
-
-  if (isAssetRoute) {
-    return NextResponse.next();
-  }
 
   if (!hasSession && !isAuthRoute) {
     return NextResponse.redirect(new URL("/login", request.url));
@@ -26,5 +33,5 @@ export default function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|.*\\.png$).*)"]
+  matcher: ["/((?!api/proxy|api/auth|_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff2?)$).*)"]
 };

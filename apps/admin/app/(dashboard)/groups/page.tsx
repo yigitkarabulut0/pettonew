@@ -80,9 +80,9 @@ export default function GroupsPage() {
 
   return (
     <div className="space-y-5">
-      <Card className="bg-[linear-gradient(135deg,rgba(255,252,248,0.98),rgba(245,229,216,0.92))]">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Groups</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Community groups for pet owners</h1>
+      <Card className="">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Groups</p>
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">Community groups for pet owners</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--petto-muted)]">
           Create groups with location data so users can discover nearby communities. Private groups require a code to join.
         </p>
@@ -95,7 +95,7 @@ export default function GroupsPage() {
           <div className="grid gap-3 lg:grid-cols-2">
             <Input placeholder="Group name" {...register("name", { required: true })} />
             <select
-              className="flex h-11 w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 text-sm text-[var(--petto-ink)] outline-none"
+              className="flex h-11 w-full rounded-md border border-[var(--petto-border)] bg-white px-4 text-sm text-[var(--petto-ink)] outline-none"
               {...register("petType")}
             >
               <option value="all">All pets</option>
@@ -161,7 +161,7 @@ export default function GroupsPage() {
         </div>
       )}
       {!isLoading && groups.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No groups created yet.
         </div>
       )}

@@ -1,498 +1,449 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Ban,
-  Trash2,
-  ShieldCheck,
+  Flag,
+  ImageIcon,
   MessageSquare,
   PawPrint,
-  ImageIcon,
-  User
+  Shield,
+  Trash2
 } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { useConfirm } from "@/components/common/ConfirmDialog";
+import { EmptyState } from "@/components/common/EmptyState";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
+  deletePost,
   getReportDetail,
   resolveReport,
-  deletePost,
   updatePetVisibility,
   updateUserStatus
 } from "@/lib/admin-api";
+import { fmtInitials } from "@/lib/format";
 
 export default function ReportDetailPage() {
   const params = useParams<{ id: string }>();
+  const reportID = params?.id ?? "";
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const [notes, setNotes] = useState("");
+  const qc = useQueryClient();
+  const { confirm, node: confirmNode } = useConfirm();
+  const [notes, setNotes] = React.useState("");
 
-  const { data: report, isLoading } = useQuery({
-    queryKey: ["admin-report", params.id],
-    queryFn: () => getReportDetail(params.id),
-    enabled: Boolean(params.id)
+  const detailQ = useQuery({
+    queryKey: ["admin-report", reportID],
+    queryFn: () => getReportDetail(reportID),
+    enabled: Boolean(reportID)
   });
 
-  const resolveMutation = useMutation({
-    mutationFn: () => resolveReport(params.id, notes),
+  const resolveMut = useMutation({
+    mutationFn: () => resolveReport(reportID, notes),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-report"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      toast.success("Report resolved");
+      qc.invalidateQueries({ queryKey: ["admin-report", reportID] });
+      qc.invalidateQueries({ queryKey: ["admin-reports"] });
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
       router.push("/reports");
-    }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed")
   });
 
-  const banMutation = useMutation({
+  const banMut = useMutation({
     mutationFn: (userId: string) => updateUserStatus(userId, "suspended"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-report"] });
+      toast.success("User suspended");
+      qc.invalidateQueries({ queryKey: ["admin-report", reportID] });
     }
   });
 
-  const deletePostMutation = useMutation({
-    mutationFn: () => deletePost(report!.post!.id),
+  const deletePostMut = useMutation({
+    mutationFn: (postId: string) => deletePost(postId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-report"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      toast.success("Post deleted");
+      qc.invalidateQueries({ queryKey: ["admin-report", reportID] });
     }
   });
 
-  const hidePetMutation = useMutation({
-    mutationFn: () => updatePetVisibility(report!.pet!.id, true),
+  const hidePetMut = useMutation({
+    mutationFn: (petId: string) => updatePetVisibility(petId, true),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-report"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      toast.success("Pet hidden");
+      qc.invalidateQueries({ queryKey: ["admin-report", reportID] });
     }
   });
 
-  if (isLoading || !report) {
+  if (detailQ.isLoading) {
+    return <div className="py-6 text-sm text-[var(--muted-foreground)]">Loading…</div>;
+  }
+  if (detailQ.error || !detailQ.data) {
     return (
-      <Card>
-        <p className="text-[var(--petto-muted)]">Loading...</p>
-      </Card>
+      <div className="flex flex-col gap-3">
+        <Link
+          href="/reports"
+          className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        >
+          <ArrowLeft className="h-3 w-3" /> Reports
+        </Link>
+        <EmptyState
+          icon={Flag}
+          title="Report not found"
+          description={detailQ.error instanceof Error ? detailQ.error.message : undefined}
+        />
+      </div>
     );
   }
-
+  const report = detailQ.data;
   const isResolved = report.status === "resolved";
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => router.push("/reports")}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--petto-background)] hover:bg-gray-200 transition-colors"
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title={`Report · ${report.reason.slice(0, 60)}`}
+        description={`Target: ${report.targetType} · ${report.targetLabel || report.targetID}`}
+        breadcrumbs={
+          <Link
+            href="/reports"
+            className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           >
-            <ArrowLeft className="h-4 w-4 text-[var(--petto-ink)]" />
-          </button>
-          <div className="flex-1">
-            <h1 className="text-3xl text-[var(--petto-ink)]">Report Detail</h1>
-          </div>
-          <Badge tone={isResolved ? "success" : "warning"}>
-            {report.status.replace("_", " ")}
-          </Badge>
-        </div>
+            <ArrowLeft className="h-3 w-3" /> Reports
+          </Link>
+        }
+        actions={<StatusBadge status={report.status} />}
+      />
 
-        <div className="grid grid-cols-2 gap-3 rounded-[16px] bg-[var(--petto-background)] p-4 text-sm">
-          <div>
-            <span className="text-[var(--petto-muted)]">Type</span>
-            <p className="mt-0.5 font-medium text-[var(--petto-ink)] capitalize">
-              {report.targetType === "chat"
-                ? "💬 Chat"
-                : report.targetType === "pet"
-                  ? "🐕 Pet"
-                  : "📝 Post"}
-            </p>
-          </div>
-          <div>
-            <span className="text-[var(--petto-muted)]">Reason</span>
-            <p className="mt-0.5 font-medium text-[var(--petto-ink)]">
-              {report.reason}
-            </p>
-          </div>
-          <div>
-            <span className="text-[var(--petto-muted)]">Target</span>
-            <p className="mt-0.5 font-medium text-[var(--petto-ink)] truncate">
-              {report.targetLabel}
-            </p>
-          </div>
-          <div>
-            <span className="text-[var(--petto-muted)]">Reported by</span>
-            <p className="mt-0.5 font-medium text-[var(--petto-ink)]">
+      <Card>
+        <CardContent className="grid gap-x-6 gap-y-2 pt-5 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Type">
+            <Badge tone="neutral">{report.targetType}</Badge>
+          </Field>
+          <Field label="Reason">{report.reason}</Field>
+          <Field label="Reporter">
+            <Link href={`/users/${report.reporterID}`} className="hover:underline">
               {report.reporterName}
-            </p>
-          </div>
-          <div>
-            <span className="text-[var(--petto-muted)]">Created</span>
-            <p className="mt-0.5 font-medium text-[var(--petto-ink)]">
-              {new Date(report.createdAt).toLocaleString()}
-            </p>
-          </div>
-          {report.resolvedAt && (
-            <div>
-              <span className="text-[var(--petto-muted)]">Resolved</span>
-              <p className="mt-0.5 font-medium text-[var(--petto-ink)]">
-                {new Date(report.resolvedAt).toLocaleString()}
-              </p>
+            </Link>
+          </Field>
+          <Field label="Reported">
+            <RelativeTime value={report.createdAt} />
+          </Field>
+          {report.resolvedAt ? (
+            <Field label="Resolved">
+              <RelativeTime value={report.resolvedAt} />
+            </Field>
+          ) : null}
+          {report.notes ? (
+            <div className="col-span-full">
+              <p className="text-[11px] font-medium text-[var(--muted-foreground)]">Notes</p>
+              <p className="text-sm">{report.notes}</p>
             </div>
-          )}
-        </div>
-
-        {report.notes && (
-          <div className="mt-4 rounded-[12px] border border-[var(--petto-border)] bg-white/50 p-3 text-sm">
-            <span className="text-[var(--petto-muted)]">Notes: </span>
-            <span className="text-[var(--petto-ink)]">{report.notes}</span>
-          </div>
-        )}
+          ) : null}
+        </CardContent>
       </Card>
 
-      {report.targetType === "chat" && (
-        <ChatReportSection report={report} banMutation={banMutation as never} />
-      )}
-
-      {report.targetType === "pet" && (
-        <PetReportSection
-          report={report}
-          hidePetMutation={hidePetMutation as never}
-          banMutation={banMutation as never}
+      {report.targetType === "chat" ? (
+        <ChatContext
+          messages={report.chatMessages ?? []}
+          users={report.chatUsers ?? []}
+          onBan={(uid) =>
+            confirm({
+              title: "Suspend this user?",
+              description: "They will no longer be able to sign in.",
+              destructive: true,
+              requireReason: true,
+              onConfirm: () => banMut.mutateAsync(uid)
+            })
+          }
         />
-      )}
+      ) : null}
 
-      {report.targetType === "post" && (
-        <PostReportSection
-          report={report}
-          deletePostMutation={deletePostMutation as never}
-          banMutation={banMutation as never}
+      {report.targetType === "pet" && report.pet ? (
+        <PetContext
+          pet={report.pet}
+          onHide={() =>
+            confirm({
+              title: "Hide this pet from discovery?",
+              destructive: true,
+              requireReason: true,
+              onConfirm: () => hidePetMut.mutateAsync(report.pet!.id)
+            })
+          }
+          onBanOwner={() =>
+            confirm({
+              title: "Suspend the owner?",
+              destructive: true,
+              requireReason: true,
+              onConfirm: () => banMut.mutateAsync(report.pet!.ownerID)
+            })
+          }
         />
-      )}
+      ) : null}
 
-      {!isResolved && (
+      {report.targetType === "post" && report.post ? (
+        <PostContext
+          post={report.post}
+          onDelete={() =>
+            confirm({
+              title: "Delete this post?",
+              destructive: true,
+              requireReason: true,
+              onConfirm: () => deletePostMut.mutateAsync(report.post!.id)
+            })
+          }
+          onBanAuthor={() =>
+            confirm({
+              title: "Suspend the author?",
+              destructive: true,
+              requireReason: true,
+              onConfirm: () => banMut.mutateAsync(report.post!.authorID)
+            })
+          }
+        />
+      ) : null}
+
+      {!isResolved ? (
         <Card>
-          <h2 className="text-lg font-semibold text-[var(--petto-ink)] mb-3">
-            Resolve Report
-          </h2>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Add optional notes (e.g. why marked as safe)..."
-            rows={3}
-            className="w-full rounded-[12px] border border-[var(--petto-border)] bg-white/70 px-4 py-3 text-sm text-[var(--petto-ink)] placeholder:text-[var(--petto-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--petto-primary)]"
-          />
-          <div className="mt-3 flex gap-3">
-            <Button
-              variant="ghost"
-              onClick={() => resolveMutation.mutate()}
-              disabled={resolveMutation.isPending}
-            >
-              <ShieldCheck className="mr-2 h-4 w-4" />
-              {resolveMutation.isPending ? "Resolving..." : "Mark as Safe"}
-            </Button>
-          </div>
+          <CardHeader>
+            <CardTitle>Resolve</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <Label>Notes</Label>
+              <Textarea
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Why is this safe / action taken…"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={() => router.push("/reports")}>
+                Back
+              </Button>
+              <Button onClick={() => resolveMut.mutate()} disabled={resolveMut.isPending}>
+                <Shield className="h-3.5 w-3.5" />
+                {resolveMut.isPending ? "Resolving…" : "Mark resolved"}
+              </Button>
+            </div>
+          </CardContent>
         </Card>
-      )}
+      ) : null}
+
+      {confirmNode}
     </div>
   );
 }
 
-function ChatReportSection({
-  report,
-  banMutation
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[11px] font-medium text-[var(--muted-foreground)]">{label}</p>
+      <div className="text-sm">{children}</div>
+    </div>
+  );
+}
+
+function ChatContext({
+  messages,
+  users,
+  onBan
 }: {
-  report: {
-    chatMessages?: Array<{
-      id: string;
-      senderProfileID: string;
-      senderName: string;
-      body: string;
-      createdAt: string;
-    }>;
-    chatUsers?: Array<{
-      id: string;
-      firstName: string;
-      lastName: string;
-      avatarUrl?: string;
-    }>;
-  };
-  banMutation: ReturnType<typeof useMutation<void, Error, string, unknown>>;
+  messages: Array<{ id: string; senderProfileID: string; senderName: string; body: string; createdAt: string }>;
+  users: Array<{ id: string; firstName: string; lastName: string; avatarUrl?: string | null }>;
+  onBan: (userId: string) => void;
 }) {
-  const rawUsers = report.chatUsers ?? [];
-  const messages = report.chatMessages ?? [];
+  return (
+    <div className="flex flex-col gap-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="inline-flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-[var(--muted-foreground)]" /> Participants
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 sm:grid-cols-2">
+          {users.length === 0 ? (
+            <span className="text-xs text-[var(--muted-foreground)]">No participants.</span>
+          ) : (
+            users.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 rounded-md border border-[var(--border)] p-2">
+                <Avatar className="h-8 w-8">
+                  {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.firstName} /> : null}
+                  <AvatarFallback>{fmtInitials(`${u.firstName} ${u.lastName}`)}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <Link href={`/users/${u.id}`} className="text-sm font-medium hover:underline">
+                    {u.firstName} {u.lastName}
+                  </Link>
+                  <div className="truncate text-[11px] text-[var(--muted-foreground)]">{u.id.slice(0, 20)}…</div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => onBan(u.id)}>
+                  <Ban className="h-3 w-3" /> Suspend
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Messages ({messages.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-[480px] overflow-y-auto">
+          {messages.length === 0 ? (
+            <span className="text-xs text-[var(--muted-foreground)]">No messages.</span>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {messages.map((m) => (
+                <li key={m.id} className="rounded-md border border-[var(--border)] bg-[var(--muted)]/50 p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium">{m.senderName || "system"}</span>
+                    <span className="text-[10px] text-[var(--muted-foreground)]">
+                      <RelativeTime value={m.createdAt} />
+                    </span>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm">{m.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
-  const users =
-    rawUsers.length > 0
-      ? rawUsers
-      : messages.reduce<
-          Array<{ id: string; firstName: string; lastName: string }>
-        >((acc, msg) => {
-          if (!acc.find((u) => u.id === msg.senderProfileID)) {
-            const parts = msg.senderName.split(" ");
-            acc.push({
-              id: msg.senderProfileID,
-              firstName: parts[0] ?? msg.senderName,
-              lastName: parts.slice(1).join(" ")
-            });
-          }
-          return acc;
-        }, []);
-
+function PetContext({
+  pet,
+  onHide,
+  onBanOwner
+}: {
+  pet: {
+    id: string;
+    name: string;
+    speciesLabel: string;
+    breedLabel: string;
+    isHidden: boolean;
+    photos: Array<{ id: string; url: string }>;
+    ownerID: string;
+    ownerName: string;
+    ownerAvatarUrl?: string | null;
+  };
+  onHide: () => void;
+  onBanOwner: () => void;
+}) {
   return (
     <Card>
-      <div className="flex items-center gap-2 mb-4">
-        <MessageSquare className="h-5 w-5 text-[var(--petto-secondary)]" />
-        <h2 className="text-lg font-semibold text-[var(--petto-ink)]">
-          Chat History
-        </h2>
-      </div>
-
-      {users.length > 0 && (
-        <div className="mb-4 flex gap-3">
-          {users.map((user) => (
-            <div
-              key={user.id}
-              className="flex items-center gap-3 rounded-[16px] border border-[var(--petto-border)] bg-[var(--petto-background)] p-3 flex-1"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--petto-primary)] text-white font-semibold text-sm">
-                {user.firstName[0]}
-                {user.lastName[0]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--petto-ink)] truncate">
-                  {user.firstName} {user.lastName}
-                </p>
-                <p className="text-xs text-[var(--petto-muted)]">
-                  ID: {user.id.slice(0, 8)}...
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => banMutation.mutate(user.id)}
-                disabled={banMutation.isPending}
-              >
-                <Ban className="mr-1 h-3 w-3" />
-                Ban
-              </Button>
+      <CardHeader>
+        <CardTitle className="inline-flex items-center gap-2">
+          <PawPrint className="h-4 w-4 text-[var(--muted-foreground)]" /> Reported pet
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex gap-3 rounded-md border border-[var(--border)] p-3">
+          {pet.photos[0]?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={pet.photos[0].url} alt={pet.name} className="h-20 w-20 rounded-md object-cover" />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">
+              <Link href={`/pets/${pet.id}`} className="hover:underline">
+                {pet.name}
+              </Link>
             </div>
-          ))}
+            <div className="text-xs text-[var(--muted-foreground)]">
+              {pet.speciesLabel} · {pet.breedLabel}
+            </div>
+            <div className="text-xs text-[var(--muted-foreground)]">
+              Owner:{" "}
+              <Link href={`/users/${pet.ownerID}`} className="hover:underline">
+                {pet.ownerName}
+              </Link>
+            </div>
+            {pet.isHidden ? <Badge tone="warning">hidden</Badge> : null}
+          </div>
         </div>
-      )}
-
-      <div className="max-h-96 overflow-y-auto rounded-[12px] border border-[var(--petto-border)] bg-[var(--petto-background)] p-4 space-y-3">
-        {messages.length === 0 && (
-          <p className="py-6 text-center text-sm text-[var(--petto-muted)]">
-            No messages found.
-          </p>
-        )}
-        {messages.map((msg) => {
-          const isEven = parseInt(msg.id.slice(-1), 10) % 2 === 0;
-          return (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${isEven ? "items-start" : "items-end"}`}
-            >
-              <span className="text-xs font-medium text-[var(--petto-muted)] mb-1">
-                {msg.senderName}
-              </span>
-              <div
-                className={`max-w-[75%] rounded-[16px] px-4 py-2 text-sm ${
-                  isEven
-                    ? "rounded-bl-sm bg-white text-[var(--petto-ink)]"
-                    : "rounded-br-sm bg-[var(--petto-primary)] text-white"
-                }`}
-              >
-                {msg.body}
-              </div>
-              <span className="text-[10px] text-[var(--petto-muted)] mt-1">
-                {new Date(msg.createdAt).toLocaleTimeString("en-GB", {
-                  hour: "2-digit",
-                  minute: "2-digit"
-                })}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={onHide} disabled={pet.isHidden}>
+            <PawPrint className="h-3.5 w-3.5" />
+            {pet.isHidden ? "Already hidden" : "Hide from discovery"}
+          </Button>
+          <Button variant="destructive" onClick={onBanOwner}>
+            <Ban className="h-3.5 w-3.5" /> Suspend owner
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }
 
-function PetReportSection({
-  report,
-  hidePetMutation,
-  banMutation
+function PostContext({
+  post,
+  onDelete,
+  onBanAuthor
 }: {
-  report: {
-    pet?: {
-      id: string;
-      name: string;
-      speciesLabel: string;
-      breedLabel: string;
-      isHidden: boolean;
-      photos: Array<{ id: string; url: string }>;
-      ownerID: string;
-      ownerName: string;
-      ownerAvatarUrl?: string;
-    } | null;
+  post: {
+    id: string;
+    body: string;
+    imageUrl?: string | null;
+    authorID: string;
+    authorName: string;
+    authorAvatarUrl?: string | null;
+    likeCount: number;
+    createdAt: string;
   };
-  hidePetMutation: ReturnType<typeof useMutation<void, Error, void, unknown>>;
-  banMutation: ReturnType<typeof useMutation<void, Error, string, unknown>>;
+  onDelete: () => void;
+  onBanAuthor: () => void;
 }) {
-  const pet = report.pet;
-  if (!pet)
-    return (
-      <Card>
-        <p className="text-[var(--petto-muted)]">Pet not found.</p>
-      </Card>
-    );
-
   return (
     <Card>
-      <div className="flex items-center gap-2 mb-4">
-        <PawPrint className="h-5 w-5 text-[var(--petto-secondary)]" />
-        <h2 className="text-lg font-semibold text-[var(--petto-ink)]">
-          Reported Pet
-        </h2>
-      </div>
-
-      <div className="flex gap-4 rounded-[16px] border border-[var(--petto-border)] bg-[var(--petto-background)] p-4">
-        {pet.photos[0]?.url && (
-          <img
-            src={pet.photos[0].url}
-            alt={pet.name}
-            className="h-20 w-20 rounded-[12px] object-cover"
-          />
-        )}
-        <div className="flex-1">
-          <p className="font-semibold text-[var(--petto-ink)]">{pet.name}</p>
-          <p className="text-sm text-[var(--petto-muted)]">
-            {pet.speciesLabel} &middot; {pet.breedLabel}
-          </p>
-          <p className="text-sm text-[var(--petto-muted)]">
-            Owner: {pet.ownerName}
-          </p>
-          {pet.isHidden && <Badge tone="warning">Hidden</Badge>}
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Button
-          variant="ghost"
-          onClick={() => hidePetMutation.mutate()}
-          disabled={hidePetMutation.isPending || pet.isHidden}
-        >
-          <PawPrint className="mr-2 h-4 w-4" />
-          {hidePetMutation.isPending
-            ? "Hiding..."
-            : pet.isHidden
-              ? "Already Hidden"
-              : "Remove Pet"}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => banMutation.mutate(pet.ownerID)}
-          disabled={banMutation.isPending}
-        >
-          <Ban className="mr-2 h-4 w-4" />
-          {banMutation.isPending ? "Banning..." : "Ban Owner"}
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-function PostReportSection({
-  report,
-  deletePostMutation,
-  banMutation
-}: {
-  report: {
-    post?: {
-      id: string;
-      body: string;
-      imageUrl?: string;
-      authorID: string;
-      authorName: string;
-      authorAvatarUrl?: string;
-      likeCount: number;
-      createdAt: string;
-    } | null;
-  };
-  deletePostMutation: ReturnType<
-    typeof useMutation<void, Error, void, unknown>
-  >;
-  banMutation: ReturnType<typeof useMutation<void, Error, string, unknown>>;
-}) {
-  const post = report.post;
-  if (!post)
-    return (
-      <Card>
-        <p className="text-[var(--petto-muted)]">Post not found.</p>
-      </Card>
-    );
-
-  return (
-    <Card>
-      <div className="flex items-center gap-2 mb-4">
-        <ImageIcon className="h-5 w-5 text-[var(--petto-secondary)]" />
-        <h2 className="text-lg font-semibold text-[var(--petto-ink)]">
-          Reported Post
-        </h2>
-      </div>
-
-      <div className="rounded-[16px] border border-[var(--petto-border)] bg-[var(--petto-background)] p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--petto-primary)] text-white font-semibold text-sm">
-            {post.authorName[0]}
+      <CardHeader>
+        <CardTitle className="inline-flex items-center gap-2">
+          <ImageIcon className="h-4 w-4 text-[var(--muted-foreground)]" /> Reported post
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="rounded-md border border-[var(--border)] p-3">
+          <div className="flex items-center gap-2">
+            <Avatar className="h-7 w-7">
+              {post.authorAvatarUrl ? <AvatarImage src={post.authorAvatarUrl} alt={post.authorName} /> : null}
+              <AvatarFallback>{fmtInitials(post.authorName)}</AvatarFallback>
+            </Avatar>
+            <div className="leading-tight">
+              <Link href={`/users/${post.authorID}`} className="text-sm font-medium hover:underline">
+                {post.authorName}
+              </Link>
+              <div className="text-[11px] text-[var(--muted-foreground)]">
+                <RelativeTime value={post.createdAt} /> · {post.likeCount} likes
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-[var(--petto-ink)]">
-              {post.authorName}
-            </p>
-            <p className="text-xs text-[var(--petto-muted)]">
-              {new Date(post.createdAt).toLocaleDateString("en-GB")}
-            </p>
-          </div>
+          <p className="mt-2 whitespace-pre-wrap text-sm">{post.body}</p>
+          {post.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={post.imageUrl} alt="Post" className="mt-2 max-h-72 rounded-md border border-[var(--border)]" />
+          ) : null}
         </div>
-        <p className="text-sm text-[var(--petto-ink)] whitespace-pre-wrap">
-          {post.body}
-        </p>
-        {post.imageUrl && (
-          <img
-            src={post.imageUrl}
-            alt="Post"
-            className="mt-3 rounded-[12px] max-h-48 w-full object-cover"
-          />
-        )}
-        <p className="mt-2 text-xs text-[var(--petto-muted)]">
-          {post.likeCount} likes
-        </p>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Button
-          variant="ghost"
-          onClick={() => deletePostMutation.mutate()}
-          disabled={deletePostMutation.isPending}
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          {deletePostMutation.isPending ? "Deleting..." : "Delete Post"}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => banMutation.mutate(post.authorID)}
-          disabled={banMutation.isPending}
-        >
-          <Ban className="mr-2 h-4 w-4" />
-          {banMutation.isPending ? "Banning..." : "Ban Author"}
-        </Button>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="destructive" onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5" /> Delete post
+          </Button>
+          <Button variant="outline" onClick={onBanAuthor}>
+            <Ban className="h-3.5 w-3.5" /> Suspend author
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

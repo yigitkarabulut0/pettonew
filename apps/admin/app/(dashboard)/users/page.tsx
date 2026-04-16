@@ -1,137 +1,170 @@
 "use client";
 
-import Link from "next/link";
-import { ImageIcon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Ban, Trash2, UserCog } from "lucide-react";
+import { useRouter } from "next/navigation";
+import * as React from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/common/ConfirmDialog";
+import { PageHeader } from "@/components/common/PageHeader";
+import { RelativeTime } from "@/components/common/RelativeTime";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { UserCell } from "@/components/common/UserCell";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableToolbar } from "@/components/data-table/DataTableToolbar";
+import { RowActions } from "@/components/data-table/columns";
+import { useDataTable } from "@/components/data-table/useDataTable";
+import type { UserProfile } from "@petto/contracts";
 import { deleteUser, getUsers, updateUserStatus } from "@/lib/admin-api";
-import { cn } from "@/lib/utils";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { state, setState, selection, setSelection } = useDataTable();
+  const { confirm, node: confirmNode } = useConfirm();
+
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin-users"],
     queryFn: getUsers
   });
+
   const statusMutation = useMutation({
     mutationFn: ({ userId, status }: { userId: string; status: string }) => updateUserStatus(userId, status),
     onSuccess: () => {
+      toast.success("Status updated");
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     }
   });
   const deleteMutation = useMutation({
     mutationFn: (userId: string) => deleteUser(userId),
     onSuccess: () => {
+      toast.success("User deleted");
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-pets"] });
-    }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed")
   });
 
+  const filtered = React.useMemo(() => {
+    const q = state.search.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) =>
+      [u.email, u.firstName, u.lastName, u.cityLabel].some((v) => v?.toLowerCase().includes(q))
+    );
+  }, [users, state.search]);
+
+  const paged = React.useMemo(() => {
+    const start = (state.page - 1) * state.pageSize;
+    return filtered.slice(start, start + state.pageSize);
+  }, [filtered, state.page, state.pageSize]);
+
+  const columns = React.useMemo<ColumnDef<UserProfile, unknown>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "User",
+        cell: ({ row }) => {
+          const u = row.original;
+          return (
+            <UserCell
+              id={u.id}
+              name={`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()}
+              email={u.email}
+              avatarUrl={u.avatarUrl}
+            />
+          );
+        }
+      },
+      {
+        accessorKey: "cityLabel",
+        header: "Location",
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--muted-foreground)]">
+            {row.original.cityLabel || "—"}
+          </span>
+        )
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Joined",
+        cell: ({ row }) => <RelativeTime value={row.original.createdAt} />
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge status={row.original.status} />
+      },
+      {
+        id: "_actions",
+        header: "",
+        cell: ({ row }) => {
+          const u = row.original;
+          return (
+            <RowActions
+              items={[
+                { label: "View details", href: `/users/${u.id}` },
+                {
+                  label: u.status === "suspended" ? "Reactivate" : "Suspend",
+                  onSelect: () =>
+                    statusMutation.mutate({
+                      userId: u.id,
+                      status: u.status === "suspended" ? "active" : "suspended"
+                    })
+                },
+                {
+                  label: "Delete user",
+                  destructive: true,
+                  onSelect: async () => {
+                    await confirm({
+                      title: "Delete this user?",
+                      description: `All data belonging to ${u.email} will be removed.`,
+                      destructive: true,
+                      requireReason: true,
+                      confirmLabel: "Delete",
+                      onConfirm: () => deleteMutation.mutateAsync(u.id)
+                    });
+                  }
+                }
+              ]}
+            />
+          );
+        }
+      }
+    ],
+    [confirm, deleteMutation, statusMutation]
+  );
+
   return (
-    <Card>
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Users</p>
-          <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Member oversight</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--petto-muted)]">
-            Open a full dossier for any member, inspect their pets and matches, then suspend or delete from the same surface.
-          </p>
-        </div>
-      </div>
-      {isLoading && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--petto-primary)] border-t-transparent" />
-        </div>
-      )}
-      {!isLoading && users.length === 0 && (
-        <div className="mt-6 rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
-          No items found.
-        </div>
-      )}
-      {!isLoading && users.length > 0 && (
-      <div className="mt-6 overflow-hidden rounded-[24px] border border-[var(--petto-border)]">
-        <table className="w-full border-collapse text-left">
-          <thead className="bg-white/70">
-            <tr className="text-sm uppercase tracking-[0.2em] text-[var(--petto-muted)]">
-              <th className="px-4 py-4">User</th>
-              <th className="px-4 py-4">Location</th>
-              <th className="px-4 py-4">Joined</th>
-              <th className="px-4 py-4">Status</th>
-              <th className="px-4 py-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id} className="border-t border-[var(--petto-border)] bg-[rgba(255,252,248,0.88)]">
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-[var(--petto-border)] bg-white">
-                      {user.avatarUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={user.avatarUrl} alt={user.firstName || user.email} className="h-full w-full object-cover" />
-                      ) : (
-                        <ImageIcon className="h-4 w-4 text-[var(--petto-muted)]" />
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-semibold text-[var(--petto-ink)]">
-                        {user.firstName || "Unnamed"} {user.lastName}
-                      </p>
-                      <p className="text-sm text-[var(--petto-muted)]">{user.email}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-sm text-[var(--petto-secondary)]">{user.cityLabel || "No location"}</td>
-                <td className="px-4 py-4 text-sm text-[var(--petto-muted)]">
-                  {user.createdAt ? new Date(user.createdAt).toLocaleDateString("en-GB") : "Unknown"}
-                </td>
-                <td className="px-4 py-4">
-                  <Badge tone={user.status === "active" ? "success" : "warning"}>{user.status}</Badge>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    <Link
-                      href={`/users/${user.id}`}
-                      className={cn(
-                        "inline-flex items-center justify-center rounded-full border border-[var(--petto-border)] bg-white/60 px-4 py-2.5 text-sm font-semibold text-[var(--petto-secondary)] transition-all hover:bg-white"
-                      )}
-                    >
-                      View details
-                    </Link>
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        statusMutation.mutate({
-                          userId: user.id,
-                          status: user.status === "suspended" ? "active" : "suspended"
-                        })
-                      }
-                    >
-                      {user.status === "suspended" ? "Activate" : "Suspend"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="text-rose-700 hover:text-rose-800"
-                      onClick={() => {
-                        if (typeof window === "undefined" || window.confirm(`Delete ${user.email} and all related data?`)) {
-                          deleteMutation.mutate(user.id);
-                        }
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      )}
-    </Card>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Users"
+        description="Every member of the Petto community. Open any row to inspect their pets, posts, reports, and bans."
+      />
+      <DataTableToolbar
+        searchValue={state.search}
+        onSearchChange={(value) => setState({ search: value, page: 1 })}
+        searchPlaceholder="Search by name, email or city"
+        trailing={
+          <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
+            <UserCog className="h-3.5 w-3.5" /> {filtered.length} users
+          </div>
+        }
+      />
+      <DataTable<UserProfile>
+        data={paged}
+        columns={columns}
+        rowId={(row) => row.id}
+        total={filtered.length}
+        state={state}
+        onStateChange={setState}
+        loading={isLoading}
+        selection={selection}
+        onSelectionChange={setSelection}
+        onRowClick={(row) => router.push(`/users/${row.id}`)}
+      />
+      {confirmNode}
+    </div>
   );
 }

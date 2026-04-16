@@ -18,8 +18,8 @@ export default function BadgesPage() {
   return (
     <div className="space-y-5">
       <Card>
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">Badges</p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">Gamification badges overview</h1>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Badges</p>
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">Gamification badges overview</h1>
         <p className="mt-2 text-sm text-[var(--petto-muted)]">
           Badges are automatically awarded to users when they meet specific milestones. This page provides an overview of all available badge types.
         </p>
@@ -29,7 +29,7 @@ export default function BadgesPage() {
         {badgeTypes.map((badge) => (
           <Card key={badge.name}>
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--petto-background)] text-2xl">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-[var(--petto-background)] text-2xl">
                 {badge.icon}
               </div>
               <div>

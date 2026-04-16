@@ -150,8 +150,8 @@ export default function PetSittersPage() {
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`
         );
         const json = (await res.json()) as { features: GeocodingFeature[] };
-        if (json.features.length > 0) {
-          const place = json.features[0];
+        const place = json.features?.[0];
+        if (place) {
           setValue("address", place.place_name);
           setAddressQuery(place.place_name);
         }
@@ -261,11 +261,11 @@ export default function PetSittersPage() {
 
   return (
     <div className="space-y-5">
-      <Card className="bg-[linear-gradient(135deg,rgba(255,252,248,0.98),rgba(245,229,216,0.92))]">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+      <Card className="">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Pet Sitters
         </p>
-        <h1 className="mt-2 text-4xl text-[var(--petto-ink)]">
+        <h1 className="mt-2 text-lg font-semibold tracking-tight text-[var(--foreground)]">
           Manage pet sitter profiles
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--petto-muted)]">
@@ -275,7 +275,7 @@ export default function PetSittersPage() {
       </Card>
 
       <Card>
-        <p className="mb-4 text-sm font-semibold uppercase tracking-[0.25em] text-[var(--petto-primary)]">
+        <p className="mb-4 text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Add Pet Sitter
         </p>
         <form
@@ -307,7 +307,7 @@ export default function PetSittersPage() {
           <div className="grid gap-3 lg:grid-cols-2">
             <Input placeholder="Phone number" {...register("phone")} />
             <select
-              className="flex h-10 w-full rounded-2xl border border-[var(--petto-border)] bg-white px-3 py-2 text-sm text-[var(--petto-ink)] outline-none focus:ring-2 focus:ring-[var(--petto-primary)]/20"
+              className="flex h-10 w-full rounded-md border border-[var(--petto-border)] bg-white px-3 py-2 text-sm text-[var(--petto-ink)] outline-none focus:ring-2 focus:ring-[var(--petto-primary)]/20"
               {...register("currency")}
             >
               <option value="USD">USD ($)</option>
@@ -382,7 +382,7 @@ export default function PetSittersPage() {
           </div>
 
           <textarea
-            className="flex min-h-[80px] w-full rounded-2xl border border-[var(--petto-border)] bg-white px-4 py-3 text-sm text-[var(--petto-ink)] outline-none placeholder:text-[var(--petto-muted)] focus:ring-2 focus:ring-[var(--petto-primary)]/20"
+            className="flex min-h-[80px] w-full rounded-md border border-[var(--petto-border)] bg-white px-4 py-3 text-sm text-[var(--petto-ink)] outline-none placeholder:text-[var(--petto-muted)] focus:ring-2 focus:ring-[var(--petto-primary)]/20"
             placeholder="Bio / description"
             {...register("bio", { required: true })}
           />
@@ -400,7 +400,7 @@ export default function PetSittersPage() {
         </div>
       )}
       {!isLoading && sitters.length === 0 && (
-        <div className="rounded-[22px] border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
+        <div className="rounded-md border border-dashed border-[var(--petto-border)] bg-white/60 px-4 py-12 text-center text-sm text-[var(--petto-muted)]">
           No pet sitters yet. Add the first one above.
         </div>
       )}

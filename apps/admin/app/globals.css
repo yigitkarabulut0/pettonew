@@ -1,23 +1,63 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5ede3;
-  --foreground: #161514;
-  --petto-primary: #e6694a;
-  --petto-primary-soft: #f7c9bc;
-  --petto-secondary: #21433c;
-  --petto-accent: #f7b267;
-  --petto-ink: #161514;
-  --petto-muted: #6e6a65;
-  --petto-card: #fff8f1;
-  --petto-canvas: #f5ede3;
-  --petto-surface: #fffcf8;
-  --petto-border: rgba(22, 21, 20, 0.12);
+  /* Background & surfaces */
+  --background: #ffffff;
+  --foreground: #0f172a;           /* slate-900 */
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+
+  /* Neutrals */
+  --muted: #f8fafc;                /* slate-50  — surface tint for rows/sections */
+  --muted-foreground: #64748b;     /* slate-500 — secondary text */
+  --border: #e2e8f0;               /* slate-200 */
+  --input: #e2e8f0;
+  --ring: #94a3b8;                 /* slate-400 focus ring */
+
+  /* Actions */
+  --primary: #0f172a;              /* slate-900 */
+  --primary-foreground: #ffffff;
+  --primary-hover: #1e293b;        /* slate-800 */
+  --secondary: #f1f5f9;            /* slate-100 — hover bg for subtle surfaces */
+  --secondary-foreground: #0f172a;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+
+  /* Status */
+  --destructive: #dc2626;          /* red-600 */
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fef2f2;     /* red-50 */
+  --success: #16a34a;              /* green-600 */
+  --success-soft: #f0fdf4;
+  --warning: #d97706;              /* amber-600 */
+  --warning-soft: #fffbeb;
+  --info: #2563eb;                 /* blue-600 */
+  --info-soft: #eff6ff;
+
+  /* Legacy aliases kept while components migrate — map them to neutral. */
+  --petto-primary: var(--primary);
+  --petto-primary-soft: var(--secondary);
+  --petto-secondary: var(--primary);
+  --petto-ink: var(--foreground);
+  --petto-muted: var(--muted-foreground);
+  --petto-card: var(--muted);
+  --petto-canvas: var(--background);
+  --petto-surface: var(--card);
+  --petto-border: var(--border);
+  --petto-accent: var(--info);
+
+  /* Radii */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+
+  /* Layout */
+  --sidebar-w: 240px;
+  --sidebar-w-collapsed: 56px;
+  --topbar-h: 52px;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html,
 body {
@@ -26,23 +66,47 @@ body {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top right, rgba(247, 178, 103, 0.25), transparent 32%),
-    radial-gradient(circle at bottom left, rgba(230, 105, 74, 0.18), transparent 34%),
-    var(--petto-canvas);
+  background: var(--background);
   color: var(--foreground);
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "SF Pro Text",
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-h1,
-h2,
-h3 {
-  font-family: "Iowan Old Style", "Palatino Linotype", serif;
-  letter-spacing: -0.02em;
+h1, h2, h3, h4, h5 {
+  font-family: inherit;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: var(--foreground);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+code, kbd, pre, samp {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
 }
 
+a { color: inherit; text-decoration: none; }
+
+/* Scrollbar tweaks so content areas look tidy */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes presence-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.25), 0 0 0 12px rgba(34, 197, 94, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0.35), 0 0 0 20px rgba(34, 197, 94, 0.0);
+  }
+}
