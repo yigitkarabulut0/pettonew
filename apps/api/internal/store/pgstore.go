@@ -1350,17 +1350,33 @@ func (s *PostgresStore) ListMatches(userID string) []domain.MatchPreview {
 			continue
 		}
 
-		// Swap so that Pet = current user's pet, MatchedPet = other user's pet
+		// Swap so that Pet = current user's pet, MatchedPet = other user's pet.
+		// v0.11.8 — always refresh the owner info from user_profiles so stale
+		// match rows (created before the avatar field existed) get a live value.
 		if containsStr(userPetIDs, petAID) {
 			m.Pet = *petA
 			m.MatchedPet = *petB
+			if petB.OwnerID != "" {
+				ownerName, ownerAvatar := s.getOwnerInfo(petB.OwnerID)
+				if ownerName != "" {
+					m.MatchedOwnerName = ownerName
+				}
+				if ownerAvatar != "" {
+					m.MatchedOwnerAvatarURL = ownerAvatar
+				}
+			}
 		} else {
 			m.Pet = *petB
 			m.MatchedPet = *petA
-			// Fix matched owner info — look up petA's owner (the other user)
-			ownerName, ownerAvatar := s.getOwnerInfo(petA.OwnerID)
-			m.MatchedOwnerName = ownerName
-			m.MatchedOwnerAvatarURL = ownerAvatar
+			if petA.OwnerID != "" {
+				ownerName, ownerAvatar := s.getOwnerInfo(petA.OwnerID)
+				if ownerName != "" {
+					m.MatchedOwnerName = ownerName
+				}
+				if ownerAvatar != "" {
+					m.MatchedOwnerAvatarURL = ownerAvatar
+				}
+			}
 		}
 		matches = append(matches, m)
 	}

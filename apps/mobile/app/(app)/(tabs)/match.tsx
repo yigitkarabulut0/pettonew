@@ -227,13 +227,13 @@ export default function MatchesPage() {
     [handleDismiss, matchModal.ownerName]
   );
 
-  const handleMatchPress = useCallback((match: { conversationId: string; matchedOwnerName?: string; matchedOwnerAvatarURL?: string }) => {
+  const handleMatchPress = useCallback((match: { conversationId: string; matchedOwnerName?: string; matchedOwnerAvatarUrl?: string }) => {
     router.push({
       pathname: "/(app)/conversation/[id]",
       params: {
         id: match.conversationId,
         initialTitle: match.matchedOwnerName ?? "",
-        initialImage: match.matchedOwnerAvatarURL ?? ""
+        initialImage: match.matchedOwnerAvatarUrl ?? ""
       }
     } as any);
   }, []);
