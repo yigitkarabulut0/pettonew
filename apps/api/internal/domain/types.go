@@ -384,6 +384,7 @@ type Playdate struct {
 	PendingInvites   int                `json:"pendingInvites"`         // count of still-pending invites (host only)
 	MyChatMuted      bool               `json:"myChatMuted"`            // caller is host-muted in this chat
 	MyConvMuted      bool               `json:"myConvMuted"`            // caller has silenced push for this conversation
+	MyConvMutedUntil *string            `json:"myConvMutedUntil,omitempty"` // v0.11.5: ISO 8601 expiry (nil = forever)
 	ChatMutedUserIDs []string           `json:"chatMutedUserIds,omitempty"` // host-only: list of currently-muted attendees
 	Locked           bool               `json:"locked"`                 // host "soft close" — blocks new joins; not surfaced as a user badge
 }
@@ -471,8 +472,9 @@ type CommunityGroup struct {
 	// MyConvMuted is the caller's personal push-notification mute toggle for
 	// this group's conversation. Different from the host-level `Muted` which
 	// silences outgoing messages — this one silences incoming push.
-	MyConvMuted bool   `json:"myConvMuted"`
-	CreatedAt   string `json:"createdAt"`
+	MyConvMuted      bool    `json:"myConvMuted"`
+	MyConvMutedUntil *string `json:"myConvMutedUntil,omitempty"`
+	CreatedAt        string  `json:"createdAt"`
 }
 
 type LostPetAlert struct {

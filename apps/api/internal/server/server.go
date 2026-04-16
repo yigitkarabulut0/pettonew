@@ -2311,14 +2311,43 @@ func (s *Server) handleDeleteConversationMessage(writer http.ResponseWriter, req
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
 }
 
+// v0.11.5 — timed mute. Body: {"duration":"1h"|"24h"|"7d"|"forever"} (optional,
+// defaults to "forever" for backwards compat with the old bell toggle).
 func (s *Server) handleMuteConversation(writer http.ResponseWriter, request *http.Request) {
 	conversationID := chi.URLParam(request, "conversationID")
 	userID := currentUserID(request)
-	if err := s.store.MuteConversation(userID, conversationID); err != nil {
+	var payload struct {
+		Duration string `json:"duration"`
+	}
+	// Body is optional — old callers don't send one.
+	if request.Body != nil {
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+	}
+	var until *time.Time
+	now := time.Now().UTC()
+	switch payload.Duration {
+	case "1h":
+		t := now.Add(1 * time.Hour)
+		until = &t
+	case "24h":
+		t := now.Add(24 * time.Hour)
+		until = &t
+	case "7d":
+		t := now.Add(7 * 24 * time.Hour)
+		until = &t
+	default:
+		// "forever" or empty → NULL (muted indefinitely)
+		until = nil
+	}
+	if err := s.store.MuteConversation(userID, conversationID, until); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"muted": true}})
+	resp := map[string]any{"muted": true}
+	if until != nil {
+		resp["mutedUntil"] = until.UTC().Format(time.RFC3339)
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": resp})
 }
 
 func (s *Server) handleUnmuteConversation(writer http.ResponseWriter, request *http.Request) {
@@ -2455,6 +2484,12 @@ func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, reques
 	}
 	if group.ConversationID != "" {
 		group.MyConvMuted = s.store.IsConversationMuted(userID, group.ConversationID)
+		if group.MyConvMuted {
+			if u := s.store.GetConversationMuteUntil(userID, group.ConversationID); u != nil {
+				t := u.UTC().Format(time.RFC3339)
+				group.MyConvMutedUntil = &t
+			}
+		}
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
 }
@@ -2896,6 +2931,12 @@ func (s *Server) handleGetGroup(writer http.ResponseWriter, request *http.Reques
 	// v0.11.0 — caller's per-user push mute on the group conversation.
 	if found.ConversationID != "" {
 		found.MyConvMuted = s.store.IsConversationMuted(userID, found.ConversationID)
+		if found.MyConvMuted {
+			if u := s.store.GetConversationMuteUntil(userID, found.ConversationID); u != nil {
+				t := u.UTC().Format(time.RFC3339)
+				found.MyConvMutedUntil = &t
+			}
+		}
 	}
 	if !found.IsMember {
 		found.Code = ""

@@ -139,6 +139,8 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		muted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (conversation_id, user_id)
 	)`)
+	// v0.11.5 — timed mutes: nullable expiry column. NULL = muted forever.
+	pool.Exec(ctx, `ALTER TABLE conversation_mutes ADD COLUMN IF NOT EXISTS muted_until TIMESTAMPTZ`)
 
 	// ── v0.11.0: Notification preferences ────────────────────────────
 	// Global per-user opt-outs gating SendExpoPush fan-out. No row = all
@@ -2372,14 +2374,16 @@ func (s *PostgresStore) DeleteConversationMessage(actorUserID string, conversati
 	return err
 }
 
-// MuteConversation silences OS push for this (user, conversation) pair. The
-// user still receives the message over WebSocket — this only suppresses
-// SendExpoPush in the handler's push fan-out.
-func (s *PostgresStore) MuteConversation(userID string, conversationID string) error {
+// MuteConversation silences OS push for this (user, conversation) pair.
+// `until` is optional: nil = muted forever, non-nil = muted until that time.
+// v0.11.5 — timed mute support.
+func (s *PostgresStore) MuteConversation(userID string, conversationID string, until *time.Time) error {
 	_, err := s.pool.Exec(s.ctx(),
-		`INSERT INTO conversation_mutes (conversation_id, user_id) VALUES ($1, $2)
-		 ON CONFLICT (conversation_id, user_id) DO NOTHING`,
-		conversationID, userID)
+		`INSERT INTO conversation_mutes (conversation_id, user_id, muted_until)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (conversation_id, user_id)
+		 DO UPDATE SET muted_until = EXCLUDED.muted_until, muted_at = NOW()`,
+		conversationID, userID, until)
 	return err
 }
 
@@ -2392,13 +2396,49 @@ func (s *PostgresStore) UnmuteConversation(userID string, conversationID string)
 }
 
 // IsConversationMuted reports whether this user has silenced push for this
-// conversation. Used by the send-message handler's push fan-out loop.
+// conversation. Lazy expiry: if muted_until has passed, the row is deleted
+// and the function returns false — no cron needed.
 func (s *PostgresStore) IsConversationMuted(userID string, conversationID string) bool {
-	var one int
+	var mutedUntil *time.Time
 	err := s.pool.QueryRow(s.ctx(),
-		`SELECT 1 FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
-		conversationID, userID).Scan(&one)
-	return err == nil
+		`SELECT muted_until FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+		conversationID, userID).Scan(&mutedUntil)
+	if err != nil {
+		return false // no row = not muted
+	}
+	// NULL muted_until = muted forever.
+	if mutedUntil == nil {
+		return true
+	}
+	// Timed mute: check if expired. If so, auto-unmute (lazy cleanup).
+	if mutedUntil.Before(time.Now().UTC()) {
+		s.pool.Exec(s.ctx(),
+			`DELETE FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+			conversationID, userID)
+		return false
+	}
+	return true
+}
+
+// GetConversationMuteUntil returns the muted_until timestamp for the caller.
+// Returns nil if not muted or muted forever (boolean distinction done via
+// IsConversationMuted). Used to populate MyConvMutedUntil in domain types.
+func (s *PostgresStore) GetConversationMuteUntil(userID string, conversationID string) *time.Time {
+	var mutedUntil *time.Time
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT muted_until FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+		conversationID, userID).Scan(&mutedUntil)
+	if err != nil {
+		return nil
+	}
+	if mutedUntil != nil && mutedUntil.Before(time.Now().UTC()) {
+		// Expired — lazy cleanup.
+		s.pool.Exec(s.ctx(),
+			`DELETE FROM conversation_mutes WHERE conversation_id=$1 AND user_id=$2`,
+			conversationID, userID)
+		return nil
+	}
+	return mutedUntil
 }
 
 // insertSystemMessage drops a system message into a group's conversation. Used
@@ -4386,6 +4426,12 @@ func (s *PostgresStore) GetPlaydateForUser(playdateID string, userID string) (*d
 		}
 		if p.ConversationID != "" {
 			p.MyConvMuted = s.IsConversationMuted(userID, p.ConversationID)
+			if p.MyConvMuted {
+				if u := s.GetConversationMuteUntil(userID, p.ConversationID); u != nil {
+					t := u.UTC().Format(time.RFC3339)
+					p.MyConvMutedUntil = &t
+				}
+			}
 		}
 	}
 

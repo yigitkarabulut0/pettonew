@@ -1277,9 +1277,10 @@ func (s *MemoryStore) GetPlaydateChatMute(_ string, _ string) (bool, *time.Time)
 	return false, nil
 }
 func (s *MemoryStore) ListPlaydateChatMutedUsers(_ string) []string { return nil }
-func (s *MemoryStore) MuteConversation(_ string, _ string) error    { return nil }
-func (s *MemoryStore) UnmuteConversation(_ string, _ string) error  { return nil }
-func (s *MemoryStore) IsConversationMuted(_ string, _ string) bool  { return false }
+func (s *MemoryStore) MuteConversation(_ string, _ string, _ *time.Time) error { return nil }
+func (s *MemoryStore) UnmuteConversation(_ string, _ string) error             { return nil }
+func (s *MemoryStore) IsConversationMuted(_ string, _ string) bool             { return false }
+func (s *MemoryStore) GetConversationMuteUntil(_ string, _ string) *time.Time  { return nil }
 
 // v0.11.0 — notification prefs / unified feed stubs for the in-memory backend.
 func (s *MemoryStore) GetNotificationPrefs(_ string) domain.NotificationPreferences {

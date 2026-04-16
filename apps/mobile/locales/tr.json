@@ -341,7 +341,15 @@
     "shareImage": "Fotoğraf paylaş",
     "sharePet": "Evcil hayvan paylaş",
     "messageDeleted": "Mesaj silindi",
-    "sendFailedTitle": "Mesaj gönderilemedi"
+    "sendFailedTitle": "Mesaj gönderilemedi",
+    "muteDuration": {
+      "title": "Bildirimleri sustur",
+      "subtitle": "Mesajları görmeye devam edersin ama bu sohbetin push bildirimlerini almazsın.",
+      "1h": "1 saatliğine",
+      "24h": "24 saatliğine",
+      "7d": "1 haftalığına",
+      "forever": "Ben açana kadar"
+    }
   },
   "report": {
     "title": "Şikayet",

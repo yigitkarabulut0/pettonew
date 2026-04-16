@@ -341,7 +341,15 @@
     "shareImage": "Share photo",
     "sharePet": "Share a pet",
     "messageDeleted": "Message deleted",
-    "sendFailedTitle": "Couldn't send message"
+    "sendFailedTitle": "Couldn't send message",
+    "muteDuration": {
+      "title": "Mute notifications",
+      "subtitle": "You'll still see messages but won't receive push notifications for this chat.",
+      "1h": "For 1 hour",
+      "24h": "For 24 hours",
+      "7d": "For 1 week",
+      "forever": "Until I turn it back on"
+    }
   },
   "report": {
     "title": "Report",

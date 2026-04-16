@@ -132,9 +132,10 @@ type Store interface {
 	UnsetPlaydateChatMute(hostID string, playdateID string, targetUserID string) error
 	GetPlaydateChatMute(userID string, playdateID string) (bool, *time.Time)
 	ListPlaydateChatMutedUsers(playdateID string) []string
-	MuteConversation(userID string, conversationID string) error
+	MuteConversation(userID string, conversationID string, until *time.Time) error
 	UnmuteConversation(userID string, conversationID string) error
 	IsConversationMuted(userID string, conversationID string) bool
+	GetConversationMuteUntil(userID string, conversationID string) *time.Time
 	// My playdates + reminders (v0.15.0)
 	ListMyPlaydates(params ListMyPlaydatesParams) []domain.Playdate
 	ListDuePlaydateReminders(fromISO string, toISO string, kind string) []PlaydateReminderTarget

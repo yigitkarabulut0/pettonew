@@ -1344,13 +1344,22 @@ export async function unmutePlaydateMember(
   });
 }
 
+/**
+ * v0.11.5 — timed mute support.
+ * @param duration "1h" | "24h" | "7d" | "forever" (default)
+ */
 export async function muteConversation(
   accessToken: string,
-  conversationId: string
+  conversationId: string,
+  duration: "1h" | "24h" | "7d" | "forever" = "forever"
 ): Promise<void> {
   await request(`/v1/conversations/${conversationId}/mute`, {
     method: "POST",
-    headers: authHeaders(accessToken)
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ duration })
   });
 }
 

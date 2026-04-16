@@ -6,6 +6,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   Text,
@@ -128,9 +129,18 @@ export default function ConversationPage() {
   // (with a `mutedUntil` countdown); playdates expose `myChatMuted` (boolean).
   const isMuted = Boolean(groupInfo?.muted || playdateInfo?.myChatMuted);
   // Per-user notification mute — v0.11.0 covers both playdate AND group chats.
-  const isConvMuted = Boolean(
+  // v0.11.5 — optimistic local state so the bell icon toggles INSTANTLY on
+  // press; the mutation runs in the background without blocking the UI.
+  const serverConvMuted = Boolean(
     playdateInfo?.myConvMuted || groupInfo?.myConvMuted
   );
+  const [optimisticMuted, setOptimisticMuted] = useState<boolean | null>(null);
+  const isConvMuted = optimisticMuted ?? serverConvMuted;
+  // Sync optimistic state back to server truth when data arrives.
+  useEffect(() => {
+    setOptimisticMuted(null);
+  }, [serverConvMuted]);
+  const [muteSheetOpen, setMuteSheetOpen] = useState(false);
 
   // Single source-of-truth for the messages cache key. Used by useQuery,
   // mutation optimistic updates, cancelQueries, and invalidate — if these
@@ -440,24 +450,48 @@ export default function ConversationPage() {
     }
   };
 
-  // ── Notification-mute toggle — v0.11.0 supports both playdate and
-  // group chats. The underlying /conversations/{id}/mute endpoint is
-  // conversation-id based so the same mutation works for both. We
-  // refetch whichever detail query is active so the bell updates.
+  // ── Notification-mute toggle — v0.11.5: timed mute with optimistic UI.
+  // Bell press opens a duration picker when unmuted, unmutes immediately
+  // when already muted. Optimistic state flips the icon BEFORE the network
+  // round-trip so the UI feels instant.
+  type MuteDuration = "1h" | "24h" | "7d" | "forever";
   const convMuteMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (duration?: MuteDuration) => {
       if (!session) return;
-      if (isConvMuted) {
+      if (isConvMuted && !duration) {
+        // Unmute.
+        setOptimisticMuted(false);
         await unmuteConversation(session.tokens.accessToken, id);
-      } else {
-        await muteConversation(session.tokens.accessToken, id);
+      } else if (duration) {
+        // Mute with duration.
+        setOptimisticMuted(true);
+        await muteConversation(session.tokens.accessToken, id, duration);
       }
     },
     onSuccess: () => {
       if (isPlaydateChat) refetchPlaydateInfo();
       if (isGroupChat) refetchGroupInfo();
+    },
+    onError: () => {
+      // Revert optimistic state on failure.
+      setOptimisticMuted(null);
     }
   });
+
+  const handleBellPress = () => {
+    if (isConvMuted) {
+      // Already muted → unmute immediately (optimistic).
+      convMuteMutation.mutate(undefined);
+    } else {
+      // Not muted → show duration picker.
+      setMuteSheetOpen(true);
+    }
+  };
+
+  const handleMuteDuration = (duration: MuteDuration) => {
+    setMuteSheetOpen(false);
+    convMuteMutation.mutate(duration);
+  };
 
   // ── Join flow for non-members ───────────────────────────────────
   const joinMutation = useMutation({
@@ -632,16 +666,18 @@ export default function ConversationPage() {
             </Text>
           ) : null}
         </Pressable>
-        {/* v0.11.0 — bell available for both playdate and group chats. */}
+        {/* v0.11.5 — bell with timed mute + optimistic toggle. */}
         {(isPlaydateChat || isGroupChat) && isMember ? (
           <Pressable
-            onPress={() => convMuteMutation.mutate()}
+            onPress={handleBellPress}
             hitSlop={12}
             style={{
               width: 36,
               height: 36,
               borderRadius: 18,
-              backgroundColor: theme.colors.background,
+              backgroundColor: isConvMuted
+                ? theme.colors.primaryBg
+                : theme.colors.background,
               alignItems: "center",
               justifyContent: "center"
             }}
@@ -981,6 +1017,119 @@ export default function ConversationPage() {
         visible={Boolean(sharedPetId && sharedPet)}
         onClose={() => setSharedPetId(null)}
       />
+
+      {/* v0.11.5 — Mute duration picker sheet */}
+      <Modal
+        visible={muteSheetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMuteSheetOpen(false)}
+      >
+        <Pressable
+          onPress={() => setMuteSheetOpen(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(22,21,20,0.45)",
+            justifyContent: "flex-end"
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: theme.colors.surface,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 14,
+              paddingBottom: insets.bottom + 20,
+              paddingHorizontal: 22
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: theme.colors.border,
+                alignSelf: "center",
+                marginBottom: 18
+              }}
+            />
+            <Text
+              style={{
+                fontSize: 18,
+                color: theme.colors.ink,
+                fontFamily: "Inter_700Bold",
+                marginBottom: 4
+              }}
+            >
+              {t("chat.muteDuration.title")}
+            </Text>
+            <Text
+              style={{
+                fontSize: 13,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium",
+                marginBottom: 18,
+                lineHeight: 18
+              }}
+            >
+              {t("chat.muteDuration.subtitle")}
+            </Text>
+            {([
+              { key: "1h" as const, label: t("chat.muteDuration.1h") },
+              { key: "24h" as const, label: t("chat.muteDuration.24h") },
+              { key: "7d" as const, label: t("chat.muteDuration.7d") },
+              { key: "forever" as const, label: t("chat.muteDuration.forever") }
+            ] as const).map((opt, idx) => (
+              <Pressable
+                key={opt.key}
+                onPress={() => handleMuteDuration(opt.key)}
+                style={({ pressed }) => ({
+                  paddingVertical: 15,
+                  borderTopWidth: idx > 0 ? 1 : 0,
+                  borderTopColor: theme.colors.border,
+                  opacity: pressed ? 0.7 : 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12
+                })}
+              >
+                <BellOff size={16} color={theme.colors.ink} />
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_600SemiBold"
+                  }}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => setMuteSheetOpen(false)}
+              style={({ pressed }) => ({
+                marginTop: 10,
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.pill,
+                backgroundColor: theme.colors.background,
+                alignItems: "center",
+                opacity: pressed ? 0.85 : 1
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: theme.colors.muted,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {t("common.cancel")}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
