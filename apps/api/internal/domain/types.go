@@ -64,6 +64,7 @@ type MatchPreview struct {
 	MatchedOwnerName      string `json:"matchedOwnerName"`
 	MatchedOwnerAvatarURL string `json:"matchedOwnerAvatarUrl,omitempty"`
 	LastMessagePreview    string `json:"lastMessagePreview"`
+	LastMessageAt         string `json:"lastMessageAt,omitempty"` // ISO 8601; empty = no messages yet
 	UnreadCount           int    `json:"unreadCount"`
 	CreatedAt             string `json:"createdAt"`
 	Status                string `json:"status"`

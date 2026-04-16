@@ -1389,16 +1389,39 @@ func (s *PostgresStore) ListMatches(userID string) []domain.MatchPreview {
 			m.UnreadCount = unread
 
 			var lastBody string
+			var lastAt *time.Time
 			if err := s.pool.QueryRow(s.ctx(),
-				`SELECT COALESCE(body,'') FROM messages
+				`SELECT COALESCE(body,''), created_at FROM messages
 				 WHERE conversation_id = $1 AND deleted_at IS NULL
-				 ORDER BY created_at DESC LIMIT 1`, m.ConversationID).Scan(&lastBody); err == nil && lastBody != "" {
-				m.LastMessagePreview = lastBody
+				 ORDER BY created_at DESC LIMIT 1`, m.ConversationID).Scan(&lastBody, &lastAt); err == nil {
+				if lastBody != "" {
+					m.LastMessagePreview = lastBody
+				}
+				if lastAt != nil {
+					m.LastMessageAt = lastAt.UTC().Format(time.RFC3339)
+				}
 			}
 		}
 
 		matches = append(matches, m)
 	}
+
+	// Sort by last message time (newest first). Matches with no messages
+	// sort after those with messages, ordered by match creation time.
+	sort.SliceStable(matches, func(i, j int) bool {
+		ai := matches[i].LastMessageAt
+		aj := matches[j].LastMessageAt
+		if ai == "" && aj == "" {
+			return matches[i].CreatedAt > matches[j].CreatedAt
+		}
+		if ai == "" {
+			return false
+		}
+		if aj == "" {
+			return true
+		}
+		return ai > aj
+	})
 
 	return matches
 }

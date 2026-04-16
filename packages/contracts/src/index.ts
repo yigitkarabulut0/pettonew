@@ -88,6 +88,8 @@ export interface MatchPreview {
   matchedOwnerName: string;
   matchedOwnerAvatarUrl?: string;
   lastMessagePreview: string;
+  /** ISO 8601 timestamp of the last message. Empty = no messages yet. */
+  lastMessageAt?: string;
   unreadCount: number;
   createdAt: string;
   status: MatchStatus;
