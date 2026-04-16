@@ -53,7 +53,7 @@ type Store interface {
 	ListConversations(userID string) []domain.Conversation
 	FindConversationByUsers(user1ID string, user2ID string) *domain.Conversation
 	CreateOrFindDirectConversation(userID string, targetUserID string) (*domain.Conversation, error)
-	ListMessages(userID string, conversationID string) ([]domain.Message, error)
+	ListMessages(userID string, conversationID string, limit int, before string) ([]domain.Message, error)
 	SendMessage(userID string, conversationID string, body string) (domain.Message, error)
 	MarkMessagesRead(userID string, conversationID string)
 	BlockUser(userID string, targetUserID string) error

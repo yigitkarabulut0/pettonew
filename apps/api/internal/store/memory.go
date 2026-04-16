@@ -780,7 +780,7 @@ func (s *MemoryStore) ListConversations(userID string) []domain.Conversation {
 	return conversations
 }
 
-func (s *MemoryStore) ListMessages(userID string, conversationID string) ([]domain.Message, error) {
+func (s *MemoryStore) ListMessages(userID string, conversationID string, limit int, before string) ([]domain.Message, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

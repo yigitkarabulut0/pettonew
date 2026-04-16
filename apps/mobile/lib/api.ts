@@ -699,12 +699,24 @@ export async function createOrFindDMConversation(
   });
 }
 
+/**
+ * v0.11.4 — paginated message list.
+ * @param limit  max messages to return (default 50, server caps at 200)
+ * @param before cursor: message ID; returns messages older than this one
+ */
 export async function listMessages(
   accessToken: string,
-  conversationId: string
+  conversationId: string,
+  limit = 50,
+  before?: string
 ): Promise<Message[]> {
+  const params = new URLSearchParams({
+    conversationId,
+    limit: String(limit)
+  });
+  if (before) params.set("before", before);
   const messages = await request<Message[] | null>(
-    `/v1/messages?conversationId=${conversationId}`,
+    `/v1/messages?${params.toString()}`,
     {
       headers: authHeaders(accessToken)
     }

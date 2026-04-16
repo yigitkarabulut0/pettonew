@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, Stack, useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -140,17 +141,26 @@ export default function ConversationPage() {
     [id, session?.tokens.accessToken]
   );
 
-  const { data: messages = [] } = useQuery({
+  // v0.11.4 — paginated message loading.
+  // We keep the polling model for the LATEST page (50 messages) so new
+  // messages arrive in real-time. Older history is fetched on demand when
+  // the user scrolls to the top, accumulated in `olderMessages` state.
+  const PAGE_SIZE = 50;
+  const [olderMessages, setOlderMessages] = useState<Message[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Reset older messages when conversation changes.
+  useEffect(() => {
+    setOlderMessages([]);
+    setHasMore(true);
+  }, [id]);
+
+  const { data: latestMessages = [] } = useQuery({
     queryKey: messagesQueryKey,
     queryFn: async () => {
-      const serverMsgs = await listMessages(session!.tokens.accessToken, id);
-      // Preserve optimistic temp-* messages across polls. Without this,
-      // a background refetch that finishes between onMutate and server
-      // ACK replaces the freshly-inserted optimistic bubble with the
-      // pre-send snapshot — so the message the user just sent visibly
-      // disappears for ~2.5s until the real one arrives. Keep every
-      // temp unless the server already returned a matching real row
-      // (same sender + type + body + imageUrl, within 60s).
+      const serverMsgs = await listMessages(session!.tokens.accessToken, id, PAGE_SIZE);
+      // Preserve optimistic temp-* messages across polls.
       const current = queryClient.getQueryData<Message[]>(messagesQueryKey);
       if (!current || current.length === 0) return serverMsgs;
       const temps = current.filter((m) => typeof m.id === "string" && m.id.startsWith("temp-"));
@@ -175,6 +185,55 @@ export default function ConversationPage() {
     staleTime: 1500,
     refetchOnWindowFocus: false
   });
+
+  // Merge older (scroll-loaded) pages with the latest (polled) page. We
+  // deduplicate by id to handle the overlap where the latest page might
+  // include some messages from the last older batch.
+  const messages = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Message[] = [];
+    for (const m of olderMessages) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        merged.push(m);
+      }
+    }
+    for (const m of latestMessages) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        merged.push(m);
+      }
+    }
+    return merged;
+  }, [olderMessages, latestMessages]);
+
+  // Load the next older page when the user scrolls to the top.
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingMore || !hasMore || !session) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    setLoadingMore(true);
+    try {
+      const older = await listMessages(
+        session.tokens.accessToken,
+        id,
+        PAGE_SIZE,
+        oldest.id
+      );
+      if (older.length < PAGE_SIZE) setHasMore(false);
+      if (older.length > 0) {
+        setOlderMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          const fresh = older.filter((m) => !seen.has(m.id));
+          return [...fresh, ...prev];
+        });
+      }
+    } catch {
+      // Swallow — the user can try scrolling up again.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, session, messages, id]);
 
   const { data: pinned = [], refetch: refetchPinned } = useQuery({
     queryKey: ["group-pinned", groupInfo?.id],
@@ -450,15 +509,16 @@ export default function ConversationPage() {
       }
     }
 
-    return groups;
+    // v0.11.4 — reverse the groups so the FlatList (inverted) shows newest
+    // at the bottom and oldest at the top. Each group's internal messages
+    // stay oldest-first (inverted FlatList renders bottom-up, so the first
+    // item in data is visually at the bottom).
+    return groups.reverse();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesKey]);
 
-  useEffect(() => {
-    if (messages.length > 0 && flatListRef.current) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    }
-  }, [messages.length]);
+  // With an inverted FlatList, scrollToEnd is no longer needed — the list
+  // starts at the newest message (first data item = bottom of screen).
 
   const canSend = isMember && !isMuted;
 
@@ -694,14 +754,28 @@ export default function ConversationPage() {
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews
-            initialNumToRender={20}
+            initialNumToRender={15}
             maxToRenderPerBatch={10}
-            windowSize={10}
+            windowSize={8}
             updateCellsBatchingPeriod={50}
+            // v0.11.4 — load older messages on scroll-to-top.
+            onEndReached={loadOlderMessages}
+            onEndReachedThreshold={0.3}
+            inverted
             contentContainerStyle={{
               paddingVertical: mobileTheme.spacing.md,
-              paddingBottom: 80
+              paddingHorizontal: 12,
+              paddingBottom: 16
             }}
+            ListFooterComponent={
+              loadingMore ? (
+                <ActivityIndicator
+                  size="small"
+                  color={theme.colors.primary}
+                  style={{ paddingVertical: 16 }}
+                />
+              ) : null
+            }
             renderItem={({ item: group }) => (
               <View>
                 <View
@@ -827,14 +901,15 @@ export default function ConversationPage() {
                   value={draft}
                   onChangeText={setDraft}
                   multiline
+                  scrollEnabled
                   editable={canSend}
                   style={{
                     flex: 1,
-                    borderRadius: mobileTheme.radius.pill,
+                    borderRadius: 20,
                     backgroundColor: theme.colors.background,
                     paddingHorizontal: mobileTheme.spacing.lg,
-                    paddingVertical: mobileTheme.spacing.sm + 4,
-                    maxHeight: 120,
+                    paddingVertical: 12,
+                    maxHeight: 160,
                     fontSize: mobileTheme.typography.body.fontSize,
                     color: theme.colors.ink,
                     fontFamily: "Inter_400Regular",

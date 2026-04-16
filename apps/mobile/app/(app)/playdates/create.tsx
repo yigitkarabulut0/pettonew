@@ -223,8 +223,8 @@ export default function CreatePlaydatePage() {
   const resolvedLat = selectedVenue?.latitude ?? userLocation?.latitude ?? 0;
   const resolvedLng = selectedVenue?.longitude ?? userLocation?.longitude ?? 0;
   const resolvedCity = selectedVenue?.cityLabel ?? "";
-  // v0.11.0 — user-uploaded cover wins over the venue photo fallback.
-  const resolvedCover = customCoverUrl ?? selectedVenue?.imageUrl ?? "";
+  // v0.11.4 — venue photo fallback removed; only user-uploaded covers.
+  const resolvedCover = customCoverUrl ?? "";
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -432,8 +432,6 @@ export default function CreatePlaydatePage() {
               customCoverUrl={customCoverUrl}
               coverUploading={coverUploading}
               onPickCover={pickCoverImage}
-              onClearCover={() => setCustomCoverUrl(null)}
-              selectedVenueCover={selectedVenue?.imageUrl ?? ""}
             />
           ) : (
             <Step3Review
@@ -758,8 +756,6 @@ function Step2Details(props: {
   customCoverUrl: string | null;
   coverUploading: boolean;
   onPickCover: () => void;
-  onClearCover: () => void;
-  selectedVenueCover: string;
 }) {
   const {
     theme,
@@ -791,10 +787,9 @@ function Step2Details(props: {
     customCoverUrl,
     coverUploading,
     onPickCover,
-    onClearCover,
-    selectedVenueCover
   } = props;
-  const effectiveCover = customCoverUrl || selectedVenueCover;
+  // v0.11.4 — venue photo fallback removed; only user-uploaded covers.
+  const effectiveCover = customCoverUrl ?? null;
 
   return (
     <ScrollView
@@ -906,29 +901,6 @@ function Step2Details(props: {
                 {t("playdates.wizard.coverPhotoChange")}
               </Text>
             </Pressable>
-            {customCoverUrl ? (
-              <Pressable
-                onPress={onClearCover}
-                style={({ pressed }) => ({
-                  paddingVertical: 10,
-                  paddingHorizontal: 16,
-                  borderRadius: mobileTheme.radius.pill,
-                  backgroundColor: theme.colors.background,
-                  alignItems: "center",
-                  opacity: pressed ? 0.88 : 1
-                })}
-              >
-                <Text
-                  style={{
-                    color: theme.colors.muted,
-                    fontSize: 12,
-                    fontFamily: "Inter_700Bold"
-                  }}
-                >
-                  {t("playdates.wizard.coverPhotoReset")}
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : null}
       </View>

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -771,7 +772,15 @@ func (s *Server) handleConversations(writer http.ResponseWriter, request *http.R
 
 func (s *Server) handleMessages(writer http.ResponseWriter, request *http.Request) {
 	conversationID := request.URL.Query().Get("conversationId")
-	messages, err := s.store.ListMessages(currentUserID(request), conversationID)
+	// v0.11.4 — pagination: ?limit=50&before=<messageId>
+	limit := 50
+	if v := request.URL.Query().Get("limit"); v != "" {
+		if n, e := strconv.Atoi(v); e == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	before := request.URL.Query().Get("before") // cursor
+	messages, err := s.store.ListMessages(currentUserID(request), conversationID, limit, before)
 	if err != nil {
 		writeError(writer, http.StatusNotFound, err.Error())
 		return

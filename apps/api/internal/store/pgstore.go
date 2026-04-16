@@ -1511,7 +1511,7 @@ func (s *PostgresStore) ListConversations(userID string) []domain.Conversation {
 	return conversations
 }
 
-func (s *PostgresStore) ListMessages(userID string, conversationID string) ([]domain.Message, error) {
+func (s *PostgresStore) ListMessages(userID string, conversationID string, limit int, before string) ([]domain.Message, error) {
 	// Verify user is in conversation
 	var userIDs []string
 	err := s.pool.QueryRow(s.ctx(),
@@ -1530,8 +1530,35 @@ func (s *PostgresStore) ListMessages(userID string, conversationID string) ([]do
 		return nil, fmt.Errorf("conversation not found")
 	}
 
-	rows, err := s.pool.Query(s.ctx(),
-		`SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	// v0.11.4 — cursor-based pagination. Returns the most recent `limit`
+	// messages (ordered oldest-first for the client's FlatList). If `before`
+	// is set, returns `limit` messages older than that message's created_at.
+	// This means the initial load is the newest 50, and scrolling up fetches
+	// the previous 50, etc.
+	var query string
+	var args []any
+	if before != "" {
+		query = `WITH cursor AS (
+			SELECT created_at FROM messages WHERE id = $3 AND conversation_id = $1
+		)
+		SELECT m.id, m.conversation_id, m.sender_profile_id, m.sender_name, m.body, m.read_at, m.created_at,
+		       COALESCE(m.message_type, 'text'),
+		       COALESCE(m.image_url, ''),
+		       COALESCE(m.metadata::text, '{}'),
+		       COALESCE(m.sender_avatar_url, ''),
+		       m.deleted_at, COALESCE(m.deleted_by, ''),
+		       m.pinned_at,  COALESCE(m.pinned_by, '')
+		FROM messages m, cursor c
+		WHERE m.conversation_id = $1 AND m.created_at < c.created_at
+		ORDER BY m.created_at DESC
+		LIMIT $2`
+		args = []any{conversationID, limit, before}
+	} else {
+		query = `SELECT id, conversation_id, sender_profile_id, sender_name, body, read_at, created_at,
 		        COALESCE(message_type, 'text'),
 		        COALESCE(image_url, ''),
 		        COALESCE(metadata::text, '{}'),
@@ -1540,19 +1567,29 @@ func (s *PostgresStore) ListMessages(userID string, conversationID string) ([]do
 		        pinned_at,  COALESCE(pinned_by, '')
 		 FROM messages
 		 WHERE conversation_id = $1
-		 ORDER BY created_at`, conversationID)
+		 ORDER BY created_at DESC
+		 LIMIT $2`
+		args = []any{conversationID, limit}
+	}
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 	defer rows.Close()
 
-	messages := make([]domain.Message, 0)
+	messages := make([]domain.Message, 0, limit)
 	for rows.Next() {
 		m, ok := scanMessageRow(rows, userID)
 		if !ok {
 			continue
 		}
 		messages = append(messages, m)
+	}
+	// Reverse so the result is oldest-first (the client FlatList expects
+	// chronological order and scrolls to end on load).
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 	return messages, nil
 }
