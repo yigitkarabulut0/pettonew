@@ -83,14 +83,17 @@ export default function ConversationPage() {
   });
   const conversation = conversations.find((c) => c.id === id) ?? null;
 
-  // Fallback chain: router-param seed (instant, v0.11.0: takes priority so
-  // playdate chats show the playdate name without a "Conversation" flash) →
-  // real query data → localized last-resort. The seed is passed from
-  // groups.tsx / group/[id].tsx / playdates/[id].tsx / conversations.tsx so
-  // the header shows the real name & image immediately on navigation.
-  const otherUserName = initialTitle || conversation?.title || t("chat.conversation");
+  // v0.11.8 — title + avatar fallback chain. For DM chats, initialTitle is
+  // the owner name (from conversations.tsx) and initialImage is the owner
+  // avatar. Conversation?.title is the backend-corrected owner name (never
+  // the raw "Pet1, Pet2" from the DB). "Chat" is the absolute last-resort.
+  const otherUserName =
+    initialTitle || conversation?.title || conversation?.subtitle || t("chat.conversation");
+  // v0.11.8 — prefer owner avatar over pet photo.
   const otherUserAvatar =
-    initialImage || conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl;
+    initialImage ||
+    (conversation as any)?.matchedOwnerAvatarUrl ||
+    conversation?.matchPetPairs?.[0]?.matchedPetPhotoUrl;
   const petPairLabel = conversation?.matchPetPairs?.length
     ? conversation.matchPetPairs.map((p) => `${p.myPetName} & ${p.matchedPetName}`).join(", ")
     : "";

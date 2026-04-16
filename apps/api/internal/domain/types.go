@@ -99,15 +99,18 @@ type MatchPetPair struct {
 }
 
 type Conversation struct {
-	ID            string         `json:"id"`
-	MatchID       string         `json:"matchId"`
-	Title         string         `json:"title"`
-	Subtitle      string         `json:"subtitle"`
-	UnreadCount   int            `json:"unreadCount"`
-	LastMessageAt string         `json:"lastMessageAt"`
-	Messages      []Message      `json:"messages"`
-	UserIDs       []string       `json:"userIds"`
-	MatchPetPairs []MatchPetPair `json:"matchPetPairs"`
+	ID                    string         `json:"id"`
+	MatchID               string         `json:"matchId"`
+	Title                 string         `json:"title"`
+	Subtitle              string         `json:"subtitle"`
+	UnreadCount           int            `json:"unreadCount"`
+	LastMessageAt         string         `json:"lastMessageAt"`
+	Messages              []Message      `json:"messages"`
+	UserIDs               []string       `json:"userIds"`
+	MatchPetPairs         []MatchPetPair `json:"matchPetPairs"`
+	// v0.11.8 — the other user's profile avatar so the conversation list
+	// and chat header can show the OWNER's face, not the pet's.
+	MatchedOwnerAvatarURL string         `json:"matchedOwnerAvatarUrl,omitempty"`
 }
 
 type TaxonomyItem struct {

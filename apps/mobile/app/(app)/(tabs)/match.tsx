@@ -214,13 +214,28 @@ export default function MatchesPage() {
   const handleSendMessage = useCallback(
     (conversationId: string) => {
       handleDismiss();
-      router.push(`/(app)/conversation/${conversationId}`);
+      // v0.11.8 — pass the matched owner's name so the chat header doesn't
+      // flash "Conversation" while listConversations resolves.
+      router.push({
+        pathname: "/(app)/conversation/[id]",
+        params: {
+          id: conversationId,
+          initialTitle: matchModal.ownerName ?? ""
+        }
+      } as any);
     },
-    [handleDismiss]
+    [handleDismiss, matchModal.ownerName]
   );
 
-  const handleMatchPress = useCallback((match: { conversationId: string }) => {
-    router.push(`/(app)/conversation/${match.conversationId}`);
+  const handleMatchPress = useCallback((match: { conversationId: string; matchedOwnerName?: string; matchedOwnerAvatarURL?: string }) => {
+    router.push({
+      pathname: "/(app)/conversation/[id]",
+      params: {
+        id: match.conversationId,
+        initialTitle: match.matchedOwnerName ?? "",
+        initialImage: match.matchedOwnerAvatarURL ?? ""
+      }
+    } as any);
   }, []);
 
   const showPetPicker = myPets.length > 1;

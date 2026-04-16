@@ -1496,13 +1496,21 @@ func (s *PostgresStore) ListConversations(userID string) []domain.Conversation {
 		if groupErr == nil && groupName != "" {
 			c.Title = groupName
 		} else {
-			// Normal 1:1 — set title to the OTHER user's name
+			// Normal 1:1 — set title to the OTHER user's name + avatar.
 			for _, uid := range c.UserIDs {
 				if uid != userID {
-					otherName, _ := s.getOwnerInfo(uid)
+					otherName, otherAvatar := s.getOwnerInfo(uid)
 					if otherName != "" {
 						c.Title = otherName
+					} else if len(c.MatchPetPairs) > 0 {
+						// Fallback: use pet pair names so the title is never empty.
+						names := make([]string, 0, len(c.MatchPetPairs))
+						for _, pp := range c.MatchPetPairs {
+							names = append(names, pp.MatchedPetName)
+						}
+						c.Title = strings.Join(names, ", ")
 					}
+					c.MatchedOwnerAvatarURL = otherAvatar
 					break
 				}
 			}

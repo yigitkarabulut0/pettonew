@@ -111,8 +111,8 @@ export default function ConversationsPage() {
                   pathname: "/(app)/conversation/[id]",
                   params: {
                     id: item.id,
-                    initialTitle: item.title ?? "",
-                    initialImage: item.matchPetPairs?.[0]?.matchedPetPhotoUrl ?? ""
+                    initialTitle: item.title || item.subtitle || "Chat",
+                    initialImage: (item as any).matchedOwnerAvatarUrl ?? item.matchPetPairs?.[0]?.matchedPetPhotoUrl ?? ""
                   }
                 } as any)
               }
@@ -145,6 +145,7 @@ function ConversationItem({
       matchedPetName: string;
       matchedPetPhotoUrl?: string;
     }>;
+    matchedOwnerAvatarUrl?: string;
   };
   onPress: () => void;
 }) {
@@ -155,9 +156,15 @@ function ConversationItem({
       ? (conversation.messages[conversation.messages.length - 1]?.body ?? "")
       : t("chat.startConversation");
 
-  const firstPair = conversation.matchPetPairs[0];
-  const petPhoto = firstPair?.matchedPetPhotoUrl;
-  const ownerName = conversation.subtitle || conversation.title;
+  // v0.11.8 — owner avatar as the main photo; small pet circles alongside.
+  const ownerAvatar = (conversation as any).matchedOwnerAvatarUrl as string | undefined;
+  const petPairs = conversation.matchPetPairs ?? [];
+  // Build pet pair subtitle: "Bora & Max, Luna & Charlie"
+  const petPairLabel = petPairs
+    .map((pp) => `${pp.myPetName} & ${pp.matchedPetName}`)
+    .join(", ");
+  // v0.11.8 — title is now the owner's name (backend overrides it).
+  const ownerName = conversation.title || conversation.subtitle || "Chat";
 
   return (
     <Pressable
@@ -173,58 +180,90 @@ function ConversationItem({
         opacity: pressed ? 0.85 : 1
       })}
     >
-      <View style={{ position: "relative" }}>
-        <View
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: theme.colors.secondarySoft,
-            overflow: "hidden",
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
-          {petPhoto ? (
-            <Image
-              source={{ uri: petPhoto }}
-              style={{ width: "100%", height: "100%" }}
-              contentFit="cover"
-              transition={200}
-            />
-          ) : (
-            <MessageCircle size={24} color={theme.colors.secondary} />
-          )}
-        </View>
-        {conversation.unreadCount > 0 && (
+      {/* v0.11.8 — Owner avatar (large) + pet photo circles (small) */}
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View style={{ position: "relative" }}>
           <View
             style={{
-              position: "absolute",
-              bottom: -2,
-              right: -2,
-              minWidth: 18,
-              height: 18,
-              borderRadius: 9,
-              backgroundColor: theme.colors.primary,
-              justifyContent: "center",
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+              backgroundColor: theme.colors.secondarySoft,
+              overflow: "hidden",
               alignItems: "center",
-              paddingHorizontal: 4,
-              borderWidth: 2,
-              borderColor: theme.colors.white
+              justifyContent: "center"
             }}
           >
-            <Text
+            {ownerAvatar ? (
+              <Image
+                source={{ uri: ownerAvatar }}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                transition={200}
+              />
+            ) : (
+              <MessageCircle size={22} color={theme.colors.secondary} />
+            )}
+          </View>
+          {conversation.unreadCount > 0 && (
+            <View
               style={{
-                fontSize: 9,
-                fontWeight: "700",
-                color: theme.colors.white,
-                fontFamily: "Inter_700Bold"
+                position: "absolute",
+                bottom: -2,
+                right: -2,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 9,
+                backgroundColor: theme.colors.primary,
+                justifyContent: "center",
+                alignItems: "center",
+                paddingHorizontal: 4,
+                borderWidth: 2,
+                borderColor: theme.colors.white
               }}
             >
-              {conversation.unreadCount > 99
-                ? "99"
-                : String(conversation.unreadCount)}
-            </Text>
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: "700",
+                  color: theme.colors.white,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {conversation.unreadCount > 99
+                  ? "99"
+                  : String(conversation.unreadCount)}
+              </Text>
+            </View>
+          )}
+        </View>
+        {/* Small pet photo circles */}
+        {petPairs.length > 0 && (
+          <View style={{ marginLeft: -6, flexDirection: "row" }}>
+            {petPairs.slice(0, 3).map((pp, idx) => (
+              <View
+                key={pp.matchedPetId}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  backgroundColor: theme.colors.primaryBg,
+                  borderWidth: 2,
+                  borderColor: theme.colors.white,
+                  marginLeft: idx > 0 ? -6 : 0,
+                  zIndex: 3 - idx
+                }}
+              >
+                {pp.matchedPetPhotoUrl ? (
+                  <Image
+                    source={{ uri: pp.matchedPetPhotoUrl }}
+                    style={{ width: "100%", height: "100%" }}
+                    contentFit="cover"
+                  />
+                ) : null}
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -241,16 +280,16 @@ function ConversationItem({
         >
           {ownerName}
         </Text>
-        {conversation.subtitle ? (
+        {petPairLabel ? (
           <Text
             numberOfLines={1}
             style={{
-              color: theme.colors.muted,
-              fontSize: mobileTheme.typography.micro.fontSize,
-              fontFamily: "Inter_500Medium"
+              color: theme.colors.primary,
+              fontSize: 11,
+              fontFamily: "Inter_600SemiBold"
             }}
           >
-            {conversation.subtitle}
+            {petPairLabel}
           </Text>
         ) : null}
         <Text

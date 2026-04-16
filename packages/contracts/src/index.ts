@@ -142,6 +142,8 @@ export interface Conversation {
   messages: Message[];
   userIds: string[];
   matchPetPairs: MatchPetPair[];
+  /** v0.11.8 — the other user's profile avatar (not the pet's). */
+  matchedOwnerAvatarUrl?: string;
 }
 
 export interface TaxonomyItem {
