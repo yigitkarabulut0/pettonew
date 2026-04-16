@@ -370,6 +370,7 @@ function normalizeMatch(
     matchedOwnerName: match?.matchedOwnerName ?? "",
     matchedOwnerAvatarUrl: match?.matchedOwnerAvatarUrl,
     lastMessagePreview: match?.lastMessagePreview ?? "",
+    lastMessageAt: match?.lastMessageAt,
     unreadCount: typeof match?.unreadCount === "number" ? match.unreadCount : 0,
     createdAt: match?.createdAt ?? new Date(0).toISOString(),
     status: (match?.status ?? "active") as MatchPreview["status"],
