@@ -15,8 +15,7 @@ import {
   CalendarCheck,
   CalendarDays,
   Navigation,
-  Plus,
-  RefreshCw
+  Plus
 } from "lucide-react-native";
 import type { Playdate } from "@petto/contracts";
 
@@ -210,20 +209,6 @@ export default function PlaydatesHubPage() {
             }}
           >
             <CalendarCheck size={18} color={theme.colors.ink} />
-          </Pressable>
-          <Pressable
-            onPress={handleRefresh}
-            hitSlop={10}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: theme.colors.background,
-              alignItems: "center",
-              justifyContent: "center"
-            }}
-          >
-            <RefreshCw size={18} color={theme.colors.ink} />
           </Pressable>
           <Pressable
             onPress={() =>
