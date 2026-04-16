@@ -2,7 +2,7 @@ export default {
   name: "Fetcht",
   slug: "petto-mobile",
   scheme: "petto",
-  version: "0.11.8",
+  version: "0.11.11",
   orientation: "portrait",
   userInterfaceStyle: "light",
   newArchEnabled: true,
