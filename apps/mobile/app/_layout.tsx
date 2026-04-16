@@ -12,7 +12,10 @@ import {
 } from "@expo-google-fonts/inter";
 import { Platform, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import "@/lib/i18n";
 import { AnimatedSplash } from "@/components/animated-splash";
@@ -26,7 +29,23 @@ import { useSessionStore } from "@/store/session";
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Keep cached data for 24 hours so the app opens instantly with
+      // the previous session's data. Background refetches still run to
+      // keep it fresh, but the UI never starts from a blank screen.
+      gcTime: 1000 * 60 * 60 * 24, // 24h (was default 5min)
+      staleTime: 1000 * 30 // 30s — data shows instantly, refetch in bg
+    }
+  }
+});
+
+// Persist React Query cache to AsyncStorage so it survives app restarts.
+const asyncStoragePersister = createAsyncStoragePersister({
+  storage: AsyncStorage,
+  key: "PETTO_REACT_QUERY_CACHE"
+});
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
@@ -128,11 +147,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister: asyncStoragePersister }}
+        >
           <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
           <NetworkBanner />
           <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
   );
