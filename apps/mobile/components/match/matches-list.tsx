@@ -47,22 +47,19 @@ export function MatchesList({
   const { t } = useTranslation();
   const [petFilter, setPetFilter] = useState<string | null>(null);
 
-  // "New Matches" = matches where no real message has been exchanged yet.
-  // Once either side sends a message, the match moves to the messages list.
-  const hasRealMessage = (m: MatchPreview) =>
-    Boolean(m.lastMessageAt) &&
-    m.lastMessagePreview !== "" &&
-    m.lastMessagePreview !== "It's a match. Say hello!";
-
+  // "New Matches" = no messages in the conversation yet (lastMessageAt empty).
+  // "Messages" = at least one message exists (any type: text, image, pet_share).
+  // The previous check also filtered on lastMessagePreview content which broke
+  // for image/pet_share messages (empty body → preview stayed as the default
+  // "It's a match" string → match stuck in New forever). Fixed: only check
+  // lastMessageAt which the backend sets from the actual messages table.
   const newMatches = useMemo(
-    () => matches.filter((m) => m.status === "active" && !hasRealMessage(m)),
+    () => matches.filter((m) => m.status === "active" && !m.lastMessageAt),
     [matches]
   );
 
-  // Messages list: only matches that have at least one real message,
-  // already sorted by lastMessageAt from the backend (newest first).
   const matchesWithMessages = useMemo(
-    () => matches.filter((m) => hasRealMessage(m)),
+    () => matches.filter((m) => Boolean(m.lastMessageAt)),
     [matches]
   );
 

@@ -1388,14 +1388,23 @@ func (s *PostgresStore) ListMatches(userID string) []domain.MatchPreview {
 				m.ConversationID, userID).Scan(&unread)
 			m.UnreadCount = unread
 
-			var lastBody string
+			var lastBody, lastType string
 			var lastAt *time.Time
 			if err := s.pool.QueryRow(s.ctx(),
-				`SELECT COALESCE(body,''), created_at FROM messages
+				`SELECT COALESCE(body,''), COALESCE(message_type,'text'), created_at FROM messages
 				 WHERE conversation_id = $1 AND deleted_at IS NULL
-				 ORDER BY created_at DESC LIMIT 1`, m.ConversationID).Scan(&lastBody, &lastAt); err == nil {
-				if lastBody != "" {
-					m.LastMessagePreview = lastBody
+				 ORDER BY created_at DESC LIMIT 1`, m.ConversationID).Scan(&lastBody, &lastType, &lastAt); err == nil {
+				preview := lastBody
+				if preview == "" {
+					switch lastType {
+					case "image":
+						preview = "📷 Photo"
+					case "pet_share":
+						preview = "🐾 Pet shared"
+					}
+				}
+				if preview != "" {
+					m.LastMessagePreview = preview
 				}
 				if lastAt != nil {
 					m.LastMessageAt = lastAt.UTC().Format(time.RFC3339)
