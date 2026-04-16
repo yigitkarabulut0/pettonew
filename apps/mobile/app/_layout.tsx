@@ -32,20 +32,33 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Keep cached data for 24 hours so the app opens instantly with
-      // the previous session's data. Background refetches still run to
-      // keep it fresh, but the UI never starts from a blank screen.
-      gcTime: 1000 * 60 * 60 * 24, // 24h (was default 5min)
-      staleTime: 1000 * 30 // 30s — data shows instantly, refetch in bg
+      // Keep cached data for 1 hour in memory so tab switches are instant.
+      gcTime: 1000 * 60 * 60,
+      staleTime: 1000 * 30
     }
   }
 });
 
 // Persist React Query cache to AsyncStorage so it survives app restarts.
+// maxAge limits what gets restored — stale data older than 1h is discarded.
+// buster invalidates the entire cache when the app version changes.
 const asyncStoragePersister = createAsyncStoragePersister({
   storage: AsyncStorage,
   key: "PETTO_REACT_QUERY_CACHE"
 });
+
+const PERSIST_OPTIONS = {
+  persister: asyncStoragePersister,
+  maxAge: 1000 * 60 * 60, // 1 hour — don't restore very old data
+  buster: "0.11.11", // cache busted on version change
+  dehydrateOptions: {
+    shouldDehydrateQuery: (query: any) => {
+      // Only persist lightweight list queries — skip large/binary data.
+      const key = query.queryKey?.[0] as string;
+      return ["matches", "conversations", "my-pets", "explore-venues"].includes(key);
+    }
+  }
+};
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
@@ -149,7 +162,7 @@ export default function RootLayout() {
       <ErrorBoundary>
         <PersistQueryClientProvider
           client={queryClient}
-          persistOptions={{ persister: asyncStoragePersister }}
+          persistOptions={PERSIST_OPTIONS}
         >
           <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
           <NetworkBanner />
