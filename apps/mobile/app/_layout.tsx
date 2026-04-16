@@ -33,7 +33,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Keep cached data for 1 hour in memory so tab switches are instant.
-      gcTime: 1000 * 60 * 60,
+      gcTime: 1000 * 60 * 60 * 24, // 24h
       staleTime: 1000 * 30
     }
   }
@@ -49,7 +49,7 @@ const asyncStoragePersister = createAsyncStoragePersister({
 
 const PERSIST_OPTIONS = {
   persister: asyncStoragePersister,
-  maxAge: 1000 * 60 * 60, // 1 hour — don't restore very old data
+  maxAge: 1000 * 60 * 60 * 24, // 24h — show yesterday's data instantly, refetch in bg
   buster: "0.11.11", // cache busted on version change
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
