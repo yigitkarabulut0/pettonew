@@ -112,7 +112,7 @@ export function MatchesList({
           >
             {newMatches.map((match) => {
               const pet = match.matchedPet;
-              const photo = pet.photos[0]?.url;
+              const petPhoto = pet.photos[0]?.url;
               const ownerAvatar = match.matchedOwnerAvatarUrl;
               return (
                 <Pressable
@@ -121,6 +121,7 @@ export function MatchesList({
                   style={{ alignItems: "center", width: 84 }}
                 >
                   <View style={{ position: "relative" }}>
+                    {/* Big circle = owner avatar */}
                     <View
                       style={{
                         width: 72,
@@ -133,9 +134,9 @@ export function MatchesList({
                         ...mobileTheme.shadow.sm
                       }}
                     >
-                      {photo ? (
+                      {ownerAvatar ? (
                         <Image
-                          source={{ uri: photo }}
+                          source={{ uri: ownerAvatar }}
                           style={{ width: "100%", height: "100%" }}
                           contentFit="cover"
                           transition={200}
@@ -155,15 +156,16 @@ export function MatchesList({
                         </View>
                       )}
                     </View>
-                    {ownerAvatar && (
+                    {/* Small circle = pet photo */}
+                    {petPhoto && (
                       <View
                         style={{
                           position: "absolute",
-                          bottom: -2,
-                          right: -2,
-                          width: 22,
-                          height: 22,
-                          borderRadius: 11,
+                          bottom: -3,
+                          right: -3,
+                          width: 26,
+                          height: 26,
+                          borderRadius: 13,
                           borderWidth: 2,
                           borderColor: theme.colors.white,
                           overflow: "hidden",
@@ -171,7 +173,7 @@ export function MatchesList({
                         }}
                       >
                         <Image
-                          source={{ uri: ownerAvatar }}
+                          source={{ uri: petPhoto }}
                           style={{ width: "100%", height: "100%" }}
                           contentFit="cover"
                           transition={200}
@@ -190,7 +192,7 @@ export function MatchesList({
                       textAlign: "center"
                     }}
                   >
-                    {pet.name}
+                    {match.matchedOwnerName || pet.name}
                   </Text>
                 </Pressable>
               );
@@ -369,8 +371,8 @@ interface MatchRowProps {
 function MatchRow({ match, onPress }: MatchRowProps) {
   const theme = useTheme();
   const theirPet = match.matchedPet;
-  const theirPhoto = theirPet.photos[0]?.url;
-  const ownerAvatar = match.matchedOwnerAvatarUrl || theirPhoto;
+  const petPhoto = theirPet.photos[0]?.url;
+  const ownerAvatar = match.matchedOwnerAvatarUrl;
 
   return (
     <Pressable
@@ -384,6 +386,7 @@ function MatchRow({ match, onPress }: MatchRowProps) {
         opacity: pressed ? 0.85 : 1
       })}
     >
+      {/* Big circle = owner avatar, small circle = pet photo */}
       <View
         style={{
           width: 72,
@@ -393,9 +396,9 @@ function MatchRow({ match, onPress }: MatchRowProps) {
           position: "relative"
         }}
       >
-        {theirPhoto ? (
+        {ownerAvatar ? (
           <Image
-            source={{ uri: theirPhoto }}
+            source={{ uri: ownerAvatar }}
             style={{
               width: 56,
               height: 56,
@@ -420,15 +423,15 @@ function MatchRow({ match, onPress }: MatchRowProps) {
             <ImageIcon size={22} color={theme.colors.muted} />
           </View>
         )}
-        {ownerAvatar && ownerAvatar !== theirPhoto && (
+        {petPhoto && (
           <View
             style={{
               position: "absolute",
-              bottom: 2,
-              right: 4,
-              width: 20,
-              height: 20,
-              borderRadius: 10,
+              bottom: 0,
+              right: 2,
+              width: 24,
+              height: 24,
+              borderRadius: 12,
               borderWidth: 2,
               borderColor: theme.colors.surface,
               overflow: "hidden",
@@ -436,7 +439,7 @@ function MatchRow({ match, onPress }: MatchRowProps) {
             }}
           >
             <Image
-              source={{ uri: ownerAvatar }}
+              source={{ uri: petPhoto }}
               style={{ width: "100%", height: "100%" }}
               contentFit="cover"
               transition={200}
