@@ -77,13 +77,34 @@ export default function ConversationPage() {
     return () => setActiveConversationId(null);
   }, [id]);
 
-  // v0.11.8 — mark messages as read when the chat opens. On unmount
-  // (leaving the chat), invalidate matches + conversations queries so
-  // the list immediately reflects the cleared unread count.
+  // v0.11.8 — mark messages as read INSTANTLY (optimistic cache update)
+  // then fire the backend call in the background. This way the unread
+  // badge disappears the moment the user taps into the chat, before the
+  // network round-trip completes.
   useEffect(() => {
-    if (session?.tokens.accessToken && id) {
-      markMessagesRead(session.tokens.accessToken, id).catch(() => {});
-    }
+    if (!session?.tokens.accessToken || !id) return;
+
+    // Optimistic: zero out unreadCount in cached matches + conversations
+    // data RIGHT NOW so navigating back shows 0 immediately.
+    queryClient.setQueriesData<any[]>(
+      { queryKey: ["matches"] },
+      (old) =>
+        old?.map((m: any) =>
+          m.conversationId === id ? { ...m, unreadCount: 0 } : m
+        )
+    );
+    queryClient.setQueriesData<any[]>(
+      { queryKey: ["conversations"] },
+      (old) =>
+        old?.map((c: any) =>
+          c.id === id ? { ...c, unreadCount: 0 } : c
+        )
+    );
+
+    // Fire the backend call in background (don't await).
+    markMessagesRead(session.tokens.accessToken, id).catch(() => {});
+
+    // On unmount: invalidate to get the real server state (reconcile).
     return () => {
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });

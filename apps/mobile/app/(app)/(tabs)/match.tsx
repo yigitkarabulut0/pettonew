@@ -94,9 +94,9 @@ export default function MatchesPage() {
     queryKey: ["matches", session?.tokens.accessToken],
     queryFn: () => listMatches(session!.tokens.accessToken),
     enabled: Boolean(session),
-    // v0.11.8 — poll every 5s so new messages + unread counts appear
+    // v0.11.8 — poll every 3s so new messages + unread counts appear
     // on the matches list without manual refresh.
-    refetchInterval: 5000
+    refetchInterval: 3000
   });
   const { refreshing: matchesRefreshing, handleRefresh: handleRefreshMatches } = useLocalRefresh(refetchMatches);
 
