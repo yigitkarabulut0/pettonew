@@ -372,6 +372,7 @@ function MatchRow({ match, onPress }: MatchRowProps) {
   const theirPet = match.matchedPet;
   const petPhoto = theirPet.photos[0]?.url;
   const ownerAvatar = match.matchedOwnerAvatarUrl;
+  const hasUnread = match.unreadCount > 0;
 
   return (
     <Pressable
@@ -471,9 +472,10 @@ function MatchRow({ match, onPress }: MatchRowProps) {
           }}
         >
           <Text
+            numberOfLines={1}
             style={{
+              flex: 1,
               fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-              fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
               color: theme.colors.ink,
               fontFamily: "Inter_700Bold"
             }}
@@ -483,8 +485,8 @@ function MatchRow({ match, onPress }: MatchRowProps) {
           <Text
             style={{
               fontSize: mobileTheme.typography.micro.fontSize,
-              fontFamily: "Inter_500Medium",
-              color: theme.colors.muted
+              fontFamily: hasUnread ? "Inter_700Bold" : "Inter_500Medium",
+              color: hasUnread ? theme.colors.primary : theme.colors.muted
             }}
           >
             {formatRelativeTime(match.createdAt)}
@@ -499,7 +501,7 @@ function MatchRow({ match, onPress }: MatchRowProps) {
             marginTop: 1
           }}
         >
-          {match.pet.name} x {theirPet.name}
+          {match.pet.name} & {theirPet.name}
         </Text>
 
         {match.lastMessagePreview &&
@@ -508,8 +510,8 @@ function MatchRow({ match, onPress }: MatchRowProps) {
               numberOfLines={1}
               style={{
                 fontSize: mobileTheme.typography.body.fontSize,
-                fontFamily: "Inter_400Regular",
-                color: theme.colors.muted,
+                fontFamily: hasUnread ? "Inter_700Bold" : "Inter_400Regular",
+                color: hasUnread ? theme.colors.ink : theme.colors.muted,
                 marginTop: 3
               }}
             >

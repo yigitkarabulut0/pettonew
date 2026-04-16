@@ -1378,6 +1378,25 @@ func (s *PostgresStore) ListMatches(userID string) []domain.MatchPreview {
 				}
 			}
 		}
+
+		// v0.11.8 — compute unread count + last message preview dynamically.
+		if m.ConversationID != "" {
+			var unread int
+			_ = s.pool.QueryRow(s.ctx(),
+				`SELECT COUNT(*) FROM messages
+				 WHERE conversation_id = $1 AND sender_profile_id != $2 AND read_at IS NULL AND deleted_at IS NULL`,
+				m.ConversationID, userID).Scan(&unread)
+			m.UnreadCount = unread
+
+			var lastBody string
+			if err := s.pool.QueryRow(s.ctx(),
+				`SELECT COALESCE(body,'') FROM messages
+				 WHERE conversation_id = $1 AND deleted_at IS NULL
+				 ORDER BY created_at DESC LIMIT 1`, m.ConversationID).Scan(&lastBody); err == nil && lastBody != "" {
+				m.LastMessagePreview = lastBody
+			}
+		}
+
 		matches = append(matches, m)
 	}
 
@@ -1530,6 +1549,33 @@ func (s *PostgresStore) ListConversations(userID string) []domain.Conversation {
 					break
 				}
 			}
+		}
+
+		// v0.11.8 — compute unread count + last message preview dynamically
+		// instead of relying on the stale denormalized columns.
+		var unread int
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COUNT(*) FROM messages
+			 WHERE conversation_id = $1 AND sender_profile_id != $2 AND read_at IS NULL AND deleted_at IS NULL`,
+			c.ID, userID).Scan(&unread)
+		c.UnreadCount = unread
+
+		var lastBody, lastType string
+		err := s.pool.QueryRow(s.ctx(),
+			`SELECT COALESCE(body,''), COALESCE(message_type,'text') FROM messages
+			 WHERE conversation_id = $1 AND deleted_at IS NULL
+			 ORDER BY created_at DESC LIMIT 1`, c.ID).Scan(&lastBody, &lastType)
+		if err == nil {
+			preview := lastBody
+			if preview == "" {
+				switch lastType {
+				case "image":
+					preview = "📷 Photo"
+				case "pet_share":
+					preview = "🐾 Pet shared"
+				}
+			}
+			c.Messages = []domain.Message{{Body: preview}}
 		}
 
 		conversations = append(conversations, c)

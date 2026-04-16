@@ -36,6 +36,7 @@ import {
   listGroupPinned,
   listMessages,
   listMyPets,
+  markMessagesRead,
   muteConversation,
   muteGroupMember,
   mutePlaydateMember,
@@ -75,6 +76,15 @@ export default function ConversationPage() {
     setActiveConversationId(id);
     return () => setActiveConversationId(null);
   }, [id]);
+
+  // v0.11.8 — mark messages as read when the chat opens and whenever
+  // new messages arrive. This resets the unread badge on the matches/
+  // conversations list for this conversation.
+  useEffect(() => {
+    if (session?.tokens.accessToken && id) {
+      markMessagesRead(session.tokens.accessToken, id).catch(() => {});
+    }
+  }, [id, session?.tokens.accessToken]);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["conversations", session?.tokens.accessToken],
@@ -191,6 +201,11 @@ export default function ConversationPage() {
             ) < 60_000
         );
       });
+      // v0.11.8 — mark as read on every poll so the unread badge on the
+      // matches/conversations list clears as soon as the user has this chat open.
+      if (serverMsgs.length > 0) {
+        markMessagesRead(session!.tokens.accessToken, id).catch(() => {});
+      }
       return [...serverMsgs, ...kept];
     },
     enabled: Boolean(session && id && (!isGroupChat || isMember)),
