@@ -163,19 +163,19 @@ export function UserLocationMap({ userID, className }: Props) {
           <CardTitle className="inline-flex items-center gap-2">
             <MapPin className="h-4 w-4 text-[var(--muted-foreground)]" /> Location
           </CardTitle>
-          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-            {data?.cityLabel || "—"}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-[var(--muted-foreground)]">
+            <span>{data?.cityLabel || "—"}</span>
             {latest ? (
               <>
-                {" · last seen "}
+                <span>· last seen</span>
                 <RelativeTime value={latest.occurAt} />
-                {" at "}
+                <span>at</span>
                 <strong>{latest.label || latest.kind}</strong>
               </>
             ) : (
-              " · no recent geolocated activity"
+              <span>· no recent geolocated activity</span>
             )}
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Badge tone={isLive ? "success" : "neutral"} className="uppercase">

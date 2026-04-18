@@ -174,6 +174,23 @@ function AdoptionTutorial({ onComplete }: { onComplete: () => void }) {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         keyExtractor={(item) => item.id}
+        // Fixed-width pages → hand the offsets to FlatList synchronously so
+        // scrollToIndex has the offscreen location and the
+        // "scrollToIndex should be used with getItemLayout" invariant
+        // never fires.
+        getItemLayout={(_, index) => ({
+          length: SCREEN_WIDTH,
+          offset: SCREEN_WIDTH * index,
+          index
+        })}
+        onScrollToIndexFailed={({ index }) => {
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToOffset({
+              offset: SCREEN_WIDTH * index,
+              animated: true
+            });
+          });
+        }}
         renderItem={({ item }) => (
           <View
             style={{

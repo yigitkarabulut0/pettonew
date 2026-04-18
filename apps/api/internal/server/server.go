@@ -926,53 +926,72 @@ func (s *Server) handleSendMessage(writer http.ResponseWriter, request *http.Req
 		groupInfo := s.store.GetGroupByConversation(payload.ConversationID)
 		isGroup := groupInfo != nil
 
+		// Compute title/body once — they're identical for every recipient in
+		// the same conversation.
+		msgText := message.Body
+		if msgText == "" {
+			switch message.Type {
+			case "pet_share":
+				if pn, ok := message.Metadata["petName"].(string); ok && pn != "" {
+					msgText = "🐾 Shared " + pn
+				} else {
+					msgText = "🐾 Shared a pet"
+				}
+			case "image":
+				msgText = "📷 Photo"
+			}
+		}
+		var pushTitle, pushBody string
+		if isGroup {
+			pushTitle = groupInfo.Name
+			pushBody = message.SenderName + ": " + msgText
+		} else {
+			pushTitle = message.SenderName
+			pushBody = msgText
+		}
+
+		// Collect every eligible recipient's push tokens into a single
+		// batch. Expo accepts up to 100 tokens per request, so a single
+		// HTTPS round-trip delivers the push to every device — huge win
+		// on group chats (previously one request per user).
+		var allTokens []string
 		for _, uid := range convUserIDs {
 			if uid == senderID {
 				continue
 			}
-			// Skip push for users who have notification-muted this conversation.
-			// They still receive the message over WebSocket in real time.
 			if s.store.IsConversationMuted(uid, payload.ConversationID) {
 				continue
 			}
-			// v0.11.0 — respect the global "Messages" category opt-out too.
 			if !s.store.ShouldSendPush(uid, "messages") {
 				continue
 			}
-			userTokens := s.store.GetUserPushTokens(uid)
-			var tokens []string
-			for _, t := range userTokens {
-				tokens = append(tokens, t.Token)
-			}
-			if len(tokens) > 0 {
-				// Type-aware body fallback: pet_share + image messages have
-				// empty Body, so fall back to metadata/type so the push isn't
-				// just "SenderName:" on its own.
-				msgText := message.Body
-				if msgText == "" {
-					switch message.Type {
-					case "pet_share":
-						if pn, ok := message.Metadata["petName"].(string); ok && pn != "" {
-							msgText = "🐾 Shared " + pn
-						} else {
-							msgText = "🐾 Shared a pet"
-						}
-					case "image":
-						msgText = "📷 Photo"
-					}
+			for _, t := range s.store.GetUserPushTokens(uid) {
+				if t.Token != "" {
+					allTokens = append(allTokens, t.Token)
 				}
-				var title, body string
-				if isGroup {
-					title = groupInfo.Name
-					body = message.SenderName + ": " + msgText
-				} else {
-					title = message.SenderName
-					body = msgText
-				}
-				service.SendExpoPush(tokens, title, body, map[string]string{
-					"type": "message", "conversationId": payload.ConversationID,
-				})
 			}
+		}
+
+		if len(allTokens) > 0 {
+			// Enriched payload carries everything the inline-reply handler
+			// needs: conversationId to post to, messageId for client-side
+			// dedup, senderName/isGroup for future UI polish. Priority
+			// "high" (default in SendExpoPushEx) hits the fast APNs/FCM
+			// delivery path. CategoryID "message_reply" enables the text
+			// input action; ChannelID "messages" is the Android channel
+			// the client creates at startup.
+			service.SendExpoPushEx(allTokens, pushTitle, pushBody, map[string]string{
+				"type":           "message",
+				"conversationId": payload.ConversationID,
+				"messageId":      message.ID,
+				"senderId":       message.SenderProfileID,
+				"senderName":     message.SenderName,
+				"isGroup":        strconv.FormatBool(isGroup),
+			}, service.ExpoPushOpts{
+				CategoryID: "message_reply",
+				ChannelID:  "messages",
+				Priority:   "high",
+			})
 		}
 	}()
 

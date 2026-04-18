@@ -131,6 +131,26 @@ export function MatchTutorial({ onComplete }: { onComplete: () => void }) {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         keyExtractor={(item) => item.id}
+        // Every page is exactly SCREEN_WIDTH wide, so we can give FlatList
+        // the offscreen offsets synchronously — scrollToIndex needs this
+        // for offscreen indices, otherwise RN throws the "scrollToIndex
+        // should be used with getItemLayout" invariant.
+        getItemLayout={(_, index) => ({
+          length: SCREEN_WIDTH,
+          offset: SCREEN_WIDTH * index,
+          index
+        })}
+        // Fallback path in case virtualization still hasn't laid out the
+        // target cell (shouldn't trigger with fixed-width pages, but cheap
+        // insurance against race conditions).
+        onScrollToIndexFailed={({ index }) => {
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToOffset({
+              offset: SCREEN_WIDTH * index,
+              animated: true
+            });
+          });
+        }}
         renderItem={({ item }) => (
           <View
             style={{

@@ -10,7 +10,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold
 } from "@expo-google-fonts/inter";
-import { Platform, useColorScheme } from "react-native";
+import { AppState, Platform, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -18,6 +18,10 @@ import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persi
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import "@/lib/i18n";
+// Side-effect import: TaskManager.defineTask MUST execute at module scope
+// before React mounts so the OS can locate the task when it fires in the
+// background. Do NOT convert this to a lazy / dynamic import.
+import "@/lib/notification-background";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkBanner } from "@/components/network-banner";
@@ -25,6 +29,13 @@ import {
   registerForPushNotifications,
   addNotificationResponseListener
 } from "@/lib/notifications";
+import {
+  flushPendingReplies,
+  performInlineReply,
+  REPLY_ACTION_ID,
+  registerReplyCategory
+} from "@/lib/notification-actions";
+import { registerBackgroundNotificationTask } from "@/lib/notification-background";
 import { useSessionStore } from "@/store/session";
 
 SplashScreen.preventAutoHideAsync();
@@ -66,7 +77,7 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const hasHydrated = useSessionStore((state) => state._hasHydrated);
   const session = useSessionStore((state) => state.session);
-  const notifListenerRef = useRef<Notifications.EventSubscription>();
+  const notifListenerRef = useRef<Notifications.EventSubscription | null>(null);
   const [splashDone, setSplashDone] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -121,8 +132,27 @@ export default function RootLayout() {
     };
   }, [session]);
 
-  // Handle notification taps — shared handler for both cold start and foreground
+  // Handle notification taps — shared handler for both cold start and foreground.
+  // When the user replies inline (REPLY_ACTION_ID) while the app is foreground,
+  // the response lands here instead of the background task. We send via the
+  // same performInlineReply() helper and return early so the user does NOT
+  // get deep-linked to the chat — the whole point of inline reply is staying
+  // where they were.
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    if (response.actionIdentifier === REPLY_ACTION_ID) {
+      const userText = ((response as any).userText ?? "").toString().trim();
+      const d = response.notification.request.content.data as Record<string, string> | undefined;
+      if (userText && d?.conversationId && d?.messageId) {
+        performInlineReply({
+          conversationId: d.conversationId,
+          messageId: d.messageId,
+          userText,
+          notificationRequestId: response.notification.request.identifier
+        });
+      }
+      return;
+    }
+
     const data = response.notification.request.content.data;
     if (data?.type === "match") {
       router.push("/(app)/(tabs)/match");
@@ -142,6 +172,29 @@ export default function RootLayout() {
     return () => {
       notifListenerRef.current?.remove();
     };
+  }, []);
+
+  // One-shot: register the "message_reply" notification category (iOS text
+  // action + Android RemoteInput) and wire up the background task that
+  // receives the reply when the app isn't running. Safe to re-run — both
+  // calls are idempotent (inner try/catch swallows duplicate-registration).
+  useEffect(() => {
+    (async () => {
+      await registerReplyCategory();
+      await registerBackgroundNotificationTask();
+    })();
+  }, []);
+
+  // Silent retry queue for inline replies: drain any replies that failed
+  // to post (network / token issue) every time the app comes to the
+  // foreground. Users never see a failure notification — replies either
+  // go through or land in AsyncStorage and flush next time the app wakes.
+  useEffect(() => {
+    flushPendingReplies();
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") flushPendingReplies();
+    });
+    return () => sub.remove();
   }, []);
 
   // Handle cold start — notification tap that launched the app
