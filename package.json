@@ -6,6 +6,8 @@
     "dev": "turbo dev",
     "dev:mobile": "node scripts/with-root-env.mjs pnpm --filter @petto/mobile dev",
     "dev:admin": "node scripts/with-root-env.mjs pnpm --filter @petto/admin dev",
+    "dev:shelter-web": "node scripts/with-root-env.mjs pnpm --filter @petto/shelter-web dev",
+    "dev:shelter-mobile": "node scripts/with-root-env.mjs pnpm --filter @petto/shelter-mobile dev",
     "dev:api": "node scripts/with-root-env.mjs pnpm --dir apps/api run dev",
     "migrate:api": "node scripts/with-root-env.mjs pnpm --dir apps/api exec go run ./cmd/migrate",
     "lint": "turbo lint",
@@ -21,5 +23,11 @@
     "turbo": "^2.5.8",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "19.2.0",
+      "react-dom": "19.2.0"
+    }
   }
 }

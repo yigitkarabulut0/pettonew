@@ -21,3 +21,5 @@ apps/api/coverage.out
 .env.local
 .env.*.local
 
+apps/api/petto-api-linux
+/tmp/

@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Fetcht Shelter",
+    "slug": "fetcht-shelter",
+    "scheme": "fetcht-shelter",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "experiments": {
+      "typedRoutes": false
+    },
+    "plugins": ["expo-router"],
+    "ios": {
+      "bundleIdentifier": "app.fetcht.shelter"
+    },
+    "android": {
+      "package": "app.fetcht.shelter"
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

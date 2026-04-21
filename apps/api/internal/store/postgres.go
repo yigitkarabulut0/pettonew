@@ -49,7 +49,8 @@ type snapshotState struct {
 	TipBookmarks       map[string]map[string]bool           `json:"tipBookmarks"`
 	TipCompleted       map[string]map[string]bool           `json:"tipCompleted"`
 	WalkRoutes         map[string]*domain.WalkRoute         `json:"walkRoutes"`
-	Adoptions          map[string]*domain.AdoptionListing   `json:"adoptions"`
+	// Adoptions legacy field removed in v0.13; shelter-era state is
+	// volatile in PersistentStore (Postgres-only in prod).
 	PetAlbums          map[string][]domain.PetAlbum         `json:"petAlbums"`
 	PetMilestones      map[string][]domain.PetMilestone     `json:"petMilestones"`
 }
@@ -184,7 +185,7 @@ func (s *PersistentStore) captureState() snapshotState {
 		TipBookmarks:       s.tipBookmarks,
 		TipCompleted:       s.tipCompleted,
 		WalkRoutes:         s.walkRoutes,
-		Adoptions:          s.adoptions,
+		// (legacy adoptions snapshot dropped in v0.13)
 		PetAlbums:          s.petAlbums,
 		PetMilestones:      s.petMilestones,
 	}
@@ -270,9 +271,7 @@ func (s *PersistentStore) applyState(state snapshotState) {
 	if state.WalkRoutes != nil {
 		s.walkRoutes = state.WalkRoutes
 	}
-	if state.Adoptions != nil {
-		s.adoptions = state.Adoptions
-	}
+	// (legacy adoptions snapshot dropped in v0.13)
 	if state.PetAlbums != nil {
 		s.petAlbums = state.PetAlbums
 	}
@@ -590,22 +589,64 @@ func (s *PersistentStore) DeleteWalkRoute(routeID string) error {
 	return s.persistAfter(s.MemoryStore.DeleteWalkRoute(routeID))
 }
 
-func (s *PersistentStore) CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing {
-	result := s.MemoryStore.CreateAdoption(listing)
+// Shelter + adoption wrappers (v0.13). PersistentStore is mostly retired
+// in production (PostgresStore carries all real state), but these keep the
+// Store interface satisfied and persist the JSON snapshot used in dev.
+
+func (s *PersistentStore) CreateShelter(shelter domain.Shelter, hash string) (domain.Shelter, error) {
+	out, err := s.MemoryStore.CreateShelter(shelter, hash)
 	_ = s.persist(context.Background())
-	return result
+	return out, err
 }
 
-func (s *PersistentStore) UpdateAdoptionStatus(listingID string, status string) error {
-	return s.persistAfter(s.MemoryStore.UpdateAdoptionStatus(listingID, status))
+func (s *PersistentStore) UpdateShelter(id string, patch domain.Shelter) (*domain.Shelter, error) {
+	out, err := s.MemoryStore.UpdateShelter(id, patch)
+	_ = s.persist(context.Background())
+	return out, err
 }
 
-func (s *PersistentStore) DeleteAdoption(listingID string) error {
-	return s.persistAfter(s.MemoryStore.DeleteAdoption(listingID))
+func (s *PersistentStore) UpdateShelterPassword(id, hash string) error {
+	return s.persistAfter(s.MemoryStore.UpdateShelterPassword(id, hash))
 }
 
-func (s *PersistentStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
-	return s.MemoryStore.GetAdoption(listingID)
+func (s *PersistentStore) DeleteShelter(id string) error {
+	return s.persistAfter(s.MemoryStore.DeleteShelter(id))
+}
+
+func (s *PersistentStore) UpsertShelterPet(shelterID string, pet domain.ShelterPet) (domain.ShelterPet, error) {
+	out, err := s.MemoryStore.UpsertShelterPet(shelterID, pet)
+	_ = s.persist(context.Background())
+	return out, err
+}
+
+func (s *PersistentStore) UpdateShelterPetStatus(id, status string) error {
+	return s.persistAfter(s.MemoryStore.UpdateShelterPetStatus(id, status))
+}
+
+func (s *PersistentStore) DeleteShelterPet(id string) error {
+	return s.persistAfter(s.MemoryStore.DeleteShelterPet(id))
+}
+
+func (s *PersistentStore) CreateAdoptionApplication(app domain.AdoptionApplication) (domain.AdoptionApplication, error) {
+	out, err := s.MemoryStore.CreateAdoptionApplication(app)
+	_ = s.persist(context.Background())
+	return out, err
+}
+
+func (s *PersistentStore) ApproveApplication(id, convID string) error {
+	return s.persistAfter(s.MemoryStore.ApproveApplication(id, convID))
+}
+
+func (s *PersistentStore) RejectApplication(id, reason string) error {
+	return s.persistAfter(s.MemoryStore.RejectApplication(id, reason))
+}
+
+func (s *PersistentStore) CompleteAdoption(id string) error {
+	return s.persistAfter(s.MemoryStore.CompleteAdoption(id))
+}
+
+func (s *PersistentStore) WithdrawApplication(id, userID string) error {
+	return s.persistAfter(s.MemoryStore.WithdrawApplication(id, userID))
 }
 
 func (s *PersistentStore) CreatePetAlbum(album domain.PetAlbum) domain.PetAlbum {

@@ -323,30 +323,8 @@ export async function updateAdminLostPetStatus(alertId: string, status: string) 
   return apiRequest(`/lost-pets/${alertId}`, { method: "PATCH", body: { status } });
 }
 
-// Adoptions
-export async function getAdminAdoptions() {
-  return apiRequest<Array<{
-    id: string;
-    petName: string;
-    petAge: number;
-    petSpecies: string;
-    petBreed: string;
-    gender: string;
-    description: string;
-    location: string;
-    imageUrl?: string;
-    status: string;
-    userId: string;
-    userName?: string;
-    createdAt: string;
-  }>>("/adoptions");
-}
-export async function updateAdminAdoptionStatus(listingId: string, status: string) {
-  return apiRequest(`/adoptions/${listingId}`, { method: "PATCH", body: { status } });
-}
-export async function deleteAdminAdoption(listingId: string) {
-  return apiRequest(`/adoptions/${listingId}`, { method: "DELETE" });
-}
+// Adoptions (v0.13) — legacy user-listing endpoints removed. Adoption
+// management now lives in apps/shelter-web + /admin/shelters.
 
 // Vet Clinics
 export async function getAdminVetClinics() {
@@ -403,6 +381,250 @@ export async function adminPresignUpload(fileName: string, mimeType: string, fol
     method: "POST",
     body: { fileName, mimeType, folder }
   });
+}
+
+// ── Shelters (v0.13) ──────────────────────────────────────────────
+// Admin-only. Temp password is returned once on create/reset; the UI
+// must surface it immediately because it cannot be recovered.
+
+export type AdminShelter = {
+  id: string;
+  email: string;
+  name: string;
+  about: string;
+  phone: string;
+  website: string;
+  logoUrl?: string;
+  heroUrl?: string;
+  address: string;
+  cityLabel: string;
+  latitude: number;
+  longitude: number;
+  hours: string;
+  status: string;
+  mustChangePassword: boolean;
+  createdAt: string;
+  lastLoginAt?: string;
+  verifiedAt?: string | null;
+  operatingCountry?: string;
+  isFeatured?: boolean;
+};
+
+export type AdminShelterStats = {
+  totalPets: number;
+  availablePets: number;
+  reservedPets: number;
+  adoptedPets: number;
+  pendingApplications: number;
+  activeChats: number;
+  totalApplications: number;
+};
+
+export type CreateShelterInput = {
+  name: string;
+  email: string;
+  phone?: string;
+  about?: string;
+  address?: string;
+  cityLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  logoUrl?: string;
+  hours?: string;
+  website?: string;
+};
+
+export type CreateShelterResult = {
+  shelter: AdminShelter;
+  tempPassword: string;
+  passwordNotice: string;
+};
+
+export async function listAdminShelters() {
+  return apiRequest<AdminShelter[]>("/shelters");
+}
+
+export async function createAdminShelter(input: CreateShelterInput) {
+  return apiRequest<CreateShelterResult>("/shelters", {
+    method: "POST",
+    body: input
+  });
+}
+
+export async function getAdminShelter(shelterId: string) {
+  return apiRequest<{ shelter: AdminShelter; stats: AdminShelterStats }>(
+    `/shelters/${shelterId}`
+  );
+}
+
+export async function resetAdminShelterPassword(shelterId: string) {
+  return apiRequest<{ tempPassword: string; passwordNotice: string }>(
+    `/shelters/${shelterId}/reset-password`,
+    { method: "POST" }
+  );
+}
+
+export async function deleteAdminShelter(shelterId: string) {
+  return apiRequest(`/shelters/${shelterId}`, { method: "DELETE" });
+}
+
+// v0.24 — Featured-on-discovery toggle. Powers the rail on the
+// fetcht adopter home; server caps the public list at 10 so multiple
+// shelters can be flagged without hurting performance.
+export async function setAdminShelterFeatured(
+  shelterId: string,
+  featured: boolean
+) {
+  return apiRequest<{ ok: true; featured: boolean }>(
+    `/shelters/${shelterId}/featured`,
+    { method: "POST", body: { featured } }
+  );
+}
+
+// ── Shelter teams & audit (v0.15) ────────────────────────────────
+
+export type AdminShelterMember = {
+  id: string;
+  shelterId: string;
+  email: string;
+  name?: string;
+  role: "admin" | "editor" | "viewer";
+  status: "active" | "pending" | "revoked";
+  mustChangePassword: boolean;
+  invitedByMemberId?: string;
+  invitedAt?: string;
+  joinedAt: string;
+  lastLoginAt?: string;
+};
+
+export type AdminShelterInvite = {
+  id: string;
+  shelterId: string;
+  email: string;
+  role: "admin" | "editor" | "viewer";
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  acceptedMemberId?: string;
+  revokedAt?: string;
+};
+
+export type AdminShelterTeam = {
+  members: AdminShelterMember[];
+  pendingInvites: AdminShelterInvite[];
+};
+
+export type AdminShelterAuditEntry = {
+  id: string;
+  shelterId: string;
+  actorMemberId?: string;
+  actorName: string;
+  actorEmail: string;
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export async function listShelterMembers(shelterId: string) {
+  return apiRequest<AdminShelterTeam>(`/shelters/${shelterId}/members`);
+}
+
+export async function listShelterAuditLog(
+  shelterId: string,
+  limit: number = 200,
+  offset: number = 0
+) {
+  return apiRequest<AdminShelterAuditEntry[]>(
+    `/shelters/${shelterId}/audit-log?limit=${limit}&offset=${offset}`
+  );
+}
+
+export async function transferShelterAdmin(
+  shelterId: string,
+  memberId: string
+) {
+  return apiRequest(`/shelters/${shelterId}/transfer-admin`, {
+    method: "POST",
+    body: { memberId }
+  });
+}
+
+// ── Shelter onboarding applications (v0.14) ──────────────────────────
+// The review queue created by the public /apply wizard.
+
+export type ShelterApplicationStatus =
+  | "submitted"
+  | "under_review"
+  | "approved"
+  | "rejected";
+
+export type ShelterApplicationRejectionCode =
+  | "invalid_registration"
+  | "documents_unclear"
+  | "jurisdiction_mismatch"
+  | "duplicate"
+  | "out_of_scope"
+  | "other";
+
+export type AdminShelterApplication = {
+  id: string;
+  status: ShelterApplicationStatus;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  slaDeadline: string;
+  entityType: string;
+  country: string;
+  registrationNumber: string;
+  registrationCertificateUrl: string;
+  orgName: string;
+  orgAddress?: string;
+  operatingRegionCountry: string;
+  operatingRegionCity: string;
+  speciesFocus: string[];
+  donationUrl?: string;
+  primaryContactName: string;
+  primaryContactEmail: string;
+  primaryContactPhone?: string;
+  rejectionReasonCode?: ShelterApplicationRejectionCode | "";
+  rejectionReasonNote?: string;
+  createdShelterId?: string;
+};
+
+export type ApproveShelterApplicationResult = {
+  shelter: AdminShelter;
+  application: AdminShelterApplication;
+  tempPassword: string;
+  passwordNotice: string;
+};
+
+export async function listShelterApplications(status?: ShelterApplicationStatus) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiRequest<AdminShelterApplication[]>(`/shelter-applications${qs}`);
+}
+
+export async function getShelterApplication(appId: string) {
+  return apiRequest<AdminShelterApplication>(`/shelter-applications/${appId}`);
+}
+
+export async function approveShelterApplication(appId: string) {
+  return apiRequest<ApproveShelterApplicationResult>(
+    `/shelter-applications/${appId}/approve`,
+    { method: "POST" }
+  );
+}
+
+export async function rejectShelterApplication(
+  appId: string,
+  reasonCode: ShelterApplicationRejectionCode,
+  reasonNote: string
+) {
+  return apiRequest<AdminShelterApplication>(
+    `/shelter-applications/${appId}/reject`,
+    { method: "POST", body: { reasonCode, reasonNote } }
+  );
 }
 
 export const adminCookieName = "admin_token";

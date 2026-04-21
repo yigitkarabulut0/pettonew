@@ -349,6 +349,42 @@ type VenueReview struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+type VenueRatingDistribution struct {
+	One   int `json:"1"`
+	Two   int `json:"2"`
+	Three int `json:"3"`
+	Four  int `json:"4"`
+	Five  int `json:"5"`
+}
+
+type VenueStats struct {
+	CheckInCount        int                     `json:"checkInCount"`
+	UniqueVisitorCount  int                     `json:"uniqueVisitorCount"`
+	ActiveCheckInCount  int                     `json:"activeCheckInCount"`
+	AvgRating           float64                 `json:"avgRating"`
+	ReviewCount         int                     `json:"reviewCount"`
+	RatingDistribution  VenueRatingDistribution `json:"ratingDistribution"`
+}
+
+type VenueDetail struct {
+	ExploreVenue
+	Stats      VenueStats `json:"stats"`
+	DistanceKm *float64   `json:"distanceKm,omitempty"`
+}
+
+type VenuePhotoFeedItem struct {
+	PostID       string `json:"postId"`
+	ImageURL     string `json:"imageUrl"`
+	AuthorUserID string `json:"authorUserId"`
+	AuthorName   string `json:"authorName"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+type ReviewEligibility struct {
+	Eligible bool   `json:"eligible"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 type Playdate struct {
 	ID             string             `json:"id"`
 	OrganizerID    string             `json:"organizerId"`
@@ -557,26 +593,431 @@ type WalkRoute struct {
 	CreatedAt     string           `json:"createdAt"`
 }
 
-type AdoptionListing struct {
-	ID              string     `json:"id"`
-	PetName         string     `json:"petName"`
-	PetAge          int        `json:"petAge"`
-	PetSpecies      string     `json:"petSpecies"`
-	PetBreed        string     `json:"petBreed"`
-	Gender          string     `json:"gender"`
-	Description     string     `json:"description"`
-	ContactPhone    string     `json:"contactPhone"`
-	ContactEmail    string     `json:"contactEmail"`
-	Location        string     `json:"location"`
-	Photos          []PetPhoto `json:"photos"`
-	CharacterTraits []string   `json:"characterTraits"`
-	IsNeutered      bool       `json:"isNeutered"`
-	ActivityLevel   int        `json:"activityLevel"`
-	ImageURL        *string    `json:"imageUrl,omitempty"`
-	Status          string     `json:"status"`
-	UserID          string     `json:"userId"`
-	UserName        string     `json:"userName,omitempty"`
-	CreatedAt       string     `json:"createdAt"`
+// Shelter is a shelter-organisation account. Can be created by an admin
+// directly (legacy flow, VerifiedAt set immediately) or via an approved
+// ShelterApplication (wizard flow, VerifiedAt set at approval time).
+type Shelter struct {
+	ID                 string  `json:"id"`
+	Email              string  `json:"email"`
+	Name               string  `json:"name"`
+	About              string  `json:"about"`
+	Phone              string  `json:"phone"`
+	Website            string  `json:"website"`
+	LogoURL            *string `json:"logoUrl,omitempty"`
+	HeroURL            *string `json:"heroUrl,omitempty"`
+	Address            string  `json:"address"`
+	CityLabel          string  `json:"cityLabel"`
+	Latitude           float64 `json:"latitude"`
+	Longitude          float64 `json:"longitude"`
+	Hours              string  `json:"hours"`
+	Status             string  `json:"status"`
+	MustChangePassword bool    `json:"mustChangePassword"`
+	CreatedAt          string  `json:"createdAt"`
+	LastLoginAt        string  `json:"lastLoginAt,omitempty"`
+	VerifiedAt         string  `json:"verifiedAt,omitempty"`
+	// OperatingCountry is the shelter's operating-region country (ISO).
+	// Populated from the approved ShelterApplication; admin-created
+	// shelters have this derived from CityLabel or left empty. Used by
+	// compliance rules (breed blocks, microchip requirement).
+	OperatingCountry string `json:"operatingCountry,omitempty"`
+	// Public profile (v0.21) — only exposed when VerifiedAt is set.
+	// Slug is assigned on approval and permanent thereafter; the other
+	// fields are shelter-editable via PUT /shelter/v1/me.
+	Slug                string `json:"slug,omitempty"`
+	AdoptionProcess     string `json:"adoptionProcess,omitempty"`
+	DonationURL         string `json:"donationUrl,omitempty"`
+	ShowRecentlyAdopted bool   `json:"showRecentlyAdopted"`
+	SpeciesFocus        []string `json:"speciesFocus,omitempty"`
+	// Discovery-home curated rail flag (v0.24). Admin-editable only.
+	IsFeatured          bool   `json:"isFeatured"`
+}
+
+// ShelterApplication is a public onboarding submission from a would-be
+// shelter. Lands in an admin review queue; on approval a full Shelter
+// row is minted and `CreatedShelterID` is set.
+type ShelterApplication struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"` // submitted|under_review|approved|rejected
+	SubmittedAt string `json:"submittedAt"`
+	ReviewedAt  string `json:"reviewedAt,omitempty"`
+	ReviewedBy  string `json:"reviewedBy,omitempty"`
+	// SLADeadline = SubmittedAt + 48h (RFC3339). Pre-computed on insert
+	// so the admin queue can sort/colour without re-deriving.
+	SLADeadline string `json:"slaDeadline"`
+
+	// Entity
+	EntityType                 string `json:"entityType"`
+	Country                    string `json:"country"`
+	RegistrationNumber         string `json:"registrationNumber"`
+	RegistrationCertificateURL string `json:"registrationCertificateUrl"`
+
+	// Organisation
+	OrgName                string   `json:"orgName"`
+	OrgAddress             string   `json:"orgAddress,omitempty"`
+	OperatingRegionCountry string   `json:"operatingRegionCountry"`
+	OperatingRegionCity    string   `json:"operatingRegionCity"`
+	SpeciesFocus           []string `json:"speciesFocus"`
+	DonationURL            string   `json:"donationUrl,omitempty"`
+
+	// Primary contact
+	PrimaryContactName  string `json:"primaryContactName"`
+	PrimaryContactEmail string `json:"primaryContactEmail"`
+	PrimaryContactPhone string `json:"primaryContactPhone,omitempty"`
+
+	// Decision
+	RejectionReasonCode string `json:"rejectionReasonCode,omitempty"`
+	RejectionReasonNote string `json:"rejectionReasonNote,omitempty"`
+	CreatedShelterID    string `json:"createdShelterId,omitempty"`
+
+	// Opaque public-lookup token. Included in submit responses so the
+	// applicant can poll /v1/public/shelter-applications/{token}. NEVER
+	// included in admin list responses that go to unrelated parties.
+	AccessToken string `json:"accessToken,omitempty"`
+}
+
+// ShelterEntityType is a country-specific legal entity classification
+// the wizard offers as its first choice.
+type ShelterEntityType struct {
+	Slug    string `json:"slug"`    // stable id, e.g. "tr_dernek"
+	Label   string `json:"label"`   // human-readable, e.g. "Dernek"
+	Country string `json:"country"` // ISO, e.g. "TR"
+}
+
+// ── Shelter team accounts (v0.15) ───────────────────────────────
+// Multi-user access per shelter with 3 roles. Each shelter gets one
+// auto-created "admin" member on creation (or back-filled from the
+// single-user row). Future logins bind to a ShelterMember, not the
+// raw Shelter row.
+
+// ShelterMember is one person with access to a shelter, with a role
+// that gates write operations. Authentication lookups hit this
+// table — the `shelters.email`/`shelters.password_hash` columns are
+// retained for back-compat but no longer read at login time.
+type ShelterMember struct {
+	ID                 string `json:"id"`
+	ShelterID          string `json:"shelterId"`
+	Email              string `json:"email"`
+	Name               string `json:"name,omitempty"`
+	Role               string `json:"role"`   // admin|editor|viewer
+	Status             string `json:"status"` // active|pending|revoked
+	MustChangePassword bool   `json:"mustChangePassword"`
+	InvitedByMemberID  string `json:"invitedByMemberId,omitempty"`
+	InvitedAt          string `json:"invitedAt,omitempty"`
+	JoinedAt           string `json:"joinedAt"`
+	LastLoginAt        string `json:"lastLoginAt,omitempty"`
+}
+
+// ShelterMemberInvite is a one-time opaque token that lets an
+// invitee accept and create a ShelterMember in the target shelter.
+// `Token` is populated on create/resend responses only — list
+// endpoints scrub it so admins can't snoop other invitees' links.
+type ShelterMemberInvite struct {
+	ID                string `json:"id"`
+	ShelterID         string `json:"shelterId"`
+	Email             string `json:"email"`
+	Role              string `json:"role"`
+	InvitedByMemberID string `json:"invitedByMemberId,omitempty"`
+	Token             string `json:"token,omitempty"`
+	CreatedAt         string `json:"createdAt"`
+	ExpiresAt         string `json:"expiresAt"`
+	AcceptedAt        string `json:"acceptedAt,omitempty"`
+	AcceptedMemberID  string `json:"acceptedMemberId,omitempty"`
+	RevokedAt         string `json:"revokedAt,omitempty"`
+}
+
+// ShelterAuditEntry is one append-only record of a state change
+// inside a shelter. Actor fields are denormalised at write time so
+// revoked/renamed members still render correctly in history.
+type ShelterAuditEntry struct {
+	ID            string         `json:"id"`
+	ShelterID     string         `json:"shelterId"`
+	ActorMemberID string         `json:"actorMemberId,omitempty"`
+	ActorName     string         `json:"actorName"`
+	ActorEmail    string         `json:"actorEmail"`
+	Action        string         `json:"action"`
+	TargetType    string         `json:"targetType,omitempty"`
+	TargetID      string         `json:"targetId,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	CreatedAt     string         `json:"createdAt"`
+}
+
+// VaccineRecord is a single vaccination entry on a shelter pet.
+type VaccineRecord struct {
+	Name  string `json:"name"`
+	Date  string `json:"date"`
+	Notes string `json:"notes,omitempty"`
+}
+
+// ShelterPet is a pet owned by a shelter and listed for adoption.
+// Lifecycle: available → reserved → adopted. `hidden` takes it off
+// the public feed without deleting.
+type ShelterPet struct {
+	ID            string          `json:"id"`
+	ShelterID     string          `json:"shelterId"`
+	ShelterName   string          `json:"shelterName,omitempty"`
+	ShelterCity   string          `json:"shelterCity,omitempty"`
+	Name          string          `json:"name"`
+	Species       string          `json:"species"`
+	Breed         string          `json:"breed"`
+	Sex           string          `json:"sex"`
+	Size          string          `json:"size"`
+	Color         string          `json:"color"`
+	BirthDate     string          `json:"birthDate,omitempty"`
+	AgeMonths     *int            `json:"ageMonths,omitempty"`
+	Description   string          `json:"description"`
+	Photos        []string        `json:"photos"`
+	Vaccines      []VaccineRecord `json:"vaccines"`
+	IsNeutered    bool            `json:"isNeutered"`
+	MicrochipID   string          `json:"microchipId,omitempty"`
+	SpecialNeeds  string          `json:"specialNeeds,omitempty"`
+	CharacterTags []string        `json:"characterTags"`
+	IntakeDate    string          `json:"intakeDate,omitempty"`
+	Status        string          `json:"status"`
+	// ListingState is the DSA-aligned moderation/publishing lifecycle,
+	// orthogonal to availability `Status`. One of: draft, pending_review,
+	// published, paused, adopted, archived, rejected. See
+	// AllowedListingTransitions for legal moves.
+	ListingState       string `json:"listingState"`
+	LastRejectionCode  string `json:"lastRejectionCode,omitempty"`
+	LastRejectionNote  string `json:"lastRejectionNote,omitempty"`
+	AutoFlagReasons    []string `json:"autoFlagReasons,omitempty"`
+	DeletedAt          string `json:"deletedAt,omitempty"`
+	AdopterName        string `json:"adopterName,omitempty"`
+	AdoptionDate       string `json:"adoptionDate,omitempty"`
+	AdoptionNotes      string `json:"adoptionNotes,omitempty"`
+	ViewCount          int    `json:"viewCount"`
+	IsUrgent           bool   `json:"isUrgent"`
+	// PublishedAt is the earliest `published` transition time — used
+	// client-side to render the "New" badge (< 7 days). Populated by
+	// the public feed query; empty elsewhere.
+	PublishedAt        string `json:"publishedAt,omitempty"`
+	// DistanceKm is nil unless the caller passed a lat/lng.
+	DistanceKm         *float64 `json:"distanceKm,omitempty"`
+	// ShelterVerified mirrors the shelter's verifiedAt for card rendering
+	// without requiring a separate fetch. Public feed only.
+	ShelterVerified    bool   `json:"shelterVerified,omitempty"`
+	CreatedAt     string          `json:"createdAt"`
+	UpdatedAt     string          `json:"updatedAt"`
+}
+
+// Listing lifecycle (DSA Art. 16/17/22/23). Kept as constants so server,
+// stores and contracts speak the same vocabulary. Public feeds must only
+// expose `ListingStatePublished` rows.
+const (
+	ListingStateDraft         = "draft"
+	ListingStatePendingReview = "pending_review"
+	ListingStatePublished     = "published"
+	ListingStatePaused        = "paused"
+	ListingStateAdopted       = "adopted"
+	ListingStateArchived      = "archived"
+	ListingStateRejected      = "rejected"
+)
+
+// ListingTransitionActor is the role recorded against each state change
+// in `listing_state_transitions`. "system" covers auto-flag + sweeps;
+// "shelter" covers shelter-initiated moves; "admin" covers moderator
+// decisions.
+const (
+	ListingActorShelter = "shelter"
+	ListingActorAdmin   = "admin"
+	ListingActorSystem  = "system"
+)
+
+// AllowedListingTransitions enumerates every legal (fromState, actor) →
+// [toStates...] move. The server validates every transition against this
+// map and rejects anything else with a 422. Shelter and admin sets
+// intentionally diverge — e.g. only admins can reject; shelters cannot
+// leave `rejected` except by moving back to `draft`.
+var AllowedListingTransitions = map[string]map[string][]string{
+	ListingStateDraft: {
+		ListingActorShelter: {ListingStatePendingReview, ListingStatePublished},
+		ListingActorSystem:  {ListingStatePendingReview, ListingStatePublished},
+	},
+	ListingStatePendingReview: {
+		ListingActorAdmin: {ListingStatePublished, ListingStateRejected},
+	},
+	ListingStatePublished: {
+		ListingActorShelter: {ListingStatePaused, ListingStateAdopted, ListingStateArchived},
+		ListingActorAdmin:   {ListingStatePaused, ListingStateRejected, ListingStateArchived},
+	},
+	ListingStatePaused: {
+		ListingActorShelter: {ListingStatePublished, ListingStateArchived},
+		ListingActorAdmin:   {ListingStatePublished, ListingStateArchived, ListingStateRejected},
+	},
+	ListingStateAdopted: {
+		ListingActorShelter: {ListingStateArchived},
+		ListingActorAdmin:   {ListingStateArchived},
+	},
+	ListingStateRejected: {
+		ListingActorShelter: {ListingStateDraft},
+	},
+}
+
+// ListingTransitionAllowed reports whether an actor may move a listing
+// from→to. Unknown states or actors are treated as disallowed.
+func ListingTransitionAllowed(from, to, actor string) bool {
+	targets, ok := AllowedListingTransitions[from][actor]
+	if !ok {
+		return false
+	}
+	for _, t := range targets {
+		if t == to {
+			return true
+		}
+	}
+	return false
+}
+
+// ListingStateTransition is one append-only row in the listing audit
+// trail. Covers every move — auto-flag, approve, reject, pause, adopt,
+// archive, restart — and stores the actor identity frozen at write time
+// so renames don't rewrite history. Per DSA Art. 17 the `reason_code` +
+// `note` are the machine-readable and human-readable parts of the
+// statement of reasons.
+type ListingStateTransition struct {
+	ID         string         `json:"id"`
+	ListingID  string         `json:"listingId"`
+	ShelterID  string         `json:"shelterId"`
+	ActorID    string         `json:"actorId,omitempty"`
+	ActorName  string         `json:"actorName,omitempty"`
+	ActorRole  string         `json:"actorRole"` // shelter|admin|system
+	PrevState  string         `json:"prevState"`
+	NewState   string         `json:"newState"`
+	ReasonCode string         `json:"reasonCode,omitempty"`
+	Note       string         `json:"note,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	CreatedAt  string         `json:"createdAt"`
+}
+
+// ListingReport is a DSA Art. 16 notice-and-action entry. Trusted
+// flaggers (Art. 22) surface at the top of the queue. Resolution is
+// one of: dismiss|warn|remove|suspend.
+type ListingReport struct {
+	ID              string `json:"id"`
+	ListingID       string `json:"listingId"`
+	ShelterID       string `json:"shelterId"`
+	ReporterID      string `json:"reporterId,omitempty"`
+	ReporterName    string `json:"reporterName,omitempty"`
+	TrustedFlagger  bool   `json:"trustedFlagger"`
+	Reason          string `json:"reason"`
+	Description     string `json:"description,omitempty"`
+	Status          string `json:"status"` // open|dismissed|warned|removed|suspended
+	CreatedAt       string `json:"createdAt"`
+	ResolvedAt      string `json:"resolvedAt,omitempty"`
+	ResolvedBy      string `json:"resolvedBy,omitempty"`
+	Resolution      string `json:"resolution,omitempty"`
+	ResolutionNote  string `json:"resolutionNote,omitempty"`
+	// Denormalised listing preview fields for the admin queue UI.
+	ListingName        string `json:"listingName,omitempty"`
+	ListingPhotoURL    string `json:"listingPhotoUrl,omitempty"`
+	ListingCurrentState string `json:"listingCurrentState,omitempty"`
+	ShelterName        string `json:"shelterName,omitempty"`
+}
+
+// ListingStatementOfReasons is the persisted DSA Art. 17 statement
+// generated on every listing removal (rejection or report-driven
+// takedown). All five Art. 17 fields are captured and human-readable;
+// the `redress_options` text points to the appeal email.
+type ListingStatementOfReasons struct {
+	ID                 string `json:"id"`
+	ListingID          string `json:"listingId"`
+	ShelterID          string `json:"shelterId"`
+	ContentDescription string `json:"contentDescription"`
+	LegalGround        string `json:"legalGround"`
+	FactsReliedOn      string `json:"factsReliedOn"`
+	Scope              string `json:"scope"`
+	RedressOptions     string `json:"redressOptions"`
+	IssuedAt           string `json:"issuedAt"`
+	IssuedBy           string `json:"issuedBy,omitempty"`
+}
+
+// ListingStrikeSummary powers the repeat-offender (DSA Art. 23) panel
+// on the admin shelter detail page. `Count` is rejections within the
+// last 90 days; `Rejections` is the list for drill-down.
+type ListingStrikeSummary struct {
+	ShelterID        string                   `json:"shelterId"`
+	Count            int                      `json:"count"`
+	WindowDays       int                      `json:"windowDays"`
+	Threshold        int                      `json:"threshold"`
+	Triggered        bool                     `json:"triggered"`
+	Rejections       []ListingStateTransition `json:"rejections"`
+}
+
+// AdoptionApplication is a user's request to adopt a specific shelter pet.
+type AdoptionApplication struct {
+	ID              string  `json:"id"`
+	PetID           string  `json:"petId"`
+	PetName         string  `json:"petName,omitempty"`
+	PetPhoto        string  `json:"petPhoto,omitempty"`
+	ShelterID       string  `json:"shelterId"`
+	ShelterName     string  `json:"shelterName,omitempty"`
+	UserID          string  `json:"userId"`
+	UserName        string  `json:"userName"`
+	UserAvatarURL   *string `json:"userAvatarUrl,omitempty"`
+	HousingType     string  `json:"housingType"`
+	HasOtherPets    bool    `json:"hasOtherPets"`
+	OtherPetsDetail string  `json:"otherPetsDetail"`
+	Experience      string  `json:"experience"`
+	Message         string  `json:"message"`
+	Status          string  `json:"status"`
+	RejectionReason string  `json:"rejectionReason,omitempty"`
+	ConversationID  *string `json:"conversationId,omitempty"`
+	CreatedAt       string  `json:"createdAt"`
+	UpdatedAt       string  `json:"updatedAt"`
+}
+
+// ListingPerformanceRow is a single row of the shelter analytics
+// table: every non-soft-deleted listing the shelter owns, enriched
+// with view / save / application / adoption counters for the selected
+// date range.
+type ListingPerformanceRow struct {
+	ListingID    string `json:"listingId"`
+	Name         string `json:"name"`
+	Species      string `json:"species"`
+	ListingState string `json:"listingState"`
+	Views        int    `json:"views"`
+	Saves        int    `json:"saves"`
+	Applications int    `json:"applications"`
+	Adoptions    int    `json:"adoptions"`
+	DaysListed   int    `json:"daysListed"`
+}
+
+// ApplicationFunnel is the four-stage adoption-funnel snapshot used
+// by the analytics page. Stages are strict subsets so each count is
+// ≤ the one above it.
+type ApplicationFunnel struct {
+	Submitted   int `json:"submitted"`
+	UnderReview int `json:"underReview"`
+	Approved    int `json:"approved"`
+	Adopted     int `json:"adopted"`
+}
+
+// AnalyticsOverview is the header payload for the shelter analytics
+// dashboard — aggregate stats + the top-listing highlight over the
+// requested date range.
+type AnalyticsOverview struct {
+	Range              string  `json:"range"`
+	ActiveListings     int     `json:"activeListings"`
+	AdoptionsThisMonth int     `json:"adoptionsThisMonth"`
+	AdoptionsThisYear  int     `json:"adoptionsThisYear"`
+	AvgDaysToAdoption  float64 `json:"avgDaysToAdoption"`
+	AvgSampleSize      int     `json:"avgSampleSize"`
+	TopListing         *struct {
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		ApplicationCount int    `json:"applicationCount"`
+	} `json:"topListing,omitempty"`
+}
+
+// ShelterStats powers the shelter dashboard and admin list rows.
+type ShelterStats struct {
+	TotalPets         int `json:"totalPets"`
+	AvailablePets     int `json:"availablePets"`
+	ReservedPets      int `json:"reservedPets"`
+	AdoptedPets       int `json:"adoptedPets"`
+	PendingApps       int `json:"pendingApplications"`
+	ActiveChats       int `json:"activeChats"`
+	TotalApplications int `json:"totalApplications"`
 }
 
 type PetAlbum struct {

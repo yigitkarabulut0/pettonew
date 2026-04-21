@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Dog,
+  Building2,
   Flag,
   Flame,
   Footprints,
@@ -71,7 +72,12 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/pets", label: "Pets", icon: PawPrint },
       { href: "/lost-pets", label: "Lost Pets", icon: AlertTriangle },
-      { href: "/adoptions", label: "Adoptions", icon: Heart }
+      { href: "/shelters", label: "Shelters", icon: Building2 },
+      {
+        href: "/shelter-applications",
+        label: "Shelter Applications",
+        icon: ClipboardCheck
+      }
     ]
   },
   {
@@ -120,7 +126,9 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Moderation",
     items: [
-      { href: "/reports", label: "Reports", icon: Flag },
+      { href: "/listings", label: "Listing Reviews", icon: ShieldCheck },
+      { href: "/listing-reports", label: "Listing Reports", icon: Flag },
+      { href: "/reports", label: "User Reports", icon: Flag },
       { href: "/audit-logs", label: "Audit Logs", icon: ClipboardCheck, requires: "moderator" }
     ]
   },

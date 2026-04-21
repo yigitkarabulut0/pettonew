@@ -1,25 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import "mapbox-gl/dist/mapbox-gl.css";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LocationPicker, type LocationValue } from "@/components/common/LocationPicker";
 import {
   adminPresignUpload,
   getPosts,
   getVenues,
   updateVenue,
 } from "@/lib/admin-api";
-import type { ExploreVenue, HomePost } from "@petto/contracts";
-
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+import type { ExploreVenue } from "@petto/contracts";
 
 const CATEGORY_COLORS: Record<string, string> = {
   park: "bg-emerald-100 text-emerald-800",
@@ -76,11 +73,6 @@ export default function VenueDetailPage() {
     setImagePreview(URL.createObjectURL(file));
   };
 
-  /* ---- map refs ---- */
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markerRef = useRef<mapboxgl.Marker | null>(null);
-
   function startEditing() {
     if (!venue) return;
     setForm({
@@ -97,49 +89,6 @@ export default function VenueDetailPage() {
     setImagePreview("");
     setEditing(true);
   }
-
-  /* ---- init map when editing ---- */
-  useEffect(() => {
-    if (!editing) return;
-    let map: mapboxgl.Map | undefined;
-
-    async function initMap() {
-      const mapboxgl = (await import("mapbox-gl")).default;
-      mapboxgl.accessToken = MAPBOX_TOKEN;
-
-      if (!mapContainerRef.current) return;
-
-      map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/streets-v12",
-        center: [form.longitude, form.latitude],
-        zoom: 14,
-      });
-
-      map.addControl(new mapboxgl.NavigationControl(), "top-right");
-
-      const marker = new mapboxgl.Marker({ draggable: true, color: "#6d28d9" })
-        .setLngLat([form.longitude, form.latitude])
-        .addTo(map);
-
-      marker.on("dragend", () => {
-        const lngLat = marker.getLngLat();
-        setForm((prev) => ({ ...prev, latitude: lngLat.lat, longitude: lngLat.lng }));
-      });
-
-      mapRef.current = map;
-      markerRef.current = marker;
-    }
-
-    initMap();
-
-    return () => {
-      if (map) map.remove();
-      mapRef.current = null;
-      markerRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
 
   /* ---- update mutation ---- */
   const updateMutation = useMutation({
@@ -306,15 +255,33 @@ export default function VenueDetailPage() {
               onChange={(e) => setForm((p) => ({ ...p, cityLabel: e.target.value }))}
             />
             <Input
-              placeholder="Address"
-              value={form.address}
-              onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
-            />
-            <Input
               placeholder="Hours (e.g. Mon 09:00-17:00, Tue 09:00-17:00)"
               value={form.hours}
               onChange={(e) => setForm((p) => ({ ...p, hours: e.target.value }))}
             />
+
+            {/* Location picker — address + map + draggable marker */}
+            <div className="lg:col-span-2">
+              <LocationPicker
+                value={{
+                  address: form.address,
+                  latitude: form.latitude,
+                  longitude: form.longitude
+                }}
+                onChange={(loc: LocationValue) =>
+                  setForm((p) => ({
+                    ...p,
+                    address: loc.address,
+                    latitude: loc.latitude,
+                    longitude: loc.longitude,
+                    cityLabel: p.cityLabel || loc.cityLabel || ""
+                  }))
+                }
+                markerColor="#6d28d9"
+                label="Address"
+                mapHeight={300}
+              />
+            </div>
 
             {/* Image Upload */}
             <div className="space-y-2">
@@ -333,20 +300,6 @@ export default function VenueDetailPage() {
                 )}
               </div>
               {uploading && <p className="text-xs text-amber-600 animate-pulse">Uploading image...</p>}
-            </div>
-
-            {/* Map for location editing */}
-            <div className="lg:col-span-2">
-              <div
-                ref={mapContainerRef}
-                className="w-full overflow-hidden rounded-xl border border-[var(--petto-border)]"
-                style={{ height: 300 }}
-              />
-              <div className="mt-2 flex items-center gap-4 text-xs text-[var(--petto-muted)]">
-                <span>Lat: <strong>{form.latitude.toFixed(6)}</strong></span>
-                <span>Lng: <strong>{form.longitude.toFixed(6)}</strong></span>
-                <span className="ml-auto">Drag marker to adjust location</span>
-              </div>
             </div>
 
             <div className="lg:col-span-2">

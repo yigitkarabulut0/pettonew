@@ -30,6 +30,11 @@ export default function AppLayout() {
       <Stack.Screen name="training-tip/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="pet-sitters" options={{ headerShown: false }} />
       <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="venue/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="adopt/index" options={{ headerShown: false }} />
+      <Stack.Screen name="adopt/[petId]" options={{ headerShown: false }} />
+      <Stack.Screen name="shelter/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="my-applications" options={{ headerShown: false }} />
     </Stack>
   );
 }

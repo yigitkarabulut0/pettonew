@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"database/sql"
+	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -401,6 +402,360 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`)
 	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_user_presence_online ON user_presence (is_online, last_seen_at DESC)`)
+
+	// ── Shelters v0.13 ─────────────────────────────────────────────
+	// Separate account type for animal shelters. Admin-created only.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelters (
+		id TEXT PRIMARY KEY,
+		email CITEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+		name TEXT NOT NULL,
+		about TEXT NOT NULL DEFAULT '',
+		phone TEXT NOT NULL DEFAULT '',
+		website TEXT NOT NULL DEFAULT '',
+		logo_url TEXT,
+		hero_url TEXT,
+		address TEXT NOT NULL DEFAULT '',
+		city_label TEXT NOT NULL DEFAULT '',
+		latitude DOUBLE PRECISION NOT NULL DEFAULT 0,
+		longitude DOUBLE PRECISION NOT NULL DEFAULT 0,
+		hours TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		last_login_at TIMESTAMPTZ,
+		password_changed_at TIMESTAMPTZ
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelters_city ON shelters(city_label)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelters_status ON shelters(status)`)
+
+	// Shelter-owned adoptable pets (distinct from user-owned `pets`).
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelter_pets (
+		id TEXT PRIMARY KEY,
+		shelter_id TEXT NOT NULL REFERENCES shelters(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		species TEXT NOT NULL DEFAULT '',
+		breed TEXT NOT NULL DEFAULT '',
+		sex TEXT NOT NULL DEFAULT '',
+		size TEXT NOT NULL DEFAULT '',
+		color TEXT NOT NULL DEFAULT '',
+		birth_date TEXT NOT NULL DEFAULT '',
+		age_months INT,
+		description TEXT NOT NULL DEFAULT '',
+		photos TEXT[] NOT NULL DEFAULT '{}',
+		vaccines JSONB NOT NULL DEFAULT '[]'::jsonb,
+		is_neutered BOOLEAN NOT NULL DEFAULT FALSE,
+		microchip_id TEXT NOT NULL DEFAULT '',
+		special_needs TEXT NOT NULL DEFAULT '',
+		character_tags TEXT[] NOT NULL DEFAULT '{}',
+		intake_date TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'available',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_pets_shelter ON shelter_pets(shelter_id, status)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_pets_public ON shelter_pets(status, created_at DESC) WHERE status IN ('available','reserved')`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_pets_species ON shelter_pets(species) WHERE status = 'available'`)
+
+	// Adoption applications: user → shelter pet, gated by the shelter.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS adoption_applications (
+		id TEXT PRIMARY KEY,
+		pet_id TEXT NOT NULL REFERENCES shelter_pets(id) ON DELETE CASCADE,
+		shelter_id TEXT NOT NULL REFERENCES shelters(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL,
+		user_name TEXT NOT NULL DEFAULT '',
+		user_avatar_url TEXT,
+		housing_type TEXT NOT NULL DEFAULT '',
+		has_other_pets BOOLEAN NOT NULL DEFAULT FALSE,
+		other_pets_detail TEXT NOT NULL DEFAULT '',
+		experience TEXT NOT NULL DEFAULT '',
+		message TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		rejection_reason TEXT NOT NULL DEFAULT '',
+		conversation_id TEXT,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE(pet_id, user_id)
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_adoption_apps_shelter ON adoption_applications(shelter_id, status, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_adoption_apps_user ON adoption_applications(user_id, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_adoption_apps_pet ON adoption_applications(pet_id, status)`)
+
+	// Conversations bridge — shelter↔applicant chats carry their
+	// originating adoption_application_id so either side can list them.
+	pool.Exec(ctx, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS adoption_application_id TEXT`)
+	pool.Exec(ctx, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS shelter_id TEXT`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_conversations_app ON conversations(adoption_application_id) WHERE adoption_application_id IS NOT NULL`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_conversations_shelter ON conversations(shelter_id) WHERE shelter_id IS NOT NULL`)
+
+	// Legacy adoption cleanup — old user-created listings replaced entirely.
+	pool.Exec(ctx, `DROP TABLE IF EXISTS adoption_listings CASCADE`)
+
+	// ── Shelter onboarding applications v0.14 ──────────────────────
+	// Public wizard → admin review queue. Mirrors
+	// apps/api/migrations/0005_shelter_applications.sql — kept here too
+	// so a fresh deploy auto-applies without a separate psql step.
+	pool.Exec(ctx, `ALTER TABLE shelters ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`)
+	// Back-fill existing rows as verified from the moment they were
+	// created — they were admin-vetted under the old flow.
+	pool.Exec(ctx, `UPDATE shelters SET verified_at = created_at WHERE verified_at IS NULL`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelters_verified_at ON shelters(verified_at)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelter_applications (
+		id TEXT PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'submitted'
+			CHECK (status IN ('submitted','under_review','approved','rejected')),
+		submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		reviewed_at TIMESTAMPTZ,
+		reviewed_by TEXT,
+		sla_deadline TIMESTAMPTZ NOT NULL,
+		entity_type TEXT NOT NULL,
+		country TEXT NOT NULL,
+		registration_number TEXT NOT NULL,
+		registration_certificate_url TEXT NOT NULL,
+		org_name TEXT NOT NULL,
+		org_address TEXT NOT NULL DEFAULT '',
+		operating_region_country TEXT NOT NULL,
+		operating_region_city TEXT NOT NULL,
+		species_focus TEXT[] NOT NULL DEFAULT '{}',
+		donation_url TEXT NOT NULL DEFAULT '',
+		primary_contact_name TEXT NOT NULL,
+		primary_contact_email CITEXT NOT NULL,
+		primary_contact_phone TEXT NOT NULL DEFAULT '',
+		rejection_reason_code TEXT NOT NULL DEFAULT '',
+		rejection_reason_note TEXT NOT NULL DEFAULT ''
+			CHECK (length(rejection_reason_note) <= 500),
+		created_shelter_id TEXT REFERENCES shelters(id) ON DELETE SET NULL,
+		access_token TEXT UNIQUE NOT NULL
+	)`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_shelter_apps_email_active
+		ON shelter_applications(lower(primary_contact_email))
+		WHERE status IN ('submitted','under_review')`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_apps_status_sla
+		ON shelter_applications(status, sla_deadline)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_apps_submitted
+		ON shelter_applications(submitted_at DESC)`)
+
+	// ── Shelter team accounts & audit log v0.15 ───────────────────
+	// Mirrors apps/api/migrations/0006_shelter_teams.sql — same DDL
+	// runs here so fresh deploys auto-apply without a psql step.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelter_members (
+		id TEXT PRIMARY KEY,
+		shelter_id TEXT NOT NULL REFERENCES shelters(id) ON DELETE CASCADE,
+		email CITEXT NOT NULL,
+		password_hash TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL CHECK (role IN ('admin','editor','viewer')),
+		status TEXT NOT NULL DEFAULT 'active'
+			CHECK (status IN ('active','pending','revoked')),
+		must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+		invited_by_member_id TEXT REFERENCES shelter_members(id) ON DELETE SET NULL,
+		invited_at TIMESTAMPTZ,
+		joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		last_login_at TIMESTAMPTZ,
+		password_changed_at TIMESTAMPTZ
+	)`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_shelter_members_email
+		ON shelter_members(shelter_id, lower(email::text))`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_members_shelter
+		ON shelter_members(shelter_id, status)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelter_member_invites (
+		id TEXT PRIMARY KEY,
+		shelter_id TEXT NOT NULL REFERENCES shelters(id) ON DELETE CASCADE,
+		email CITEXT NOT NULL,
+		role TEXT NOT NULL CHECK (role IN ('admin','editor','viewer')),
+		invited_by_member_id TEXT REFERENCES shelter_members(id) ON DELETE SET NULL,
+		token TEXT UNIQUE NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		expires_at TIMESTAMPTZ NOT NULL,
+		accepted_at TIMESTAMPTZ,
+		accepted_member_id TEXT REFERENCES shelter_members(id) ON DELETE SET NULL,
+		revoked_at TIMESTAMPTZ
+	)`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_shelter_invites_active
+		ON shelter_member_invites(shelter_id, lower(email::text))
+		WHERE accepted_at IS NULL AND revoked_at IS NULL`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_invites_shelter
+		ON shelter_member_invites(shelter_id, created_at DESC)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS shelter_audit_logs (
+		id TEXT PRIMARY KEY,
+		shelter_id TEXT NOT NULL REFERENCES shelters(id) ON DELETE CASCADE,
+		actor_member_id TEXT,
+		actor_name TEXT NOT NULL DEFAULT '',
+		actor_email TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		target_type TEXT NOT NULL DEFAULT '',
+		target_id TEXT NOT NULL DEFAULT '',
+		metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_audit_shelter
+		ON shelter_audit_logs(shelter_id, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_audit_action
+		ON shelter_audit_logs(shelter_id, action)`)
+
+	// ── DSA listing moderation (v0.17) ───────────────────────────
+	// 7-state listing lifecycle + notice-and-action queue + statement
+	// of reasons. All idempotent — safe to re-run on every boot. See
+	// apps/api/migrations/0007_listing_moderation.sql for the same
+	// SQL as a standalone source of truth.
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS listing_state TEXT NOT NULL DEFAULT 'published'`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS last_rejection_code TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS last_rejection_note TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS auto_flag_reasons TEXT[] NOT NULL DEFAULT '{}'`)
+	// Soft-delete (v0.20): listings hidden from all views for a 30-day
+	// recovery window before the sweeper hard-deletes them. deleted_at
+	// nullable = live; non-null = pending purge.
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS adopter_name TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS adoption_date TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS adoption_notes TEXT NOT NULL DEFAULT ''`)
+	// View tracking (v0.22) — a single atomic counter. We don't need
+	// per-event granularity for the analytics the UI renders; saves
+	// us a fat `listing_views` table.
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS view_count INT NOT NULL DEFAULT 0`)
+	// Urgent flag (v0.23) — shelter-set badge for animals needing
+	// quick rehoming (medical, behavioural, etc.).
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD COLUMN IF NOT EXISTS is_urgent BOOLEAN NOT NULL DEFAULT FALSE`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_pets_soft_delete
+		ON shelter_pets(deleted_at) WHERE deleted_at IS NOT NULL`)
+
+	// Public shelter profile (v0.21).
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS slug TEXT`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_shelters_slug
+		ON shelters(slug) WHERE slug IS NOT NULL`)
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS adoption_process TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS donation_url TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS show_recently_adopted BOOLEAN NOT NULL DEFAULT FALSE`)
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS operating_country TEXT NOT NULL DEFAULT ''`)
+	// Featured discovery rail (v0.24). Admin flips this manually via
+	// the admin panel; public feed reads it to surface a rail on the
+	// fetcht discovery home. Partial index so lookup is O(featured).
+	pool.Exec(ctx, `ALTER TABLE shelters
+		ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelters_featured
+		ON shelters(is_featured) WHERE is_featured = TRUE`)
+	// Boot-time backfill: generate slugs for verified shelters that
+	// existed before this column landed. Naïve kebab-case from name;
+	// duplicates silently fail the unique index and stay NULL for admin
+	// cleanup. New approvals go through AssignShelterSlug which retries.
+	pool.Exec(ctx, `UPDATE shelters
+		SET slug = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(NULLIF(TRIM(name), ''), id), '[^a-zA-Z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'))
+		WHERE slug IS NULL AND verified_at IS NOT NULL`)
+	// Backfill: existing rows get mapped from availability `status` to
+	// the new listing_state. Only touches rows that still hold the
+	// default so re-runs don't clobber subsequent moderation moves.
+	pool.Exec(ctx, `UPDATE shelter_pets SET listing_state='adopted'
+		WHERE status='adopted' AND listing_state='published'`)
+	pool.Exec(ctx, `UPDATE shelter_pets SET listing_state='paused'
+		WHERE status='hidden' AND listing_state='published'`)
+	// Enforce the 7-value enum. Drop any legacy CHECK then add the
+	// canonical one. The DO block lets us ignore "constraint does not
+	// exist" errors cleanly.
+	pool.Exec(ctx, `DO $$ BEGIN
+		ALTER TABLE shelter_pets DROP CONSTRAINT IF EXISTS shelter_pets_listing_state_check;
+	EXCEPTION WHEN others THEN NULL; END $$`)
+	pool.Exec(ctx, `ALTER TABLE shelter_pets
+		ADD CONSTRAINT shelter_pets_listing_state_check
+		CHECK (listing_state IN ('draft','pending_review','published','paused','adopted','archived','rejected'))`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_shelter_pets_listing_state
+		ON shelter_pets(listing_state, created_at DESC)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS listing_state_transitions (
+		id TEXT PRIMARY KEY,
+		listing_id TEXT NOT NULL REFERENCES shelter_pets(id) ON DELETE CASCADE,
+		shelter_id TEXT NOT NULL,
+		actor_id TEXT NOT NULL DEFAULT '',
+		actor_name TEXT NOT NULL DEFAULT '',
+		actor_role TEXT NOT NULL,
+		prev_state TEXT NOT NULL,
+		new_state TEXT NOT NULL,
+		reason_code TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_listing_transitions_listing
+		ON listing_state_transitions(listing_id, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_listing_transitions_shelter_rejected
+		ON listing_state_transitions(shelter_id, new_state, created_at DESC)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS listing_reports (
+		id TEXT PRIMARY KEY,
+		listing_id TEXT NOT NULL REFERENCES shelter_pets(id) ON DELETE CASCADE,
+		shelter_id TEXT NOT NULL DEFAULT '',
+		reporter_id TEXT NOT NULL DEFAULT '',
+		reporter_name TEXT NOT NULL DEFAULT '',
+		trusted_flagger BOOLEAN NOT NULL DEFAULT FALSE,
+		reason TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'open'
+			CHECK (status IN ('open','dismissed','warned','removed','suspended')),
+		resolution TEXT NOT NULL DEFAULT '',
+		resolution_note TEXT NOT NULL DEFAULT '',
+		resolved_by TEXT NOT NULL DEFAULT '',
+		resolved_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_listing_reports_status
+		ON listing_reports(status, trusted_flagger DESC, created_at DESC)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_listing_reports_listing
+		ON listing_reports(listing_id, created_at DESC)`)
+
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS listing_statements_of_reasons (
+		id TEXT PRIMARY KEY,
+		listing_id TEXT NOT NULL REFERENCES shelter_pets(id) ON DELETE CASCADE,
+		shelter_id TEXT NOT NULL DEFAULT '',
+		content_description TEXT NOT NULL DEFAULT '',
+		legal_ground TEXT NOT NULL DEFAULT '',
+		facts_relied_on TEXT NOT NULL DEFAULT '',
+		scope TEXT NOT NULL DEFAULT '',
+		redress_options TEXT NOT NULL DEFAULT '',
+		issued_by TEXT NOT NULL DEFAULT '',
+		issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_listing_sor_listing
+		ON listing_statements_of_reasons(listing_id, issued_at DESC)`)
+
+	// Back-fill owner member for any shelter that doesn't have one yet.
+	// Idempotent — only touches rows with no existing members.
+	pool.Exec(ctx, `INSERT INTO shelter_members (
+		id, shelter_id, email, password_hash, name, role, status,
+		must_change_password, joined_at, last_login_at, password_changed_at
+	)
+	SELECT
+		'member-owner-' || s.id,
+		s.id,
+		s.email,
+		s.password_hash,
+		COALESCE(s.name, ''),
+		'admin',
+		'active',
+		s.must_change_password,
+		s.created_at,
+		s.last_login_at,
+		s.password_changed_at
+	FROM shelters s
+	WHERE NOT EXISTS (
+		SELECT 1 FROM shelter_members m WHERE m.shelter_id = s.id
+	)`)
 
 	return &PostgresStore{pool: pool}, nil
 }
@@ -1857,10 +2212,24 @@ func (s *PostgresStore) SendMessage(userID string, conversationID string, body s
 		return domain.Message{}, fmt.Errorf("conversation not found")
 	}
 
-	// Get sender name & avatar
+	// Get sender name & avatar. Try user_profiles first; if that row does
+	// not exist the sender might be a shelter (shelters participate in
+	// adoption chats via the same user_ids[] column).
 	var senderName, senderAvatar string
 	_ = s.pool.QueryRow(s.ctx(),
 		`SELECT COALESCE(first_name, ''), COALESCE(avatar_url, '') FROM user_profiles WHERE user_id = $1`, userID).Scan(&senderName, &senderAvatar)
+	if senderName == "" {
+		var shelterName string
+		var shelterLogo sql.NullString
+		if err := s.pool.QueryRow(s.ctx(),
+			`SELECT name, logo_url FROM shelters WHERE id = $1`, userID).
+			Scan(&shelterName, &shelterLogo); err == nil {
+			senderName = shelterName
+			if shelterLogo.Valid {
+				senderAvatar = shelterLogo.String
+			}
+		}
+	}
 
 	msgID := newID("message")
 	now := time.Now().UTC()
@@ -3640,6 +4009,161 @@ func (s *PostgresStore) CreateVenueReview(review domain.VenueReview) domain.Venu
 	return review
 }
 
+// GetVenueStats returns aggregate metrics for a venue used in the detail page
+// and card rating summary. Active window = last 1 hour (agreed product spec).
+func (s *PostgresStore) GetVenueStats(venueID string) domain.VenueStats {
+	var stats domain.VenueStats
+
+	// Check-in aggregates.
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT
+		   COUNT(*)::int AS total,
+		   COUNT(DISTINCT user_id)::int AS uniq,
+		   COUNT(*) FILTER (WHERE checked_in_at > NOW() - INTERVAL '1 hour')::int AS active
+		 FROM venue_check_ins WHERE venue_id = $1`, venueID).
+		Scan(&stats.CheckInCount, &stats.UniqueVisitorCount, &stats.ActiveCheckInCount)
+
+	// Rating aggregates + distribution in a single scan.
+	var avg sql.NullFloat64
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT
+		   COALESCE(AVG(rating), 0),
+		   COUNT(*)::int,
+		   COUNT(*) FILTER (WHERE rating = 1)::int,
+		   COUNT(*) FILTER (WHERE rating = 2)::int,
+		   COUNT(*) FILTER (WHERE rating = 3)::int,
+		   COUNT(*) FILTER (WHERE rating = 4)::int,
+		   COUNT(*) FILTER (WHERE rating = 5)::int
+		 FROM venue_reviews WHERE venue_id = $1`, venueID).
+		Scan(&avg, &stats.ReviewCount,
+			&stats.RatingDistribution.One, &stats.RatingDistribution.Two,
+			&stats.RatingDistribution.Three, &stats.RatingDistribution.Four,
+			&stats.RatingDistribution.Five)
+	if avg.Valid {
+		stats.AvgRating = avg.Float64
+	}
+
+	return stats
+}
+
+// ListVenueCheckInsScoped returns check-ins for a venue filtered by mode:
+//   - "active":  last 1 hour
+//   - "history": latest row per user (distinct users, most recent visit each)
+//   - "all":     every row, newest first
+func (s *PostgresStore) ListVenueCheckInsScoped(venueID string, mode string, limit int) []domain.VenueCheckIn {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	var query string
+	switch mode {
+	case "active":
+		query = `SELECT user_id, user_name, avatar_url, pet_ids, pet_names, pet_count, checked_in_at
+		         FROM venue_check_ins
+		         WHERE venue_id = $1 AND checked_in_at > NOW() - INTERVAL '1 hour'
+		         ORDER BY checked_in_at DESC
+		         LIMIT $2`
+	case "history":
+		query = `SELECT user_id, user_name, avatar_url, pet_ids, pet_names, pet_count, checked_in_at
+		         FROM (
+		           SELECT DISTINCT ON (user_id)
+		             user_id, user_name, avatar_url, pet_ids, pet_names, pet_count, checked_in_at
+		           FROM venue_check_ins
+		           WHERE venue_id = $1
+		           ORDER BY user_id, checked_in_at DESC
+		         ) t
+		         ORDER BY checked_in_at DESC
+		         LIMIT $2`
+	default: // "all"
+		query = `SELECT user_id, user_name, avatar_url, pet_ids, pet_names, pet_count, checked_in_at
+		         FROM venue_check_ins
+		         WHERE venue_id = $1
+		         ORDER BY checked_in_at DESC
+		         LIMIT $2`
+	}
+
+	rows, err := s.pool.Query(s.ctx(), query, venueID, limit)
+	if err != nil {
+		return []domain.VenueCheckIn{}
+	}
+	defer rows.Close()
+
+	list := make([]domain.VenueCheckIn, 0)
+	for rows.Next() {
+		var ci domain.VenueCheckIn
+		var checkedInAt time.Time
+		if err := rows.Scan(&ci.UserID, &ci.UserName, &ci.AvatarURL,
+			&ci.PetIDs, &ci.PetNames, &ci.PetCount, &checkedInAt); err != nil {
+			continue
+		}
+		ci.CheckedInAt = checkedInAt.Format(time.RFC3339)
+		if ci.PetIDs == nil {
+			ci.PetIDs = []string{}
+		}
+		if ci.PetNames == nil {
+			ci.PetNames = []string{}
+		}
+		list = append(list, ci)
+	}
+	return list
+}
+
+// ListVenuePostsWithPhotos returns post-derived photos tagged to a venue.
+func (s *PostgresStore) ListVenuePostsWithPhotos(venueID string, limit int) []domain.VenuePhotoFeedItem {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT p.id, p.image_url, p.author_user_id,
+		        COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), '') AS author_name,
+		        p.created_at
+		 FROM posts p
+		 LEFT JOIN user_profiles u ON u.user_id = p.author_user_id
+		 WHERE p.venue_id = $1 AND p.image_url IS NOT NULL AND p.image_url <> ''
+		 ORDER BY p.created_at DESC
+		 LIMIT $2`, venueID, limit)
+	if err != nil {
+		return []domain.VenuePhotoFeedItem{}
+	}
+	defer rows.Close()
+
+	out := make([]domain.VenuePhotoFeedItem, 0)
+	for rows.Next() {
+		var item domain.VenuePhotoFeedItem
+		var imageURL sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.PostID, &imageURL, &item.AuthorUserID,
+			&item.AuthorName, &createdAt); err != nil {
+			continue
+		}
+		if !imageURL.Valid || imageURL.String == "" {
+			continue
+		}
+		item.ImageURL = imageURL.String
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		out = append(out, item)
+	}
+	return out
+}
+
+// UserHasCheckedIn gates review creation: only visitors can review.
+func (s *PostgresStore) UserHasCheckedIn(venueID string, userID string) bool {
+	var exists bool
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS (SELECT 1 FROM venue_check_ins WHERE venue_id = $1 AND user_id = $2)`,
+		venueID, userID).Scan(&exists)
+	return exists
+}
+
+// UserHasReviewed prevents duplicate reviews from the same user on the same venue.
+func (s *PostgresStore) UserHasReviewed(venueID string, userID string) bool {
+	var exists bool
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS (SELECT 1 FROM venue_reviews WHERE venue_id = $1 AND user_id = $2)`,
+		venueID, userID).Scan(&exists)
+	return exists
+}
+
 func (s *PostgresStore) CreateReport(reporterID string, reporterName string, reason string, targetType string, targetID string, targetLabel string) (domain.ReportSummary, error) {
 	// Check for existing report by same reporter on same target within 2 hours
 	var existingID string
@@ -3830,6 +4354,21 @@ func (s *PostgresStore) getOwnerInfo(userID string) (string, string) {
 	avatarStr := ""
 	if avatar != nil {
 		avatarStr = *avatar
+	}
+	// Fall back to the shelters table for adoption chats — the counterpart
+	// might be a shelter account, which has a name + logo_url but no
+	// row in user_profiles.
+	if name == "" {
+		var shelterName string
+		var logo sql.NullString
+		if err := s.pool.QueryRow(s.ctx(),
+			`SELECT name, logo_url FROM shelters WHERE id = $1`, userID).
+			Scan(&shelterName, &logo); err == nil {
+			name = shelterName
+			if logo.Valid && avatarStr == "" {
+				avatarStr = logo.String
+			}
+		}
 	}
 	return name, avatarStr
 }
@@ -6504,58 +7043,1562 @@ func (s *PostgresStore) DeleteWalkRoute(routeID string) error {
 }
 
 // ================================================================
-// Adoptions
+// Shelters, Shelter Pets, Adoption Applications (v0.13)
 // ================================================================
 
-func (s *PostgresStore) ListAdoptions() []domain.AdoptionListing {
-	rows, _ := s.pool.Query(s.ctx(), `SELECT id, user_id, pet_name, pet_age, pet_species, pet_breed, description, contact_phone, contact_email, location, image_url, status, created_at FROM adoption_listings ORDER BY created_at DESC`)
-	defer rows.Close()
-	var out []domain.AdoptionListing
-	for rows.Next() {
-		var a domain.AdoptionListing
-		var img *string
-		rows.Scan(&a.ID, &a.UserID, &a.PetName, &a.PetAge, &a.PetSpecies, &a.PetBreed, &a.Description, &a.ContactPhone, &a.ContactEmail, &a.Location, &img, &a.Status, &a.CreatedAt)
-		a.ImageURL = img
-		out = append(out, a)
+func scanShelter(row interface {
+	Scan(dest ...any) error
+}) (domain.Shelter, error) {
+	var sh domain.Shelter
+	var about, phone, website, address, cityLabel, hours, status sql.NullString
+	var logoURL, heroURL sql.NullString
+	var slug, adoptionProcess, donationURL, operatingCountry sql.NullString
+	var isFeatured sql.NullBool
+	var lat, lng sql.NullFloat64
+	var lastLogin sql.NullTime
+	var verifiedAt sql.NullTime
+	var createdAt time.Time
+	err := row.Scan(&sh.ID, &sh.Email, &sh.Name, &about, &phone, &website,
+		&logoURL, &heroURL, &address, &cityLabel, &lat, &lng, &hours, &status,
+		&sh.MustChangePassword, &createdAt, &lastLogin, &verifiedAt,
+		&slug, &adoptionProcess, &donationURL, &sh.ShowRecentlyAdopted,
+		&operatingCountry, &isFeatured)
+	if err != nil {
+		return sh, err
 	}
-	if out == nil { return []domain.AdoptionListing{} }
+	sh.About = about.String
+	sh.Phone = phone.String
+	sh.Website = website.String
+	sh.Address = address.String
+	sh.CityLabel = cityLabel.String
+	sh.Hours = hours.String
+	sh.Status = status.String
+	sh.Latitude = lat.Float64
+	sh.Longitude = lng.Float64
+	sh.Slug = slug.String
+	sh.AdoptionProcess = adoptionProcess.String
+	sh.DonationURL = donationURL.String
+	sh.OperatingCountry = operatingCountry.String
+	sh.IsFeatured = isFeatured.Bool
+	if logoURL.Valid {
+		s := logoURL.String
+		sh.LogoURL = &s
+	}
+	if heroURL.Valid {
+		s := heroURL.String
+		sh.HeroURL = &s
+	}
+	sh.CreatedAt = createdAt.Format(time.RFC3339)
+	if lastLogin.Valid {
+		sh.LastLoginAt = lastLogin.Time.Format(time.RFC3339)
+	}
+	if verifiedAt.Valid {
+		sh.VerifiedAt = verifiedAt.Time.Format(time.RFC3339)
+	}
+	return sh, nil
+}
+
+const shelterCols = `id, email, name, about, phone, website, logo_url, hero_url,
+	address, city_label, latitude, longitude, hours, status,
+	must_change_password, created_at, last_login_at, verified_at,
+	slug, adoption_process, donation_url, show_recently_adopted,
+	COALESCE(operating_country, ''), COALESCE(is_featured, FALSE)`
+
+func (s *PostgresStore) CreateShelter(shelter domain.Shelter, passwordHash string) (domain.Shelter, error) {
+	if shelter.ID == "" {
+		shelter.ID = newID("shelter")
+	}
+	if shelter.Status == "" {
+		shelter.Status = "active"
+	}
+	shelter.MustChangePassword = true
+	// Every shelter the store mints is verified at insert time — the
+	// onboarding wizard only calls CreateShelter after admin approval,
+	// and the admin-direct flow trusts the admin. Unverified rows can
+	// only exist if written by a migration or manually.
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO shelters (id, email, password_hash, must_change_password, name,
+			about, phone, website, logo_url, hero_url, address, city_label,
+			latitude, longitude, hours, status, verified_at)
+		 VALUES ($1,$2,$3,TRUE,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
+		shelter.ID, shelter.Email, passwordHash, shelter.Name,
+		shelter.About, shelter.Phone, shelter.Website, shelter.LogoURL, shelter.HeroURL,
+		shelter.Address, shelter.CityLabel, shelter.Latitude, shelter.Longitude,
+		shelter.Hours, shelter.Status)
+	if err != nil {
+		return shelter, err
+	}
+	full, err := s.GetShelter(shelter.ID)
+	if err != nil {
+		return shelter, err
+	}
+	return *full, nil
+}
+
+func (s *PostgresStore) ListShelters() []domain.Shelter {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterCols+` FROM shelters ORDER BY created_at DESC`)
+	if err != nil {
+		return []domain.Shelter{}
+	}
+	defer rows.Close()
+	out := []domain.Shelter{}
+	for rows.Next() {
+		sh, err := scanShelter(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, sh)
+	}
 	return out
 }
 
-func (s *PostgresStore) CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing {
-	listing.ID = newID("adopt")
-	listing.Status = "active"
-	listing.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	s.pool.Exec(s.ctx(), `INSERT INTO adoption_listings(id,user_id,pet_name,pet_age,pet_species,pet_breed,description,contact_phone,contact_email,location,image_url,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		listing.ID, listing.UserID, listing.PetName, listing.PetAge, listing.PetSpecies, listing.PetBreed, listing.Description, listing.ContactPhone, listing.ContactEmail, listing.Location, listing.ImageURL, listing.Status, listing.CreatedAt)
-	return listing
-}
-
-func (s *PostgresStore) UpdateAdoptionStatus(listingID string, status string) error {
-	_, err := s.pool.Exec(s.ctx(), `UPDATE adoption_listings SET status=$1 WHERE id=$2`, status, listingID)
-	return err
-}
-
-func (s *PostgresStore) DeleteAdoption(listingID string) error {
-	_, err := s.pool.Exec(s.ctx(), `DELETE FROM adoption_listings WHERE id=$1`, listingID)
-	return err
-}
-
-func (s *PostgresStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
-	var a domain.AdoptionListing
-	var createdAt time.Time
-	err := s.pool.QueryRow(s.ctx(),
-		`SELECT id, user_id, pet_name, pet_age, pet_species, pet_breed, description,
-		        contact_phone, contact_email, location, image_url, status, created_at
-		 FROM adoption_listings WHERE id=$1`, listingID).
-		Scan(&a.ID, &a.UserID, &a.PetName, &a.PetAge, &a.PetSpecies, &a.PetBreed,
-			&a.Description, &a.ContactPhone, &a.ContactEmail, &a.Location, &a.ImageURL,
-			&a.Status, &createdAt)
+func (s *PostgresStore) GetShelter(shelterID string) (*domain.Shelter, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterCols+` FROM shelters WHERE id=$1`, shelterID)
+	sh, err := scanShelter(row)
 	if err != nil {
-		return nil, fmt.Errorf("adoption listing not found")
+		return nil, fmt.Errorf("shelter not found")
 	}
+	return &sh, nil
+}
+
+func (s *PostgresStore) GetShelterByEmail(email string) (*domain.Shelter, string, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterCols+`, password_hash FROM shelters WHERE email=$1`, email)
+	var sh domain.Shelter
+	var about, phone, website, address, cityLabel, hours, status sql.NullString
+	var logoURL, heroURL sql.NullString
+	var lat, lng sql.NullFloat64
+	var lastLogin sql.NullTime
+	var verifiedAt sql.NullTime
+	var createdAt time.Time
+	var hash string
+	err := row.Scan(&sh.ID, &sh.Email, &sh.Name, &about, &phone, &website,
+		&logoURL, &heroURL, &address, &cityLabel, &lat, &lng, &hours, &status,
+		&sh.MustChangePassword, &createdAt, &lastLogin, &verifiedAt, &hash)
+	if err != nil {
+		return nil, "", fmt.Errorf("shelter not found")
+	}
+	sh.About = about.String
+	sh.Phone = phone.String
+	sh.Website = website.String
+	sh.Address = address.String
+	sh.CityLabel = cityLabel.String
+	sh.Hours = hours.String
+	sh.Status = status.String
+	sh.Latitude = lat.Float64
+	sh.Longitude = lng.Float64
+	if logoURL.Valid {
+		v := logoURL.String
+		sh.LogoURL = &v
+	}
+	if heroURL.Valid {
+		v := heroURL.String
+		sh.HeroURL = &v
+	}
+	sh.CreatedAt = createdAt.Format(time.RFC3339)
+	if lastLogin.Valid {
+		sh.LastLoginAt = lastLogin.Time.Format(time.RFC3339)
+	}
+	if verifiedAt.Valid {
+		sh.VerifiedAt = verifiedAt.Time.Format(time.RFC3339)
+	}
+	return &sh, hash, nil
+}
+
+func (s *PostgresStore) UpdateShelter(shelterID string, patch domain.Shelter) (*domain.Shelter, error) {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelters SET
+			name=$2, about=$3, phone=$4, website=$5, logo_url=$6, hero_url=$7,
+			address=$8, city_label=$9, latitude=$10, longitude=$11, hours=$12,
+			adoption_process=$13, donation_url=$14, show_recently_adopted=$15
+		 WHERE id=$1`,
+		shelterID, patch.Name, patch.About, patch.Phone, patch.Website,
+		patch.LogoURL, patch.HeroURL, patch.Address, patch.CityLabel,
+		patch.Latitude, patch.Longitude, patch.Hours,
+		patch.AdoptionProcess, patch.DonationURL, patch.ShowRecentlyAdopted)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetShelter(shelterID)
+}
+
+// GetShelterBySlug returns a verified shelter by its public slug, or
+// nil if the slug doesn't resolve or the shelter isn't verified yet.
+// Used by the /v1/public/shelters/{slug} route.
+func (s *PostgresStore) GetShelterBySlug(slug string) (*domain.Shelter, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterCols+` FROM shelters WHERE slug=$1 AND verified_at IS NOT NULL`, slug)
+	sh, err := scanShelter(row)
+	if err != nil {
+		return nil, err
+	}
+	return &sh, nil
+}
+
+// AssignShelterSlug atomically sets a slug, retrying with a numeric
+// suffix until the unique index accepts it. Called from the approval
+// path — slugs are permanent once set.
+func (s *PostgresStore) AssignShelterSlug(shelterID, baseSlug string) (string, error) {
+	base := slugify(baseSlug)
+	if base == "" {
+		base = "shelter"
+	}
+	candidate := base
+	for i := 0; i < 50; i++ {
+		if _, err := s.pool.Exec(s.ctx(),
+			`UPDATE shelters SET slug=$1 WHERE id=$2 AND slug IS NULL`,
+			candidate, shelterID); err == nil {
+			var got sql.NullString
+			_ = s.pool.QueryRow(s.ctx(), `SELECT slug FROM shelters WHERE id=$1`, shelterID).Scan(&got)
+			if got.Valid && got.String != "" {
+				return got.String, nil
+			}
+		}
+		candidate = base + "-" + fmt.Sprintf("%d", i+2)
+	}
+	return "", fmt.Errorf("could not assign slug after retries")
+}
+
+// slugify reduces a name to a URL-safe, kebab-cased slug. Conservative
+// set (a-z, 0-9, dash) so the result survives any frontend routing.
+func slugify(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b []rune
+	dashed := false
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b = append(b, r)
+			dashed = false
+		case r == ' ' || r == '-' || r == '_':
+			if !dashed && len(b) > 0 {
+				b = append(b, '-')
+				dashed = true
+			}
+		}
+	}
+	out := string(b)
+	out = strings.Trim(out, "-")
+	if len(out) > 60 {
+		out = out[:60]
+	}
+	return out
+}
+
+// ListFeaturedShelters returns admin-curated shelters for the fetcht
+// discovery home's "Featured" rail. Verified-only + capped at 10 per
+// spec — server enforces the cap so no caller can exceed it.
+func (s *PostgresStore) ListFeaturedShelters(limit int) []domain.Shelter {
+	if limit <= 0 || limit > 10 {
+		limit = 10
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterCols+` FROM shelters
+		 WHERE is_featured = TRUE AND verified_at IS NOT NULL AND status = 'active'
+		 ORDER BY name ASC LIMIT $1`, limit)
+	if err != nil {
+		return []domain.Shelter{}
+	}
+	defer rows.Close()
+	out := []domain.Shelter{}
+	for rows.Next() {
+		sh, err := scanShelter(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, sh)
+	}
+	return out
+}
+
+// SetShelterFeatured flips the curated-rail flag. Admin-only; the
+// handler gates on admin auth.
+func (s *PostgresStore) SetShelterFeatured(shelterID string, featured bool) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelters SET is_featured = $1 WHERE id = $2`,
+		featured, shelterID)
+	return err
+}
+
+// ListRecentlyAdopted returns the last N listings in `adopted` state
+// for a shelter, newest first. Used by the public profile page's
+// "Recently adopted" section.
+func (s *PostgresStore) ListRecentlyAdopted(shelterID string, limit int) []domain.ShelterPet {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterPetCols+` FROM shelter_pets
+		 WHERE shelter_id=$1 AND listing_state='adopted' AND deleted_at IS NULL
+		 ORDER BY updated_at DESC LIMIT $2`, shelterID, limit)
+	if err != nil {
+		return []domain.ShelterPet{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterPet{}
+	for rows.Next() {
+		p, err := scanShelterPet(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *PostgresStore) UpdateShelterPassword(shelterID string, passwordHash string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelters SET password_hash=$1, must_change_password=FALSE,
+			password_changed_at=NOW() WHERE id=$2`, passwordHash, shelterID)
+	return err
+}
+
+func (s *PostgresStore) DeleteShelter(shelterID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM shelters WHERE id=$1`, shelterID)
+	return err
+}
+
+func (s *PostgresStore) MarkShelterLoggedIn(shelterID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelters SET last_login_at=NOW() WHERE id=$1`, shelterID)
+	return err
+}
+
+func (s *PostgresStore) GetShelterStats(shelterID string) domain.ShelterStats {
+	var stats domain.ShelterStats
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT
+			COUNT(*)::int,
+			COUNT(*) FILTER (WHERE status='available')::int,
+			COUNT(*) FILTER (WHERE status='reserved')::int,
+			COUNT(*) FILTER (WHERE status='adopted')::int
+		 FROM shelter_pets WHERE shelter_id=$1`, shelterID).
+		Scan(&stats.TotalPets, &stats.AvailablePets, &stats.ReservedPets, &stats.AdoptedPets)
+
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT
+			COUNT(*) FILTER (WHERE status='pending')::int,
+			COUNT(*) FILTER (WHERE status='chat_open')::int,
+			COUNT(*)::int
+		 FROM adoption_applications WHERE shelter_id=$1`, shelterID).
+		Scan(&stats.PendingApps, &stats.ActiveChats, &stats.TotalApplications)
+
+	return stats
+}
+
+func scanShelterPet(row interface {
+	Scan(dest ...any) error
+}) (domain.ShelterPet, error) {
+	var p domain.ShelterPet
+	var breed, sex, size, color, birthDate, description, microchip, specialNeeds, intakeDate sql.NullString
+	var species, status sql.NullString
+	var listingState, lastRejCode, lastRejNote sql.NullString
+	var autoFlagReasons []string
+	var adopterName, adoptionDate, adoptionNotes sql.NullString
+	var deletedAt sql.NullTime
+	var viewCount sql.NullInt32
+	var isUrgent sql.NullBool
+	var ageMonths sql.NullInt32
+	var vaccinesJSON []byte
+	var createdAt, updatedAt time.Time
+	err := row.Scan(&p.ID, &p.ShelterID, &p.Name, &species, &breed, &sex, &size, &color,
+		&birthDate, &ageMonths, &description, &p.Photos, &vaccinesJSON,
+		&p.IsNeutered, &microchip, &specialNeeds, &p.CharacterTags, &intakeDate,
+		&status, &listingState, &lastRejCode, &lastRejNote, &autoFlagReasons,
+		&adopterName, &adoptionDate, &adoptionNotes, &deletedAt, &viewCount, &isUrgent,
+		&createdAt, &updatedAt)
+	if err != nil {
+		return p, err
+	}
+	p.Species = species.String
+	p.Breed = breed.String
+	p.Sex = sex.String
+	p.Size = size.String
+	p.Color = color.String
+	p.BirthDate = birthDate.String
+	p.Description = description.String
+	p.MicrochipID = microchip.String
+	p.SpecialNeeds = specialNeeds.String
+	p.IntakeDate = intakeDate.String
+	p.Status = status.String
+	p.ListingState = listingState.String
+	if p.ListingState == "" {
+		p.ListingState = domain.ListingStatePublished
+	}
+	p.LastRejectionCode = lastRejCode.String
+	p.LastRejectionNote = lastRejNote.String
+	if autoFlagReasons != nil {
+		p.AutoFlagReasons = autoFlagReasons
+	}
+	p.AdopterName = adopterName.String
+	p.AdoptionDate = adoptionDate.String
+	p.AdoptionNotes = adoptionNotes.String
+	if deletedAt.Valid {
+		p.DeletedAt = deletedAt.Time.Format(time.RFC3339)
+	}
+	if viewCount.Valid {
+		p.ViewCount = int(viewCount.Int32)
+	}
+	if isUrgent.Valid {
+		p.IsUrgent = isUrgent.Bool
+	}
+	if ageMonths.Valid {
+		v := int(ageMonths.Int32)
+		p.AgeMonths = &v
+	}
+	if p.Photos == nil {
+		p.Photos = []string{}
+	}
+	if p.CharacterTags == nil {
+		p.CharacterTags = []string{}
+	}
+	p.Vaccines = []domain.VaccineRecord{}
+	if len(vaccinesJSON) > 0 {
+		_ = json.Unmarshal(vaccinesJSON, &p.Vaccines)
+	}
+	p.CreatedAt = createdAt.Format(time.RFC3339)
+	p.UpdatedAt = updatedAt.Format(time.RFC3339)
+	return p, nil
+}
+
+const shelterPetCols = `id, shelter_id, name, species, breed, sex, size, color,
+	birth_date, age_months, description, photos, vaccines,
+	is_neutered, microchip_id, special_needs, character_tags, intake_date,
+	status, listing_state, last_rejection_code, last_rejection_note, auto_flag_reasons,
+	adopter_name, adoption_date, adoption_notes, deleted_at, view_count, is_urgent,
+	created_at, updated_at`
+
+func (s *PostgresStore) ListShelterPets(shelterID string, statusFilter string) []domain.ShelterPet {
+	query := `SELECT ` + shelterPetCols + ` FROM shelter_pets WHERE shelter_id=$1 AND deleted_at IS NULL`
+	args := []any{shelterID}
+	if statusFilter != "" && statusFilter != "all" {
+		query += ` AND status=$2`
+		args = append(args, statusFilter)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.ShelterPet{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterPet{}
+	for rows.Next() {
+		p, err := scanShelterPet(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *PostgresStore) ListPublicAdoptablePets(params ListAdoptablePetsParams) []domain.ShelterPet {
+	limit := params.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+
+	// Join shelter for name + city in the card. Columns are explicitly
+	// prefixed with the `p.` alias — when both tables have an `id` column
+	// the unqualified projection would be ambiguous and the query fails.
+	const petCols = `p.id, p.shelter_id, p.name, p.species, p.breed, p.sex, p.size, p.color,
+		p.birth_date, p.age_months, p.description, p.photos, p.vaccines,
+		p.is_neutered, p.microchip_id, p.special_needs, p.character_tags, p.intake_date,
+		p.status, p.listing_state, p.last_rejection_code, p.last_rejection_note, p.auto_flag_reasons,
+		p.adopter_name, p.adoption_date, p.adoption_notes, p.deleted_at, p.view_count, p.is_urgent,
+		p.created_at, p.updated_at`
+	// Public feed only exposes published listings whose availability is
+	// still `available` or `reserved`. draft / pending_review / paused /
+	// rejected / archived and soft-deleted rows are never discoverable.
+	query := `SELECT ` + petCols + `, sh.name, sh.city_label
+		FROM shelter_pets p
+		LEFT JOIN shelters sh ON sh.id = p.shelter_id
+		WHERE p.listing_state = 'published' AND p.status IN ('available','reserved') AND p.deleted_at IS NULL`
+	args := []any{}
+	i := 1
+	// Species supports multi-value (comma-separated) for the discovery
+	// home's "Other" category, which expands to e.g. rabbit,ferret,
+	// small_mammal. A single species stays a simple equality.
+	if params.Species != "" {
+		if strings.Contains(params.Species, ",") {
+			parts := strings.Split(params.Species, ",")
+			placeholders := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+				args = append(args, p)
+				i++
+			}
+			if len(placeholders) > 0 {
+				query += fmt.Sprintf(" AND p.species IN (%s)", strings.Join(placeholders, ","))
+			}
+		} else {
+			query += fmt.Sprintf(" AND p.species = $%d", i)
+			args = append(args, params.Species)
+			i++
+		}
+	}
+	if params.Sex != "" {
+		query += fmt.Sprintf(" AND p.sex = $%d", i)
+		args = append(args, params.Sex)
+		i++
+	}
+	if params.Size != "" {
+		query += fmt.Sprintf(" AND p.size = $%d", i)
+		args = append(args, params.Size)
+		i++
+	}
+	if params.City != "" {
+		query += fmt.Sprintf(" AND sh.city_label ILIKE $%d", i)
+		args = append(args, "%"+params.City+"%")
+		i++
+	}
+	if params.MinAge > 0 {
+		query += fmt.Sprintf(" AND p.age_months >= $%d", i)
+		args = append(args, params.MinAge)
+		i++
+	}
+	if params.MaxAge > 0 {
+		query += fmt.Sprintf(" AND (p.age_months IS NULL OR p.age_months <= $%d)", i)
+		args = append(args, params.MaxAge)
+		i++
+	}
+	if params.SpecialNeedsOnly {
+		query += " AND p.special_needs <> ''"
+	}
+	if params.Search != "" {
+		query += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.breed ILIKE $%d OR sh.name ILIKE $%d)", i, i, i)
+		args = append(args, "%"+params.Search+"%")
+		i++
+	}
+	query += fmt.Sprintf(" ORDER BY p.created_at DESC LIMIT $%d OFFSET $%d", i, i+1)
+	args = append(args, limit, params.Offset)
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.ShelterPet{}
+	}
+	defer rows.Close()
+
+	out := []domain.ShelterPet{}
+	for rows.Next() {
+		var p domain.ShelterPet
+		var breed, sex, size, color, birthDate, description, microchip, specialNeeds, intakeDate sql.NullString
+		var species, status sql.NullString
+		var listingState, lastRejCode, lastRejNote sql.NullString
+		var autoFlagReasons []string
+		var adopterName, adoptionDate, adoptionNotes sql.NullString
+		var deletedAt sql.NullTime
+		var viewCount sql.NullInt32
+		var isUrgent sql.NullBool
+		var shelterName, shelterCity sql.NullString
+		var ageMonths sql.NullInt32
+		var vaccinesJSON []byte
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&p.ID, &p.ShelterID, &p.Name, &species, &breed, &sex, &size, &color,
+			&birthDate, &ageMonths, &description, &p.Photos, &vaccinesJSON,
+			&p.IsNeutered, &microchip, &specialNeeds, &p.CharacterTags, &intakeDate,
+			&status, &listingState, &lastRejCode, &lastRejNote, &autoFlagReasons,
+			&adopterName, &adoptionDate, &adoptionNotes, &deletedAt, &viewCount, &isUrgent,
+			&createdAt, &updatedAt, &shelterName, &shelterCity); err != nil {
+			continue
+		}
+		if viewCount.Valid {
+			p.ViewCount = int(viewCount.Int32)
+		}
+		if isUrgent.Valid {
+			p.IsUrgent = isUrgent.Bool
+		}
+		p.ListingState = listingState.String
+		p.LastRejectionCode = lastRejCode.String
+		p.LastRejectionNote = lastRejNote.String
+		if autoFlagReasons != nil {
+			p.AutoFlagReasons = autoFlagReasons
+		}
+		p.AdopterName = adopterName.String
+		p.AdoptionDate = adoptionDate.String
+		p.AdoptionNotes = adoptionNotes.String
+		if deletedAt.Valid {
+			p.DeletedAt = deletedAt.Time.Format(time.RFC3339)
+		}
+		p.Species = species.String
+		p.Breed = breed.String
+		p.Sex = sex.String
+		p.Size = size.String
+		p.Color = color.String
+		p.BirthDate = birthDate.String
+		p.Description = description.String
+		p.MicrochipID = microchip.String
+		p.SpecialNeeds = specialNeeds.String
+		p.IntakeDate = intakeDate.String
+		p.Status = status.String
+		p.ShelterName = shelterName.String
+		p.ShelterCity = shelterCity.String
+		if ageMonths.Valid {
+			v := int(ageMonths.Int32)
+			p.AgeMonths = &v
+		}
+		if p.Photos == nil {
+			p.Photos = []string{}
+		}
+		if p.CharacterTags == nil {
+			p.CharacterTags = []string{}
+		}
+		p.Vaccines = []domain.VaccineRecord{}
+		if len(vaccinesJSON) > 0 {
+			_ = json.Unmarshal(vaccinesJSON, &p.Vaccines)
+		}
+		p.CreatedAt = createdAt.Format(time.RFC3339)
+		p.UpdatedAt = updatedAt.Format(time.RFC3339)
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetShelterPet(petID string) (*domain.ShelterPet, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterPetCols+` FROM shelter_pets WHERE id=$1`, petID)
+	p, err := scanShelterPet(row)
+	if err != nil {
+		return nil, fmt.Errorf("shelter pet not found")
+	}
+	if sh, shErr := s.GetShelter(p.ShelterID); shErr == nil && sh != nil {
+		p.ShelterName = sh.Name
+		p.ShelterCity = sh.CityLabel
+	}
+	return &p, nil
+}
+
+func (s *PostgresStore) UpsertShelterPet(shelterID string, pet domain.ShelterPet) (domain.ShelterPet, error) {
+	if pet.ID == "" {
+		pet.ID = newID("spet")
+	}
+	if pet.Status == "" {
+		pet.Status = "available"
+	}
+	if pet.Photos == nil {
+		pet.Photos = []string{}
+	}
+	if pet.CharacterTags == nil {
+		pet.CharacterTags = []string{}
+	}
+	if pet.Vaccines == nil {
+		pet.Vaccines = []domain.VaccineRecord{}
+	}
+	vaccinesJSON, _ := json.Marshal(pet.Vaccines)
+
+	var ageMonths any
+	if pet.AgeMonths != nil {
+		ageMonths = *pet.AgeMonths
+	} else {
+		ageMonths = nil
+	}
+
+	// New listings default to `draft`. Existing listings keep their
+	// current state (the UPDATE branch doesn't touch listing_state —
+	// that only moves via TransitionListingState).
+	listingState := pet.ListingState
+	if listingState == "" {
+		listingState = domain.ListingStateDraft
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO shelter_pets (id, shelter_id, name, species, breed, sex, size, color,
+			birth_date, age_months, description, photos, vaccines,
+			is_neutered, microchip_id, special_needs, character_tags, intake_date, status, listing_state, is_urgent)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+		 ON CONFLICT (id) DO UPDATE SET
+			name=EXCLUDED.name,
+			species=EXCLUDED.species,
+			breed=EXCLUDED.breed,
+			sex=EXCLUDED.sex,
+			size=EXCLUDED.size,
+			color=EXCLUDED.color,
+			birth_date=EXCLUDED.birth_date,
+			age_months=EXCLUDED.age_months,
+			description=EXCLUDED.description,
+			photos=EXCLUDED.photos,
+			vaccines=EXCLUDED.vaccines,
+			is_neutered=EXCLUDED.is_neutered,
+			microchip_id=EXCLUDED.microchip_id,
+			special_needs=EXCLUDED.special_needs,
+			character_tags=EXCLUDED.character_tags,
+			intake_date=EXCLUDED.intake_date,
+			status=EXCLUDED.status,
+			is_urgent=EXCLUDED.is_urgent,
+			updated_at=NOW()`,
+		pet.ID, shelterID, pet.Name, pet.Species, pet.Breed, pet.Sex, pet.Size, pet.Color,
+		pet.BirthDate, ageMonths, pet.Description, pet.Photos, vaccinesJSON,
+		pet.IsNeutered, pet.MicrochipID, pet.SpecialNeeds, pet.CharacterTags, pet.IntakeDate,
+		pet.Status, listingState, pet.IsUrgent)
+	if err != nil {
+		return pet, err
+	}
+	fresh, err := s.GetShelterPet(pet.ID)
+	if err != nil {
+		return pet, nil
+	}
+	return *fresh, nil
+}
+
+func (s *PostgresStore) UpdateShelterPetStatus(petID string, status string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET status=$1, updated_at=NOW() WHERE id=$2`, status, petID)
+	return err
+}
+
+// DeleteShelterPet is a soft delete: sets deleted_at=NOW(). The nightly
+// sweeper hard-deletes rows whose soft-delete is older than 30 days.
+// Drafts are hard-deleted directly since there's nothing to recover for
+// a listing that never existed publicly.
+func (s *PostgresStore) DeleteShelterPet(petID string) error {
+	var listingState string
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(listing_state, 'published') FROM shelter_pets WHERE id=$1`, petID).
+		Scan(&listingState)
+	if listingState == domain.ListingStateDraft {
+		_, err := s.pool.Exec(s.ctx(), `DELETE FROM shelter_pets WHERE id=$1`, petID)
+		return err
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1`, petID)
+	return err
+}
+
+// RestoreShelterPet undoes a soft delete inside the 30-day window.
+// After the sweeper purges the row this becomes a no-op (GetShelterPet
+// will return not-found).
+func (s *PostgresStore) RestoreShelterPet(petID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET deleted_at=NULL, updated_at=NOW()
+		 WHERE id=$1 AND deleted_at IS NOT NULL`, petID)
+	return err
+}
+
+// SetAdoptionOutcome records optional metadata from the "Mark adopted"
+// dialog — adopter name, adoption date, shelter-internal notes.
+func (s *PostgresStore) SetAdoptionOutcome(petID, adopterName, adoptionDate, notes string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets
+		 SET adopter_name=$1, adoption_date=$2, adoption_notes=$3, updated_at=NOW()
+		 WHERE id=$4`, adopterName, adoptionDate, notes, petID)
+	return err
+}
+
+// ── Listing moderation (DSA Art. 16/17/22/23) ───────────────────────
+
+// TransitionListingState is the single chokepoint for every 7-state
+// move. Validates (from, to, actor) against AllowedListingTransitions,
+// updates the listing row, appends a transition log row, and keeps
+// availability `status` in sync with terminal states (adopted) — all
+// inside a transaction so partial failure leaves nothing dangling.
+func (s *PostgresStore) TransitionListingState(listingID, newState, actorID, actorRole, reasonCode, note string, meta map[string]any) (domain.ShelterPet, error) {
+	ctx := s.ctx()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.ShelterPet{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var prev, shelterID string
+	var petName, petBreed string
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(listing_state, 'published'), shelter_id, name, breed
+		 FROM shelter_pets WHERE id=$1`, listingID).
+		Scan(&prev, &shelterID, &petName, &petBreed); err != nil {
+		return domain.ShelterPet{}, fmt.Errorf("listing not found")
+	}
+	if prev == "" {
+		prev = domain.ListingStatePublished
+	}
+	if !domain.ListingTransitionAllowed(prev, newState, actorRole) {
+		return domain.ShelterPet{}, fmt.Errorf("transition %s → %s is not allowed for %s", prev, newState, actorRole)
+	}
+
+	// Keep availability `status` consistent with terminal moderation
+	// states so existing feed filters (`WHERE status=…`) line up.
+	switch newState {
+	case domain.ListingStateAdopted:
+		if _, err := tx.Exec(ctx,
+			`UPDATE shelter_pets SET listing_state=$1, status='adopted', updated_at=NOW() WHERE id=$2`,
+			newState, listingID); err != nil {
+			return domain.ShelterPet{}, err
+		}
+	case domain.ListingStateRejected:
+		if _, err := tx.Exec(ctx,
+			`UPDATE shelter_pets SET listing_state=$1, last_rejection_code=$2,
+				last_rejection_note=$3, updated_at=NOW() WHERE id=$4`,
+			newState, reasonCode, note, listingID); err != nil {
+			return domain.ShelterPet{}, err
+		}
+	case domain.ListingStatePaused, domain.ListingStateArchived, domain.ListingStatePendingReview:
+		if _, err := tx.Exec(ctx,
+			`UPDATE shelter_pets SET listing_state=$1, updated_at=NOW() WHERE id=$2`,
+			newState, listingID); err != nil {
+			return domain.ShelterPet{}, err
+		}
+	case domain.ListingStateDraft:
+		// Restart from rejected — clear rejection metadata so the
+		// shelter gets a clean editor.
+		if _, err := tx.Exec(ctx,
+			`UPDATE shelter_pets SET listing_state=$1, last_rejection_code='',
+				last_rejection_note='', auto_flag_reasons='{}', updated_at=NOW() WHERE id=$2`,
+			newState, listingID); err != nil {
+			return domain.ShelterPet{}, err
+		}
+	case domain.ListingStatePublished:
+		if _, err := tx.Exec(ctx,
+			`UPDATE shelter_pets SET listing_state=$1, auto_flag_reasons='{}',
+				updated_at=NOW() WHERE id=$2`,
+			newState, listingID); err != nil {
+			return domain.ShelterPet{}, err
+		}
+	default:
+		return domain.ShelterPet{}, fmt.Errorf("unknown state %s", newState)
+	}
+
+	metaJSON, _ := json.Marshal(meta)
+	actorName := ""
+	if actorID != "" {
+		// Best-effort lookup of actor's display name for frozen audit.
+		var name sql.NullString
+		_ = tx.QueryRow(ctx, `SELECT name FROM shelter_members WHERE id=$1`, actorID).Scan(&name)
+		if !name.Valid {
+			_ = tx.QueryRow(ctx, `SELECT email FROM admin_users WHERE id=$1`, actorID).Scan(&name)
+		}
+		actorName = name.String
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO listing_state_transitions
+			(id, listing_id, shelter_id, actor_id, actor_name, actor_role,
+			 prev_state, new_state, reason_code, note, metadata)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		newID("ltr"), listingID, shelterID, actorID, actorName, actorRole,
+		prev, newState, reasonCode, note, metaJSON); err != nil {
+		return domain.ShelterPet{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ShelterPet{}, err
+	}
+	fresh, err := s.GetShelterPet(listingID)
+	if err != nil {
+		return domain.ShelterPet{}, err
+	}
+	return *fresh, nil
+}
+
+func (s *PostgresStore) SetListingAutoFlagReasons(listingID string, reasons []string) error {
+	if reasons == nil {
+		reasons = []string{}
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET auto_flag_reasons=$1, updated_at=NOW() WHERE id=$2`,
+		reasons, listingID)
+	return err
+}
+
+func (s *PostgresStore) ListListingTransitions(listingID string) []domain.ListingStateTransition {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, listing_id, shelter_id, actor_id, actor_name, actor_role,
+			prev_state, new_state, reason_code, note, metadata, created_at
+		 FROM listing_state_transitions
+		 WHERE listing_id=$1
+		 ORDER BY created_at ASC`, listingID)
+	if err != nil {
+		return []domain.ListingStateTransition{}
+	}
+	defer rows.Close()
+	out := []domain.ListingStateTransition{}
+	for rows.Next() {
+		var t domain.ListingStateTransition
+		var metaJSON []byte
+		var createdAt time.Time
+		if err := rows.Scan(&t.ID, &t.ListingID, &t.ShelterID, &t.ActorID, &t.ActorName,
+			&t.ActorRole, &t.PrevState, &t.NewState, &t.ReasonCode, &t.Note,
+			&metaJSON, &createdAt); err != nil {
+			continue
+		}
+		if len(metaJSON) > 0 {
+			_ = json.Unmarshal(metaJSON, &t.Metadata)
+		}
+		t.CreatedAt = createdAt.Format(time.RFC3339)
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PostgresStore) ListListingsByState(state string, limit, offset int) ([]domain.ShelterPet, int) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	query := `SELECT ` + shelterPetCols + ` FROM shelter_pets WHERE deleted_at IS NULL`
+	countQuery := `SELECT COUNT(*) FROM shelter_pets WHERE deleted_at IS NULL`
+	args := []any{}
+	if state != "" && state != "all" {
+		query += ` AND listing_state=$1`
+		countQuery += ` AND listing_state=$1`
+		args = append(args, state)
+	}
+	// Pending-review queue is oldest-first (SLA); everything else
+	// newest-first.
+	if state == domain.ListingStatePendingReview {
+		query += ` ORDER BY created_at ASC`
+	} else {
+		query += ` ORDER BY created_at DESC`
+	}
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.ShelterPet{}, 0
+	}
+	defer rows.Close()
+	out := []domain.ShelterPet{}
+	for rows.Next() {
+		p, err := scanShelterPet(rows)
+		if err != nil {
+			continue
+		}
+		if sh, shErr := s.GetShelter(p.ShelterID); shErr == nil && sh != nil {
+			p.ShelterName = sh.Name
+			p.ShelterCity = sh.CityLabel
+		}
+		out = append(out, p)
+	}
+
+	total := 0
+	countArgs := []any{}
+	if state != "" && state != "all" {
+		countArgs = append(countArgs, state)
+	}
+	_ = s.pool.QueryRow(s.ctx(), countQuery, countArgs...).Scan(&total)
+	return out, total
+}
+
+func (s *PostgresStore) CreateListingReport(report domain.ListingReport) (domain.ListingReport, error) {
+	if report.ID == "" {
+		report.ID = newID("lreport")
+	}
+	if report.Status == "" {
+		report.Status = "open"
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO listing_reports
+			(id, listing_id, shelter_id, reporter_id, reporter_name, trusted_flagger,
+			 reason, description, status)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		report.ID, report.ListingID, report.ShelterID, report.ReporterID,
+		report.ReporterName, report.TrustedFlagger, report.Reason, report.Description,
+		report.Status)
+	if err != nil {
+		return report, err
+	}
+	fresh, err := s.GetListingReport(report.ID)
+	if err != nil {
+		return report, nil
+	}
+	return *fresh, nil
+}
+
+func (s *PostgresStore) ListListingReports(status string, trustedOnly bool, limit, offset int) ([]domain.ListingReport, int) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	// Join shelter_pets + shelters for the denormalised preview fields
+	// the admin queue renders without a second roundtrip.
+	base := `FROM listing_reports r
+		LEFT JOIN shelter_pets p ON p.id = r.listing_id
+		LEFT JOIN shelters sh ON sh.id = r.shelter_id
+		WHERE 1=1`
+	args := []any{}
+	if status != "" && status != "all" {
+		args = append(args, status)
+		base += fmt.Sprintf(" AND r.status=$%d", len(args))
+	}
+	if trustedOnly {
+		base += " AND r.trusted_flagger=TRUE"
+	}
+
+	selectQuery := `SELECT r.id, r.listing_id, r.shelter_id, r.reporter_id, r.reporter_name,
+			r.trusted_flagger, r.reason, r.description, r.status,
+			r.resolution, r.resolution_note, r.resolved_by, r.resolved_at, r.created_at,
+			COALESCE(p.name, ''), COALESCE(p.listing_state, ''),
+			COALESCE((SELECT photos[1] FROM shelter_pets WHERE id=r.listing_id), ''),
+			COALESCE(sh.name, '')
+		` + base + `
+		ORDER BY r.trusted_flagger DESC, r.created_at DESC
+		` + fmt.Sprintf("LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args2 := append([]any{}, args...)
+	args2 = append(args2, limit, offset)
+
+	rows, err := s.pool.Query(s.ctx(), selectQuery, args2...)
+	if err != nil {
+		return []domain.ListingReport{}, 0
+	}
+	defer rows.Close()
+	out := []domain.ListingReport{}
+	for rows.Next() {
+		var r domain.ListingReport
+		var resolvedAt sql.NullTime
+		var createdAt time.Time
+		var photoURL sql.NullString
+		if err := rows.Scan(&r.ID, &r.ListingID, &r.ShelterID, &r.ReporterID, &r.ReporterName,
+			&r.TrustedFlagger, &r.Reason, &r.Description, &r.Status,
+			&r.Resolution, &r.ResolutionNote, &r.ResolvedBy, &resolvedAt, &createdAt,
+			&r.ListingName, &r.ListingCurrentState, &photoURL, &r.ShelterName); err != nil {
+			continue
+		}
+		if resolvedAt.Valid {
+			r.ResolvedAt = resolvedAt.Time.Format(time.RFC3339)
+		}
+		r.CreatedAt = createdAt.Format(time.RFC3339)
+		r.ListingPhotoURL = photoURL.String
+		out = append(out, r)
+	}
+
+	total := 0
+	countQuery := `SELECT COUNT(*) ` + base
+	_ = s.pool.QueryRow(s.ctx(), countQuery, args...).Scan(&total)
+	return out, total
+}
+
+func (s *PostgresStore) GetListingReport(reportID string) (*domain.ListingReport, error) {
+	var r domain.ListingReport
+	var resolvedAt sql.NullTime
+	var createdAt time.Time
+	var photoURL, listingName, listingState, shelterName sql.NullString
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT r.id, r.listing_id, r.shelter_id, r.reporter_id, r.reporter_name,
+			r.trusted_flagger, r.reason, r.description, r.status,
+			r.resolution, r.resolution_note, r.resolved_by, r.resolved_at, r.created_at,
+			p.name, p.listing_state,
+			COALESCE((SELECT photos[1] FROM shelter_pets WHERE id=r.listing_id), ''),
+			sh.name
+		 FROM listing_reports r
+		 LEFT JOIN shelter_pets p ON p.id=r.listing_id
+		 LEFT JOIN shelters sh ON sh.id=r.shelter_id
+		 WHERE r.id=$1`, reportID).
+		Scan(&r.ID, &r.ListingID, &r.ShelterID, &r.ReporterID, &r.ReporterName,
+			&r.TrustedFlagger, &r.Reason, &r.Description, &r.Status,
+			&r.Resolution, &r.ResolutionNote, &r.ResolvedBy, &resolvedAt, &createdAt,
+			&listingName, &listingState, &photoURL, &shelterName)
+	if err != nil {
+		return nil, fmt.Errorf("report not found")
+	}
+	if resolvedAt.Valid {
+		r.ResolvedAt = resolvedAt.Time.Format(time.RFC3339)
+	}
+	r.CreatedAt = createdAt.Format(time.RFC3339)
+	r.ListingPhotoURL = photoURL.String
+	r.ListingName = listingName.String
+	r.ListingCurrentState = listingState.String
+	r.ShelterName = shelterName.String
+	return &r, nil
+}
+
+func (s *PostgresStore) ResolveListingReport(reportID, resolution, note, actorID string) error {
+	// Map the 4 resolution verbs onto report status values so the
+	// queue filter tabs line up 1:1.
+	status := ""
+	switch resolution {
+	case "dismiss":
+		status = "dismissed"
+	case "warn":
+		status = "warned"
+	case "remove":
+		status = "removed"
+	case "suspend":
+		status = "suspended"
+	default:
+		return fmt.Errorf("unknown resolution %s", resolution)
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE listing_reports
+		 SET status=$1, resolution=$2, resolution_note=$3,
+			 resolved_by=$4, resolved_at=NOW()
+		 WHERE id=$5`,
+		status, resolution, note, actorID, reportID)
+	return err
+}
+
+func (s *PostgresStore) CreateStatementOfReasons(sor domain.ListingStatementOfReasons) (domain.ListingStatementOfReasons, error) {
+	if sor.ID == "" {
+		sor.ID = newID("sor")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO listing_statements_of_reasons
+			(id, listing_id, shelter_id, content_description, legal_ground,
+			 facts_relied_on, scope, redress_options, issued_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		sor.ID, sor.ListingID, sor.ShelterID, sor.ContentDescription, sor.LegalGround,
+		sor.FactsReliedOn, sor.Scope, sor.RedressOptions, sor.IssuedBy)
+	if err != nil {
+		return sor, err
+	}
+	return sor, nil
+}
+
+func (s *PostgresStore) ListStatementsOfReasons(listingID string) []domain.ListingStatementOfReasons {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, listing_id, shelter_id, content_description, legal_ground,
+			facts_relied_on, scope, redress_options, issued_by, issued_at
+		 FROM listing_statements_of_reasons
+		 WHERE listing_id=$1 ORDER BY issued_at DESC`, listingID)
+	if err != nil {
+		return []domain.ListingStatementOfReasons{}
+	}
+	defer rows.Close()
+	out := []domain.ListingStatementOfReasons{}
+	for rows.Next() {
+		var sor domain.ListingStatementOfReasons
+		var issuedAt time.Time
+		if err := rows.Scan(&sor.ID, &sor.ListingID, &sor.ShelterID, &sor.ContentDescription,
+			&sor.LegalGround, &sor.FactsReliedOn, &sor.Scope, &sor.RedressOptions,
+			&sor.IssuedBy, &issuedAt); err != nil {
+			continue
+		}
+		sor.IssuedAt = issuedAt.Format(time.RFC3339)
+		out = append(out, sor)
+	}
+	return out
+}
+
+func (s *PostgresStore) CountShelterRejectionsLast90Days(shelterID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM listing_state_transitions
+		 WHERE shelter_id=$1 AND new_state='rejected'
+		   AND created_at > NOW() - INTERVAL '90 days'`, shelterID).Scan(&n)
+	return n
+}
+
+func (s *PostgresStore) ListShelterRejections(shelterID string, windowDays int) []domain.ListingStateTransition {
+	if windowDays <= 0 {
+		windowDays = 90
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, listing_id, shelter_id, actor_id, actor_name, actor_role,
+			prev_state, new_state, reason_code, note, metadata, created_at
+		 FROM listing_state_transitions
+		 WHERE shelter_id=$1 AND new_state='rejected'
+		   AND created_at > NOW() - make_interval(days => $2)
+		 ORDER BY created_at DESC`, shelterID, windowDays)
+	if err != nil {
+		return []domain.ListingStateTransition{}
+	}
+	defer rows.Close()
+	out := []domain.ListingStateTransition{}
+	for rows.Next() {
+		var t domain.ListingStateTransition
+		var metaJSON []byte
+		var createdAt time.Time
+		if err := rows.Scan(&t.ID, &t.ListingID, &t.ShelterID, &t.ActorID, &t.ActorName,
+			&t.ActorRole, &t.PrevState, &t.NewState, &t.ReasonCode, &t.Note,
+			&metaJSON, &createdAt); err != nil {
+			continue
+		}
+		if len(metaJSON) > 0 {
+			_ = json.Unmarshal(metaJSON, &t.Metadata)
+		}
+		t.CreatedAt = createdAt.Format(time.RFC3339)
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PostgresStore) SuspendShelter(shelterID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelters SET status='suspended' WHERE id=$1`, shelterID)
+	return err
+}
+
+// ── Shelter analytics (v0.22) ──────────────────────────────────────
+//
+// All queries below take a Postgres INTERVAL literal as a string
+// (e.g. "30 days", "12 months"). Empty string disables the time
+// filter — used for the "All time" range tab.
+
+// intervalClause translates the caller-supplied literal into a SQL
+// fragment + args. Keeps the query builders below readable.
+func intervalClause(interval string, column string) (string, []any) {
+	if interval == "" {
+		return "", nil
+	}
+	// `interval` flows straight from the range-param allowlist in the
+	// handler (30 days / 90 days / 12 months) — never user-typed.
+	// Use make_interval-friendly casting to keep pgx happy.
+	return fmt.Sprintf(" AND %s > NOW() - INTERVAL '%s'", column, interval), nil
+}
+
+func (s *PostgresStore) IncrementPetViewCount(petID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET view_count = view_count + 1 WHERE id=$1`, petID)
+	return err
+}
+
+func (s *PostgresStore) CountPetFavorites(petID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM favorites WHERE pet_id=$1`, petID).Scan(&n)
+	return n
+}
+
+func (s *PostgresStore) CountShelterAdoptionsInRange(shelterID, interval string) int {
+	where, _ := intervalClause(interval, "created_at")
+	query := `SELECT COUNT(*) FROM listing_state_transitions
+		WHERE shelter_id=$1 AND new_state='adopted'` + where
+	var n int
+	_ = s.pool.QueryRow(s.ctx(), query, shelterID).Scan(&n)
+	return n
+}
+
+func (s *PostgresStore) CountShelterAdoptionsThisMonth(shelterID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM listing_state_transitions
+		 WHERE shelter_id=$1 AND new_state='adopted'
+		   AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())`,
+		shelterID).Scan(&n)
+	return n
+}
+
+func (s *PostgresStore) CountShelterAdoptionsThisYear(shelterID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM listing_state_transitions
+		 WHERE shelter_id=$1 AND new_state='adopted'
+		   AND DATE_TRUNC('year', created_at) = DATE_TRUNC('year', NOW())`,
+		shelterID).Scan(&n)
+	return n
+}
+
+func (s *PostgresStore) CountShelterActiveListings(shelterID string) int {
+	var n int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM shelter_pets
+		 WHERE shelter_id=$1 AND listing_state='published' AND deleted_at IS NULL`,
+		shelterID).Scan(&n)
+	return n
+}
+
+// AvgDaysToAdoption averages the days between a listing's earliest
+// `published` transition and its `adopted` transition. Single query
+// using a CTE; ignores listings that never hit adoption.
+func (s *PostgresStore) AvgDaysToAdoption(shelterID string) (float64, int) {
+	row := s.pool.QueryRow(s.ctx(),
+		`WITH pub AS (
+			SELECT listing_id, MIN(created_at) AS published_at
+			FROM listing_state_transitions
+			WHERE shelter_id=$1 AND new_state='published'
+			GROUP BY listing_id
+		), ado AS (
+			SELECT listing_id, MIN(created_at) AS adopted_at
+			FROM listing_state_transitions
+			WHERE shelter_id=$1 AND new_state='adopted'
+			GROUP BY listing_id
+		)
+		SELECT
+			COALESCE(AVG(EXTRACT(EPOCH FROM (ado.adopted_at - pub.published_at)) / 86400.0), 0)::FLOAT8,
+			COUNT(*)
+		FROM ado
+		JOIN pub USING (listing_id)
+		WHERE ado.adopted_at >= pub.published_at`,
+		shelterID)
+	var avg float64
+	var n int
+	_ = row.Scan(&avg, &n)
+	return avg, n
+}
+
+// TopApplicationListing finds the shelter's listing with the most
+// adoption_applications rows in the selected range. Returns (id, name,
+// count); empty id means "no applications in range".
+func (s *PostgresStore) TopApplicationListing(shelterID, interval string) (string, string, int) {
+	where, _ := intervalClause(interval, "a.created_at")
+	query := `SELECT p.id, p.name, COUNT(*) AS cnt
+		FROM adoption_applications a
+		JOIN shelter_pets p ON p.id = a.pet_id
+		WHERE a.shelter_id=$1 AND p.deleted_at IS NULL` + where + `
+		GROUP BY p.id, p.name
+		ORDER BY cnt DESC
+		LIMIT 1`
+	row := s.pool.QueryRow(s.ctx(), query, shelterID)
+	var id, name string
+	var cnt int
+	_ = row.Scan(&id, &name, &cnt)
+	return id, name, cnt
+}
+
+// ListingPerformance returns one row per live (non-soft-deleted)
+// listing with counters for the selected range. Applications are
+// range-filtered; views / saves / adoptions are lifetime (spec treats
+// them as totals on each row).
+func (s *PostgresStore) ListingPerformance(shelterID, interval string) []domain.ListingPerformanceRow {
+	appWhere, _ := intervalClause(interval, "a.created_at")
+	query := `SELECT
+		p.id,
+		p.name,
+		p.species,
+		p.listing_state,
+		COALESCE(p.view_count, 0) AS views,
+		COALESCE((SELECT COUNT(*) FROM favorites f WHERE f.pet_id = p.id), 0) AS saves,
+		COALESCE((SELECT COUNT(*) FROM adoption_applications a WHERE a.pet_id = p.id` + appWhere + `), 0) AS applications,
+		CASE WHEN p.listing_state = 'adopted' THEN 1 ELSE 0 END AS adoptions,
+		COALESCE(
+			GREATEST(
+				0,
+				EXTRACT(
+					DAY FROM (NOW() - (
+						SELECT MIN(created_at) FROM listing_state_transitions t
+						WHERE t.listing_id = p.id AND t.new_state = 'published'
+					))
+				)::INT
+			),
+			0
+		) AS days_listed
+	FROM shelter_pets p
+	WHERE p.shelter_id=$1 AND p.deleted_at IS NULL
+	ORDER BY p.created_at DESC`
+	rows, err := s.pool.Query(s.ctx(), query, shelterID)
+	if err != nil {
+		return []domain.ListingPerformanceRow{}
+	}
+	defer rows.Close()
+	out := []domain.ListingPerformanceRow{}
+	for rows.Next() {
+		var r domain.ListingPerformanceRow
+		var species, state sql.NullString
+		if err := rows.Scan(&r.ListingID, &r.Name, &species, &state,
+			&r.Views, &r.Saves, &r.Applications, &r.Adoptions, &r.DaysListed); err != nil {
+			continue
+		}
+		r.Species = species.String
+		r.ListingState = state.String
+		out = append(out, r)
+	}
+	return out
+}
+
+// ApplicationFunnel returns the four-stage funnel over the selected
+// range. Each stage is a strict subset of the previous (matches the
+// Funnel UX).
+func (s *PostgresStore) ApplicationFunnel(shelterID, interval string) domain.ApplicationFunnel {
+	where, _ := intervalClause(interval, "created_at")
+	query := `SELECT
+		COUNT(*) FILTER (WHERE 1=1),
+		COUNT(*) FILTER (WHERE status='pending'),
+		COUNT(*) FILTER (WHERE status IN ('approved','chat_open','adopted')),
+		COUNT(*) FILTER (WHERE status='adopted')
+		FROM adoption_applications
+		WHERE shelter_id=$1` + where
+	var out domain.ApplicationFunnel
+	_ = s.pool.QueryRow(s.ctx(), query, shelterID).
+		Scan(&out.Submitted, &out.UnderReview, &out.Approved, &out.Adopted)
+	return out
+}
+
+func (s *PostgresStore) DeleteStaleDrafts(olderThanDays int) error {
+	if olderThanDays <= 0 {
+		olderThanDays = 30
+	}
+	// Two-phase cleanup:
+	// 1. Stale drafts — never touched the moderation queue.
+	// 2. Soft-deleted listings past their 30-day recovery window.
+	if _, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM shelter_pets
+		 WHERE listing_state='draft'
+		   AND updated_at < NOW() - make_interval(days => $1)`, olderThanDays); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM shelter_pets
+		 WHERE deleted_at IS NOT NULL
+		   AND deleted_at < NOW() - make_interval(days => $1)`, olderThanDays)
+	return err
+}
+
+func scanApplication(row interface {
+	Scan(dest ...any) error
+}) (domain.AdoptionApplication, error) {
+	var a domain.AdoptionApplication
+	var avatar, convID, rejection sql.NullString
+	var createdAt, updatedAt time.Time
+	err := row.Scan(&a.ID, &a.PetID, &a.ShelterID, &a.UserID, &a.UserName, &avatar,
+		&a.HousingType, &a.HasOtherPets, &a.OtherPetsDetail, &a.Experience, &a.Message,
+		&a.Status, &rejection, &convID, &createdAt, &updatedAt)
+	if err != nil {
+		return a, err
+	}
+	if avatar.Valid {
+		v := avatar.String
+		a.UserAvatarURL = &v
+	}
+	if convID.Valid {
+		v := convID.String
+		a.ConversationID = &v
+	}
+	a.RejectionReason = rejection.String
 	a.CreatedAt = createdAt.Format(time.RFC3339)
+	a.UpdatedAt = updatedAt.Format(time.RFC3339)
+	return a, nil
+}
+
+const appCols = `id, pet_id, shelter_id, user_id, user_name, user_avatar_url,
+	housing_type, has_other_pets, other_pets_detail, experience, message,
+	status, rejection_reason, conversation_id, created_at, updated_at`
+
+func (s *PostgresStore) CreateAdoptionApplication(app domain.AdoptionApplication) (domain.AdoptionApplication, error) {
+	if app.ID == "" {
+		app.ID = newID("adopt-app")
+	}
+	if app.Status == "" {
+		app.Status = "pending"
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO adoption_applications (id, pet_id, shelter_id, user_id, user_name,
+			user_avatar_url, housing_type, has_other_pets, other_pets_detail,
+			experience, message, status)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		app.ID, app.PetID, app.ShelterID, app.UserID, app.UserName,
+		app.UserAvatarURL, app.HousingType, app.HasOtherPets, app.OtherPetsDetail,
+		app.Experience, app.Message, app.Status)
+	if err != nil {
+		return app, err
+	}
+	fresh, err := s.GetApplication(app.ID)
+	if err != nil {
+		return app, err
+	}
+	return *fresh, nil
+}
+
+func (s *PostgresStore) enrichApp(a *domain.AdoptionApplication) {
+	if a == nil {
+		return
+	}
+	if pet, err := s.GetShelterPet(a.PetID); err == nil && pet != nil {
+		a.PetName = pet.Name
+		if len(pet.Photos) > 0 {
+			a.PetPhoto = pet.Photos[0]
+		}
+		a.ShelterName = pet.ShelterName
+	}
+}
+
+func (s *PostgresStore) ListShelterApplications(shelterID string, statusFilter string) []domain.AdoptionApplication {
+	query := `SELECT ` + appCols + ` FROM adoption_applications WHERE shelter_id=$1`
+	args := []any{shelterID}
+	if statusFilter != "" && statusFilter != "all" {
+		query += ` AND status=$2`
+		args = append(args, statusFilter)
+	}
+	query += ` ORDER BY created_at DESC LIMIT 200`
+	rows, err := s.pool.Query(s.ctx(), query, args...)
+	if err != nil {
+		return []domain.AdoptionApplication{}
+	}
+	defer rows.Close()
+	out := []domain.AdoptionApplication{}
+	for rows.Next() {
+		a, err := scanApplication(rows)
+		if err != nil {
+			continue
+		}
+		s.enrichApp(&a)
+		out = append(out, a)
+	}
+	return out
+}
+
+func (s *PostgresStore) ListUserApplications(userID string) []domain.AdoptionApplication {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+appCols+` FROM adoption_applications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, userID)
+	if err != nil {
+		return []domain.AdoptionApplication{}
+	}
+	defer rows.Close()
+	out := []domain.AdoptionApplication{}
+	for rows.Next() {
+		a, err := scanApplication(rows)
+		if err != nil {
+			continue
+		}
+		s.enrichApp(&a)
+		out = append(out, a)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetApplication(appID string) (*domain.AdoptionApplication, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+appCols+` FROM adoption_applications WHERE id=$1`, appID)
+	a, err := scanApplication(row)
+	if err != nil {
+		return nil, fmt.Errorf("application not found")
+	}
+	s.enrichApp(&a)
 	return &a, nil
+}
+
+func (s *PostgresStore) ApproveApplication(appID string, conversationID string) error {
+	app, err := s.GetApplication(appID)
+	if err != nil {
+		return err
+	}
+	// Move the app to chat_open and pet to reserved in a single shot.
+	if _, err := s.pool.Exec(s.ctx(),
+		`UPDATE adoption_applications SET status='chat_open', conversation_id=$1, updated_at=NOW()
+		 WHERE id=$2`, conversationID, appID); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET status='reserved', updated_at=NOW() WHERE id=$1`, app.PetID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostgresStore) RejectApplication(appID string, reason string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE adoption_applications SET status='rejected', rejection_reason=$1, updated_at=NOW()
+		 WHERE id=$2`, reason, appID)
+	return err
+}
+
+func (s *PostgresStore) CompleteAdoption(appID string) error {
+	app, err := s.GetApplication(appID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(s.ctx(),
+		`UPDATE adoption_applications SET status='adopted', updated_at=NOW() WHERE id=$1`, appID); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_pets SET status='adopted', updated_at=NOW() WHERE id=$1`, app.PetID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostgresStore) WithdrawApplication(appID string, userID string) error {
+	// Owner guard: ensure the caller owns the application.
+	res, err := s.pool.Exec(s.ctx(),
+		`UPDATE adoption_applications SET status='withdrawn', updated_at=NOW()
+		 WHERE id=$1 AND user_id=$2 AND status IN ('pending','chat_open')`, appID, userID)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("cannot withdraw this application")
+	}
+	return nil
 }
 
 // ================================================================
@@ -6698,6 +8741,758 @@ func (s *PostgresStore) ShouldSendPush(userID string, category string) bool {
 // merges + chips them.
 func (s *PostgresStore) ListExploreFeed(params ListPlaydatesParams) ([]domain.ExploreEvent, []domain.Playdate) {
 	return s.ListEvents(), s.ListPlaydates(params)
+}
+
+// ================================================================
+// ── Shelter onboarding applications (v0.14) ─────────────────────
+// ================================================================
+
+const shelterAppCols = `id, status, submitted_at, reviewed_at, reviewed_by,
+	sla_deadline, entity_type, country, registration_number,
+	registration_certificate_url, org_name, org_address,
+	operating_region_country, operating_region_city, species_focus,
+	donation_url, primary_contact_name, primary_contact_email,
+	primary_contact_phone, rejection_reason_code, rejection_reason_note,
+	created_shelter_id, access_token`
+
+func scanShelterApplication(row interface {
+	Scan(dest ...any) error
+}) (domain.ShelterApplication, error) {
+	var a domain.ShelterApplication
+	var submittedAt time.Time
+	var reviewedAt, slaDeadline sql.NullTime
+	var reviewedBy, orgAddress, donationURL, phone sql.NullString
+	var rejCode, rejNote, createdShelterID sql.NullString
+	var speciesFocus []string
+	err := row.Scan(&a.ID, &a.Status, &submittedAt, &reviewedAt, &reviewedBy,
+		&slaDeadline, &a.EntityType, &a.Country, &a.RegistrationNumber,
+		&a.RegistrationCertificateURL, &a.OrgName, &orgAddress,
+		&a.OperatingRegionCountry, &a.OperatingRegionCity, &speciesFocus,
+		&donationURL, &a.PrimaryContactName, &a.PrimaryContactEmail,
+		&phone, &rejCode, &rejNote, &createdShelterID, &a.AccessToken)
+	if err != nil {
+		return a, err
+	}
+	a.SubmittedAt = submittedAt.Format(time.RFC3339)
+	if reviewedAt.Valid {
+		a.ReviewedAt = reviewedAt.Time.Format(time.RFC3339)
+	}
+	a.ReviewedBy = reviewedBy.String
+	if slaDeadline.Valid {
+		a.SLADeadline = slaDeadline.Time.Format(time.RFC3339)
+	}
+	a.OrgAddress = orgAddress.String
+	a.SpeciesFocus = speciesFocus
+	if a.SpeciesFocus == nil {
+		a.SpeciesFocus = []string{}
+	}
+	a.DonationURL = donationURL.String
+	a.PrimaryContactPhone = phone.String
+	a.RejectionReasonCode = rejCode.String
+	a.RejectionReasonNote = rejNote.String
+	a.CreatedShelterID = createdShelterID.String
+	return a, nil
+}
+
+func (s *PostgresStore) CreateShelterOnboardingApplication(app domain.ShelterApplication) (domain.ShelterApplication, error) {
+	app.ID = newID("shelter-app")
+	app.Status = "submitted"
+	// Opaque token — base32 of 24 random bytes gives ~38 chars, plenty
+	// entropy and copy-safe. base32 is already used for temp passwords.
+	var b [24]byte
+	_, _ = cryptorand.Read(b[:])
+	app.AccessToken = strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO shelter_applications (
+			id, status, submitted_at, sla_deadline,
+			entity_type, country, registration_number, registration_certificate_url,
+			org_name, org_address, operating_region_country, operating_region_city,
+			species_focus, donation_url,
+			primary_contact_name, primary_contact_email, primary_contact_phone,
+			access_token
+		) VALUES ($1,'submitted',NOW(), NOW() + INTERVAL '48 hours',
+			$2,$3,$4,$5,
+			$6,$7,$8,$9,
+			$10,$11,
+			$12,$13,$14,
+			$15)`,
+		app.ID,
+		app.EntityType, app.Country, app.RegistrationNumber, app.RegistrationCertificateURL,
+		app.OrgName, app.OrgAddress, strings.ToUpper(app.OperatingRegionCountry), app.OperatingRegionCity,
+		app.SpeciesFocus, app.DonationURL,
+		app.PrimaryContactName, strings.ToLower(strings.TrimSpace(app.PrimaryContactEmail)), app.PrimaryContactPhone,
+		app.AccessToken)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "idx_shelter_apps_email_active") ||
+			strings.Contains(msg, "unique") && strings.Contains(msg, "email") {
+			return domain.ShelterApplication{}, ErrShelterApplicationDuplicateEmail
+		}
+		return domain.ShelterApplication{}, err
+	}
+	full, err := s.GetShelterOnboardingApplication(app.ID)
+	if err != nil {
+		return app, err
+	}
+	// Caller needs access_token back so it can echo to the applicant.
+	full.AccessToken = app.AccessToken
+	return *full, nil
+}
+
+func (s *PostgresStore) GetShelterOnboardingApplication(appID string) (*domain.ShelterApplication, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterAppCols+` FROM shelter_applications WHERE id=$1`, appID)
+	a, err := scanShelterApplication(row)
+	if err != nil {
+		return nil, ErrShelterApplicationNotFound
+	}
+	return &a, nil
+}
+
+func (s *PostgresStore) GetShelterOnboardingApplicationByToken(accessToken string) (*domain.ShelterApplication, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterAppCols+` FROM shelter_applications WHERE access_token=$1`, accessToken)
+	a, err := scanShelterApplication(row)
+	if err != nil {
+		return nil, ErrShelterApplicationNotFound
+	}
+	return &a, nil
+}
+
+func (s *PostgresStore) ListShelterOnboardingApplications(statusFilter string, limit int, offset int) []domain.ShelterApplication {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	args := []any{limit, offset}
+	where := ""
+	if statusFilter != "" {
+		where = " WHERE status = $3"
+		args = append(args, statusFilter)
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterAppCols+` FROM shelter_applications`+where+`
+		 ORDER BY CASE WHEN status='submitted' THEN 0 ELSE 1 END, submitted_at DESC
+		 LIMIT $1 OFFSET $2`, args...)
+	if err != nil {
+		return []domain.ShelterApplication{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterApplication{}
+	for rows.Next() {
+		a, err := scanShelterApplication(rows)
+		if err != nil {
+			continue
+		}
+		// Don't leak access token to admin list views — it's only for
+		// the applicant's status page.
+		a.AccessToken = ""
+		out = append(out, a)
+	}
+	return out
+}
+
+func (s *PostgresStore) ApproveShelterOnboardingApplication(appID string, reviewerID string, passwordHash string) (domain.Shelter, domain.ShelterApplication, error) {
+	ctx := s.ctx()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Load + lock the application row. Refuse if already decided.
+	var status, orgName, phone, donationURL, address, opCountry, opCity, contactEmail string
+	err = tx.QueryRow(ctx,
+		`SELECT status, org_name, primary_contact_phone, donation_url,
+			org_address, operating_region_country, operating_region_city,
+			primary_contact_email
+		 FROM shelter_applications WHERE id=$1 FOR UPDATE`, appID).
+		Scan(&status, &orgName, &phone, &donationURL, &address, &opCountry, &opCity, &contactEmail)
+	if err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, ErrShelterApplicationNotFound
+	}
+	if status == "approved" || status == "rejected" {
+		return domain.Shelter{}, domain.ShelterApplication{}, fmt.Errorf("application already decided: %s", status)
+	}
+
+	// Mint the shelter (verified_at = NOW).
+	shelterID := newID("shelter")
+	email := strings.ToLower(strings.TrimSpace(contactEmail))
+	_, err = tx.Exec(ctx,
+		`INSERT INTO shelters (id, email, password_hash, must_change_password,
+			name, about, phone, website, address, city_label, hours, status,
+			created_at, verified_at)
+		 VALUES ($1,$2,$3,TRUE,$4,'',$5,$6,$7,$8,'','active', NOW(), NOW())`,
+		shelterID, email, passwordHash, orgName, phone, donationURL, address, opCity)
+	if err != nil {
+		// Most likely a duplicate email — that shouldn't happen in
+		// practice (wizard validates unique email) but surface it.
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+
+	// v0.15 — mint the owner member alongside the shelter so team
+	// auth works immediately. Same hash lands in both columns;
+	// shelters.password_hash is retained for back-compat but no longer
+	// authoritative.
+	memberID := "member-owner-" + shelterID
+	_, err = tx.Exec(ctx,
+		`INSERT INTO shelter_members (
+			id, shelter_id, email, password_hash, name, role, status,
+			must_change_password, joined_at
+		) VALUES ($1,$2,$3,$4,$5,'admin','active', TRUE, NOW())`,
+		memberID, shelterID, email, passwordHash, orgName)
+	if err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+
+	// Flip the application to approved + link.
+	_, err = tx.Exec(ctx,
+		`UPDATE shelter_applications
+		 SET status='approved', reviewed_at=NOW(), reviewed_by=$2, created_shelter_id=$3
+		 WHERE id=$1`, appID, reviewerID, shelterID)
+	if err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+
+	sh, err := s.GetShelter(shelterID)
+	if err != nil {
+		return domain.Shelter{}, domain.ShelterApplication{}, err
+	}
+	// OperatingCountry isn't a column on shelters; populate it
+	// in-memory so compliance hooks downstream can use it without
+	// a second query.
+	sh.OperatingCountry = strings.ToUpper(opCountry)
+	app, err := s.GetShelterOnboardingApplication(appID)
+	if err != nil {
+		return *sh, domain.ShelterApplication{}, err
+	}
+	return *sh, *app, nil
+}
+
+func (s *PostgresStore) RejectShelterOnboardingApplication(appID string, reviewerID string, reasonCode string, reasonNote string) (domain.ShelterApplication, error) {
+	if len(reasonNote) > 500 {
+		return domain.ShelterApplication{}, fmt.Errorf("rejection note must be at most 500 characters")
+	}
+	res, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_applications
+		 SET status='rejected', reviewed_at=NOW(), reviewed_by=$2,
+			 rejection_reason_code=$3, rejection_reason_note=$4
+		 WHERE id=$1 AND status IN ('submitted','under_review')`,
+		appID, reviewerID, reasonCode, reasonNote)
+	if err != nil {
+		return domain.ShelterApplication{}, err
+	}
+	if res.RowsAffected() == 0 {
+		return domain.ShelterApplication{}, fmt.Errorf("application not found or already decided")
+	}
+	app, err := s.GetShelterOnboardingApplication(appID)
+	if err != nil {
+		return domain.ShelterApplication{}, err
+	}
+	return *app, nil
+}
+
+// ================================================================
+// ── Shelter team accounts + audit log (v0.15) ────────────────────
+// ================================================================
+
+const shelterMemberCols = `id, shelter_id, email, password_hash, name, role, status,
+	must_change_password, invited_by_member_id, invited_at, joined_at,
+	last_login_at, password_changed_at`
+
+func scanShelterMember(row interface {
+	Scan(dest ...any) error
+}) (domain.ShelterMember, string, error) {
+	var m domain.ShelterMember
+	var name, role, status sql.NullString
+	var invitedBy sql.NullString
+	var invitedAt, lastLogin, passwordChangedAt sql.NullTime
+	var joinedAt time.Time
+	var hash string
+	err := row.Scan(&m.ID, &m.ShelterID, &m.Email, &hash, &name, &role, &status,
+		&m.MustChangePassword, &invitedBy, &invitedAt, &joinedAt,
+		&lastLogin, &passwordChangedAt)
+	if err != nil {
+		return m, "", err
+	}
+	m.Name = name.String
+	m.Role = role.String
+	m.Status = status.String
+	m.InvitedByMemberID = invitedBy.String
+	if invitedAt.Valid {
+		m.InvitedAt = invitedAt.Time.Format(time.RFC3339)
+	}
+	m.JoinedAt = joinedAt.Format(time.RFC3339)
+	if lastLogin.Valid {
+		m.LastLoginAt = lastLogin.Time.Format(time.RFC3339)
+	}
+	// password_changed_at isn't currently surfaced on the domain type.
+	_ = passwordChangedAt
+	return m, hash, nil
+}
+
+func (s *PostgresStore) ListShelterMembers(shelterID string) []domain.ShelterMember {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterMemberCols+` FROM shelter_members
+		 WHERE shelter_id=$1 ORDER BY joined_at ASC`, shelterID)
+	if err != nil {
+		return []domain.ShelterMember{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterMember{}
+	for rows.Next() {
+		m, _, err := scanShelterMember(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetShelterMember(memberID string) (*domain.ShelterMember, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterMemberCols+` FROM shelter_members WHERE id=$1`, memberID)
+	m, _, err := scanShelterMember(row)
+	if err != nil {
+		return nil, ErrShelterMemberNotFound
+	}
+	return &m, nil
+}
+
+func (s *PostgresStore) GetShelterMemberByEmailForLogin(email string) (*domain.ShelterMember, string, error) {
+	// The partial unique index is per (shelter, email), not global, so
+	// in theory one email can exist on multiple shelters. At login we
+	// resolve to the first active hit — deferring the "which shelter?"
+	// picker to a later iteration.
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterMemberCols+` FROM shelter_members
+		 WHERE lower(email::text) = lower($1) AND status='active'
+		 ORDER BY last_login_at DESC NULLS LAST, joined_at ASC LIMIT 1`, email)
+	m, hash, err := scanShelterMember(row)
+	if err != nil {
+		return nil, "", ErrShelterMemberNotFound
+	}
+	return &m, hash, nil
+}
+
+func (s *PostgresStore) UpdateShelterMemberRole(memberID, newRole string) (*domain.ShelterMember, error) {
+	ctx := s.ctx()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var shelterID, currentRole, status string
+	if err := tx.QueryRow(ctx,
+		`SELECT shelter_id, role, status FROM shelter_members WHERE id=$1 FOR UPDATE`,
+		memberID).Scan(&shelterID, &currentRole, &status); err != nil {
+		return nil, ErrShelterMemberNotFound
+	}
+	// Last-admin guard: if demoting or a sole active admin.
+	if currentRole == "admin" && newRole != "admin" && status == "active" {
+		var activeAdmins int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM shelter_members
+			 WHERE shelter_id=$1 AND role='admin' AND status='active'`,
+			shelterID).Scan(&activeAdmins); err != nil {
+			return nil, err
+		}
+		if activeAdmins <= 1 {
+			return nil, ErrShelterLastAdmin
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE shelter_members SET role=$2 WHERE id=$1`, memberID, newRole); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return s.GetShelterMember(memberID)
+}
+
+func (s *PostgresStore) UpdateShelterMemberPassword(memberID, passwordHash string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_members SET password_hash=$2,
+			must_change_password=FALSE, password_changed_at=NOW()
+		 WHERE id=$1`, memberID, passwordHash)
+	return err
+}
+
+func (s *PostgresStore) UpdateShelterMemberName(memberID, name string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_members SET name=$2 WHERE id=$1`, memberID, name)
+	return err
+}
+
+func (s *PostgresStore) RevokeShelterMember(memberID string) error {
+	ctx := s.ctx()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var shelterID, role, status string
+	if err := tx.QueryRow(ctx,
+		`SELECT shelter_id, role, status FROM shelter_members WHERE id=$1 FOR UPDATE`,
+		memberID).Scan(&shelterID, &role, &status); err != nil {
+		return ErrShelterMemberNotFound
+	}
+	if role == "admin" && status == "active" {
+		var activeAdmins int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM shelter_members
+			 WHERE shelter_id=$1 AND role='admin' AND status='active'`,
+			shelterID).Scan(&activeAdmins); err != nil {
+			return err
+		}
+		if activeAdmins <= 1 {
+			return ErrShelterLastAdmin
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE shelter_members SET status='revoked' WHERE id=$1`, memberID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStore) MarkShelterMemberLoggedIn(memberID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_members SET last_login_at=NOW() WHERE id=$1`, memberID)
+	return err
+}
+
+func (s *PostgresStore) CountActiveShelterMembers(shelterID string) int {
+	var count int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM shelter_members
+		 WHERE shelter_id=$1 AND status='active'`, shelterID).Scan(&count)
+	return count
+}
+
+func (s *PostgresStore) CountActiveShelterAdmins(shelterID string) int {
+	var count int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM shelter_members
+		 WHERE shelter_id=$1 AND role='admin' AND status='active'`, shelterID).Scan(&count)
+	return count
+}
+
+// ── Invites ─────────────────────────────────────────────────────
+
+const shelterInviteCols = `id, shelter_id, email, role, invited_by_member_id,
+	token, created_at, expires_at, accepted_at, accepted_member_id, revoked_at`
+
+func scanShelterInvite(row interface {
+	Scan(dest ...any) error
+}) (domain.ShelterMemberInvite, error) {
+	var inv domain.ShelterMemberInvite
+	var invitedBy, token sql.NullString
+	var acceptedAt, revokedAt sql.NullTime
+	var acceptedMember sql.NullString
+	var createdAt, expiresAt time.Time
+	err := row.Scan(&inv.ID, &inv.ShelterID, &inv.Email, &inv.Role, &invitedBy,
+		&token, &createdAt, &expiresAt, &acceptedAt, &acceptedMember, &revokedAt)
+	if err != nil {
+		return inv, err
+	}
+	inv.InvitedByMemberID = invitedBy.String
+	inv.Token = token.String
+	inv.CreatedAt = createdAt.Format(time.RFC3339)
+	inv.ExpiresAt = expiresAt.Format(time.RFC3339)
+	if acceptedAt.Valid {
+		inv.AcceptedAt = acceptedAt.Time.Format(time.RFC3339)
+	}
+	inv.AcceptedMemberID = acceptedMember.String
+	if revokedAt.Valid {
+		inv.RevokedAt = revokedAt.Time.Format(time.RFC3339)
+	}
+	return inv, nil
+}
+
+func newInviteToken() string {
+	var b [24]byte
+	_, _ = cryptorand.Read(b[:])
+	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))
+}
+
+func (s *PostgresStore) CreateShelterMemberInvite(invite domain.ShelterMemberInvite) (domain.ShelterMemberInvite, error) {
+	// Cheap guards first to return friendly sentinel errors. A race
+	// between this check and the INSERT is caught by the unique index
+	// below and remapped back to the duplicate sentinel.
+	if s.CountActiveShelterMembers(invite.ShelterID)+s.countActivePendingInvites(invite.ShelterID) >= 20 {
+		return domain.ShelterMemberInvite{}, ErrShelterTeamFull
+	}
+	var existingMembers int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM shelter_members
+		 WHERE shelter_id=$1 AND lower(email::text)=lower($2) AND status='active'`,
+		invite.ShelterID, invite.Email).Scan(&existingMembers)
+	if existingMembers > 0 {
+		return domain.ShelterMemberInvite{}, ErrShelterMemberDuplicateEmail
+	}
+	if invite.ID == "" {
+		invite.ID = newID("invite")
+	}
+	invite.Token = newInviteToken()
+	invite.Email = strings.ToLower(strings.TrimSpace(invite.Email))
+	// expires_at is derived server-side (created_at + 72h).
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO shelter_member_invites (
+			id, shelter_id, email, role, invited_by_member_id,
+			token, created_at, expires_at
+		) VALUES ($1,$2,$3,$4,$5,$6, NOW(), NOW() + INTERVAL '72 hours')`,
+		invite.ID, invite.ShelterID, invite.Email, invite.Role,
+		nullIfEmpty(invite.InvitedByMemberID), invite.Token)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "idx_shelter_invites_active") ||
+			(strings.Contains(msg, "unique") && strings.Contains(msg, "invite")) {
+			return domain.ShelterMemberInvite{}, ErrShelterMemberInviteDuplicateEmail
+		}
+		return domain.ShelterMemberInvite{}, err
+	}
+	full, err := s.GetShelterMemberInviteByID(invite.ID)
+	if err != nil {
+		return invite, err
+	}
+	full.Token = invite.Token
+	return *full, nil
+}
+
+func (s *PostgresStore) countActivePendingInvites(shelterID string) int {
+	var count int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM shelter_member_invites
+		 WHERE shelter_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL`,
+		shelterID).Scan(&count)
+	return count
+}
+
+func (s *PostgresStore) ListShelterMemberInvites(shelterID string) []domain.ShelterMemberInvite {
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterInviteCols+` FROM shelter_member_invites
+		 WHERE shelter_id=$1 ORDER BY created_at DESC`, shelterID)
+	if err != nil {
+		return []domain.ShelterMemberInvite{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterMemberInvite{}
+	for rows.Next() {
+		inv, err := scanShelterInvite(rows)
+		if err != nil {
+			continue
+		}
+		// Scrub tokens from list results; admin UI calls resend to get
+		// a fresh link back.
+		inv.Token = ""
+		out = append(out, inv)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetShelterMemberInviteByID(inviteID string) (*domain.ShelterMemberInvite, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterInviteCols+` FROM shelter_member_invites WHERE id=$1`, inviteID)
+	inv, err := scanShelterInvite(row)
+	if err != nil {
+		return nil, ErrShelterMemberInviteNotFound
+	}
+	return &inv, nil
+}
+
+func (s *PostgresStore) GetShelterMemberInviteByToken(token string) (*domain.ShelterMemberInvite, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT `+shelterInviteCols+` FROM shelter_member_invites WHERE token=$1`, token)
+	inv, err := scanShelterInvite(row)
+	if err != nil {
+		return nil, ErrShelterMemberInviteNotFound
+	}
+	return &inv, nil
+}
+
+func (s *PostgresStore) RevokeShelterMemberInvite(inviteID string) error {
+	res, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_member_invites SET revoked_at=NOW()
+		 WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL`, inviteID)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrShelterMemberInviteNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) ResendShelterMemberInvite(inviteID string) (domain.ShelterMemberInvite, error) {
+	token := newInviteToken()
+	res, err := s.pool.Exec(s.ctx(),
+		`UPDATE shelter_member_invites
+		 SET token=$2, expires_at=NOW() + INTERVAL '72 hours'
+		 WHERE id=$1 AND accepted_at IS NULL AND revoked_at IS NULL`,
+		inviteID, token)
+	if err != nil {
+		return domain.ShelterMemberInvite{}, err
+	}
+	if res.RowsAffected() == 0 {
+		return domain.ShelterMemberInvite{}, ErrShelterMemberInviteNotFound
+	}
+	full, err := s.GetShelterMemberInviteByID(inviteID)
+	if err != nil {
+		return domain.ShelterMemberInvite{}, err
+	}
+	// Re-attach the plaintext token so the caller can display it.
+	full.Token = token
+	return *full, nil
+}
+
+func (s *PostgresStore) AcceptShelterMemberInvite(token, passwordHash, name string) (domain.ShelterMember, domain.ShelterMemberInvite, error) {
+	ctx := s.ctx()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock the invite row.
+	var (
+		inviteID, shelterID, email, role string
+		invitedBy                        sql.NullString
+		acceptedAt, revokedAt            sql.NullTime
+		expiresAt                        time.Time
+	)
+	if err := tx.QueryRow(ctx,
+		`SELECT id, shelter_id, email, role, invited_by_member_id,
+			expires_at, accepted_at, revoked_at
+		 FROM shelter_member_invites WHERE token=$1 FOR UPDATE`, token).
+		Scan(&inviteID, &shelterID, &email, &role, &invitedBy,
+			&expiresAt, &acceptedAt, &revokedAt); err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteNotFound
+	}
+	if acceptedAt.Valid {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteAlreadyUsed
+	}
+	if revokedAt.Valid {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteRevoked
+	}
+	if time.Now().After(expiresAt) {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteExpired
+	}
+
+	// Insert member atomically.
+	memberID := newID("member")
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO shelter_members (
+			id, shelter_id, email, password_hash, name, role, status,
+			must_change_password, invited_by_member_id, invited_at, joined_at
+		) VALUES ($1,$2,$3,$4,$5,$6,'active', FALSE, $7, $8, NOW())`,
+		memberID, shelterID, email, passwordHash, name, role,
+		invitedBy, nil); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "idx_shelter_members_email") ||
+			(strings.Contains(msg, "unique") && strings.Contains(msg, "member")) {
+			return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberDuplicateEmail
+		}
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE shelter_member_invites
+		 SET accepted_at=NOW(), accepted_member_id=$2
+		 WHERE id=$1`, inviteID, memberID); err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+
+	member, err := s.GetShelterMember(memberID)
+	if err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+	invite, err := s.GetShelterMemberInviteByID(inviteID)
+	if err != nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, err
+	}
+	invite.Token = "" // don't leak back
+	return *member, *invite, nil
+}
+
+// ── Audit log ───────────────────────────────────────────────────
+
+func (s *PostgresStore) RecordShelterAudit(entry domain.ShelterAuditEntry) error {
+	if entry.ID == "" {
+		entry.ID = newID("audit")
+	}
+	payload, err := json.Marshal(entry.Metadata)
+	if err != nil || entry.Metadata == nil {
+		payload = []byte("{}")
+	}
+	_, err = s.pool.Exec(s.ctx(),
+		`INSERT INTO shelter_audit_logs (
+			id, shelter_id, actor_member_id, actor_name, actor_email,
+			action, target_type, target_id, metadata
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+		entry.ID, entry.ShelterID, nullIfEmpty(entry.ActorMemberID),
+		entry.ActorName, entry.ActorEmail,
+		entry.Action, entry.TargetType, entry.TargetID, string(payload))
+	return err
+}
+
+func (s *PostgresStore) ListShelterAuditLog(shelterID string, limit int, offset int) []domain.ShelterAuditEntry {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, shelter_id, actor_member_id, actor_name, actor_email,
+			action, target_type, target_id, metadata, created_at
+		 FROM shelter_audit_logs
+		 WHERE shelter_id=$1
+		 ORDER BY created_at DESC
+		 LIMIT $2 OFFSET $3`, shelterID, limit, offset)
+	if err != nil {
+		return []domain.ShelterAuditEntry{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterAuditEntry{}
+	for rows.Next() {
+		var e domain.ShelterAuditEntry
+		var actorMember sql.NullString
+		var metadataRaw []byte
+		var createdAt time.Time
+		if err := rows.Scan(&e.ID, &e.ShelterID, &actorMember, &e.ActorName, &e.ActorEmail,
+			&e.Action, &e.TargetType, &e.TargetID, &metadataRaw, &createdAt); err != nil {
+			continue
+		}
+		e.ActorMemberID = actorMember.String
+		e.CreatedAt = createdAt.Format(time.RFC3339)
+		if len(metadataRaw) > 0 {
+			_ = json.Unmarshal(metadataRaw, &e.Metadata)
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // Ensure unused imports compile

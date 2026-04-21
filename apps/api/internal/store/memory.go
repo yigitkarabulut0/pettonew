@@ -54,7 +54,15 @@ type MemoryStore struct {
 	tipBookmarks       map[string]map[string]bool
 	tipCompleted       map[string]map[string]bool
 	walkRoutes         map[string]*domain.WalkRoute
-	adoptions          map[string]*domain.AdoptionListing
+	shelters             map[string]*domain.Shelter
+	shelterPasswords     map[string]string
+	shelterPets          map[string]*domain.ShelterPet
+	adoptionApps         map[string]*domain.AdoptionApplication
+	shelterOnboardApps   map[string]*domain.ShelterApplication
+	shelterMembers       map[string]*domain.ShelterMember
+	shelterMemberHashes  map[string]string
+	shelterMemberInvites map[string]*domain.ShelterMemberInvite
+	shelterAuditEntries  []domain.ShelterAuditEntry
 	petAlbums          map[string][]domain.PetAlbum
 	petMilestones      map[string][]domain.PetMilestone
 }
@@ -128,7 +136,14 @@ func NewMemoryStore() *MemoryStore {
 		tipBookmarks:       make(map[string]map[string]bool),
 		tipCompleted:       make(map[string]map[string]bool),
 		walkRoutes:         make(map[string]*domain.WalkRoute),
-		adoptions:          make(map[string]*domain.AdoptionListing),
+		shelters:             make(map[string]*domain.Shelter),
+		shelterPasswords:     make(map[string]string),
+		shelterPets:          make(map[string]*domain.ShelterPet),
+		adoptionApps:         make(map[string]*domain.AdoptionApplication),
+		shelterOnboardApps:   make(map[string]*domain.ShelterApplication),
+		shelterMembers:       make(map[string]*domain.ShelterMember),
+		shelterMemberHashes:  make(map[string]string),
+		shelterMemberInvites: make(map[string]*domain.ShelterMemberInvite),
 		petAlbums:          make(map[string][]domain.PetAlbum),
 		petMilestones:      make(map[string][]domain.PetMilestone),
 	}
@@ -1759,6 +1774,154 @@ func (s *MemoryStore) CreateVenueReview(review domain.VenueReview) domain.VenueR
 	return review
 }
 
+// GetVenueStats computes venue aggregates over in-memory state.
+// Active window = last 1 hour.
+func (s *MemoryStore) GetVenueStats(venueID string) domain.VenueStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stats := domain.VenueStats{}
+	venue, ok := s.venues[venueID]
+	if ok {
+		seen := map[string]struct{}{}
+		cutoff := time.Now().UTC().Add(-1 * time.Hour)
+		for _, ci := range venue.CurrentCheckIns {
+			stats.CheckInCount++
+			if _, dup := seen[ci.UserID]; !dup {
+				seen[ci.UserID] = struct{}{}
+				stats.UniqueVisitorCount++
+			}
+			if t, err := time.Parse(time.RFC3339, ci.CheckedInAt); err == nil {
+				if t.After(cutoff) {
+					stats.ActiveCheckInCount++
+				}
+			}
+		}
+	}
+
+	reviews := s.venueReviews[venueID]
+	if len(reviews) > 0 {
+		sum := 0
+		for _, r := range reviews {
+			sum += r.Rating
+			switch r.Rating {
+			case 1:
+				stats.RatingDistribution.One++
+			case 2:
+				stats.RatingDistribution.Two++
+			case 3:
+				stats.RatingDistribution.Three++
+			case 4:
+				stats.RatingDistribution.Four++
+			case 5:
+				stats.RatingDistribution.Five++
+			}
+		}
+		stats.ReviewCount = len(reviews)
+		stats.AvgRating = float64(sum) / float64(len(reviews))
+	}
+
+	return stats
+}
+
+// ListVenueCheckInsScoped returns check-ins scoped by mode.
+// MemoryStore only carries a single "currentCheckIns" list per venue, so
+// history/all modes degrade to the same dataset as active.
+func (s *MemoryStore) ListVenueCheckInsScoped(venueID string, mode string, limit int) []domain.VenueCheckIn {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	venue, ok := s.venues[venueID]
+	if !ok || venue == nil {
+		return []domain.VenueCheckIn{}
+	}
+
+	src := venue.CurrentCheckIns
+	out := make([]domain.VenueCheckIn, 0, len(src))
+	if mode == "active" {
+		cutoff := time.Now().UTC().Add(-1 * time.Hour)
+		for _, ci := range src {
+			if t, err := time.Parse(time.RFC3339, ci.CheckedInAt); err == nil && t.After(cutoff) {
+				out = append(out, ci)
+			}
+		}
+	} else if mode == "history" {
+		seen := map[string]bool{}
+		for _, ci := range src {
+			if !seen[ci.UserID] {
+				seen[ci.UserID] = true
+				out = append(out, ci)
+			}
+		}
+	} else {
+		out = append(out, src...)
+	}
+
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// ListVenuePostsWithPhotos returns photo-bearing posts tagged to a venue.
+func (s *MemoryStore) ListVenuePostsWithPhotos(venueID string, limit int) []domain.VenuePhotoFeedItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	out := make([]domain.VenuePhotoFeedItem, 0)
+	for _, p := range s.posts {
+		if p == nil || p.VenueID == nil || *p.VenueID != venueID {
+			continue
+		}
+		if p.ImageURL == nil || *p.ImageURL == "" {
+			continue
+		}
+		out = append(out, domain.VenuePhotoFeedItem{
+			PostID:       p.ID,
+			ImageURL:     *p.ImageURL,
+			AuthorUserID: p.Author.ID,
+			AuthorName:   p.Author.FirstName + " " + p.Author.LastName,
+			CreatedAt:    p.CreatedAt,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// UserHasCheckedIn reports whether the user has ever checked in at the venue.
+func (s *MemoryStore) UserHasCheckedIn(venueID string, userID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	venue, ok := s.venues[venueID]
+	if !ok || venue == nil {
+		return false
+	}
+	for _, ci := range venue.CurrentCheckIns {
+		if ci.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// UserHasReviewed reports whether the user has already reviewed this venue.
+func (s *MemoryStore) UserHasReviewed(venueID string, userID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.venueReviews[venueID] {
+		if r.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 // ── Pet Sitters ─────────────────────────────────────────────────────
 
 func (s *MemoryStore) ListPetSitters(city string) []domain.PetSitter {
@@ -2398,57 +2561,1073 @@ func (s *MemoryStore) DeleteWalkRoute(routeID string) error {
 	return nil
 }
 
-// ── Adoptions ───────────────────────────────────────────────────────
+// ── Shelters + Adoption (v0.13) — in-memory stubs ───────────────────
+// The MemoryStore is used only in dev/test. These keep the Store
+// interface satisfied with minimal behaviour so the server builds.
 
-func (s *MemoryStore) ListAdoptions() []domain.AdoptionListing {
+func (s *MemoryStore) CreateShelter(shelter domain.Shelter, passwordHash string) (domain.Shelter, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if shelter.ID == "" {
+		shelter.ID = newID("shelter")
+	}
+	if shelter.Status == "" {
+		shelter.Status = "active"
+	}
+	shelter.MustChangePassword = true
+	now := time.Now().UTC().Format(time.RFC3339)
+	shelter.CreatedAt = now
+	// Any CreateShelter path (admin-direct or post-approval) produces a
+	// verified account — we never insert unverified rows.
+	if shelter.VerifiedAt == "" {
+		shelter.VerifiedAt = now
+	}
+	if s.shelters == nil {
+		s.shelters = make(map[string]*domain.Shelter)
+	}
+	if s.shelterPasswords == nil {
+		s.shelterPasswords = make(map[string]string)
+	}
+	s.shelters[shelter.ID] = &shelter
+	s.shelterPasswords[shelter.ID] = passwordHash
+	// Mint the owner member alongside the shelter so the team-aware
+	// login path finds it without a back-fill step in dev.
+	if s.shelterMembers == nil {
+		s.shelterMembers = make(map[string]*domain.ShelterMember)
+		s.shelterMemberHashes = make(map[string]string)
+	}
+	memberID := "member-owner-" + shelter.ID
+	s.shelterMembers[memberID] = &domain.ShelterMember{
+		ID:                 memberID,
+		ShelterID:          shelter.ID,
+		Email:              shelter.Email,
+		Name:               shelter.Name,
+		Role:               "admin",
+		Status:             "active",
+		MustChangePassword: true,
+		JoinedAt:           now,
+	}
+	s.shelterMemberHashes[memberID] = passwordHash
+	return shelter, nil
+}
+
+func (s *MemoryStore) ListShelters() []domain.Shelter {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := []domain.AdoptionListing{}
-	for _, a := range s.adoptions {
-		result = append(result, *a)
+	out := []domain.Shelter{}
+	for _, sh := range s.shelters {
+		out = append(out, *sh)
 	}
-	return result
+	return out
 }
 
-func (s *MemoryStore) CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	listing.ID = newID("adoption")
-	listing.Status = "active"
-	listing.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	s.adoptions[listing.ID] = &listing
-	return listing
-}
-
-func (s *MemoryStore) UpdateAdoptionStatus(listingID string, status string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, ok := s.adoptions[listingID]
+func (s *MemoryStore) GetShelter(shelterID string) (*domain.Shelter, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sh, ok := s.shelters[shelterID]
 	if !ok {
-		return fmt.Errorf("adoption listing not found")
+		return nil, fmt.Errorf("shelter not found")
 	}
-	a.Status = status
+	out := *sh
+	return &out, nil
+}
+
+func (s *MemoryStore) GetShelterByEmail(email string) (*domain.Shelter, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id, sh := range s.shelters {
+		if strings.EqualFold(sh.Email, email) {
+			out := *sh
+			return &out, s.shelterPasswords[id], nil
+		}
+	}
+	return nil, "", fmt.Errorf("shelter not found")
+}
+
+func (s *MemoryStore) UpdateShelter(shelterID string, patch domain.Shelter) (*domain.Shelter, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shelters[shelterID]
+	if !ok {
+		return nil, fmt.Errorf("shelter not found")
+	}
+	sh.Name = patch.Name
+	sh.About = patch.About
+	sh.Phone = patch.Phone
+	sh.Website = patch.Website
+	sh.LogoURL = patch.LogoURL
+	sh.HeroURL = patch.HeroURL
+	sh.Address = patch.Address
+	sh.CityLabel = patch.CityLabel
+	sh.Latitude = patch.Latitude
+	sh.Longitude = patch.Longitude
+	sh.Hours = patch.Hours
+	out := *sh
+	return &out, nil
+}
+
+func (s *MemoryStore) UpdateShelterPassword(shelterID string, passwordHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.shelters[shelterID]; !ok {
+		return fmt.Errorf("shelter not found")
+	}
+	s.shelterPasswords[shelterID] = passwordHash
+	s.shelters[shelterID].MustChangePassword = false
 	return nil
 }
 
-func (s *MemoryStore) DeleteAdoption(listingID string) error {
+func (s *MemoryStore) DeleteShelter(shelterID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.adoptions[listingID]; !ok {
-		return fmt.Errorf("adoption listing not found")
-	}
-	delete(s.adoptions, listingID)
+	delete(s.shelters, shelterID)
+	delete(s.shelterPasswords, shelterID)
 	return nil
 }
 
-func (s *MemoryStore) GetAdoption(listingID string) (*domain.AdoptionListing, error) {
+func (s *MemoryStore) MarkShelterLoggedIn(shelterID string) error { return nil }
+
+func (s *MemoryStore) GetShelterStats(shelterID string) domain.ShelterStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	a, ok := s.adoptions[listingID]
-	if !ok {
-		return nil, fmt.Errorf("adoption listing not found")
+	var stats domain.ShelterStats
+	for _, p := range s.shelterPets {
+		if p.ShelterID == shelterID {
+			stats.TotalPets++
+			switch p.Status {
+			case "available":
+				stats.AvailablePets++
+			case "reserved":
+				stats.ReservedPets++
+			case "adopted":
+				stats.AdoptedPets++
+			}
+		}
 	}
-	return a, nil
+	for _, a := range s.adoptionApps {
+		if a.ShelterID == shelterID {
+			stats.TotalApplications++
+			if a.Status == "pending" {
+				stats.PendingApps++
+			}
+			if a.Status == "chat_open" {
+				stats.ActiveChats++
+			}
+		}
+	}
+	return stats
+}
+
+func (s *MemoryStore) ListShelterPets(shelterID string, statusFilter string) []domain.ShelterPet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterPet{}
+	for _, p := range s.shelterPets {
+		if p.ShelterID != shelterID {
+			continue
+		}
+		if statusFilter != "" && statusFilter != "all" && p.Status != statusFilter {
+			continue
+		}
+		out = append(out, *p)
+	}
+	return out
+}
+
+func (s *MemoryStore) ListPublicAdoptablePets(params ListAdoptablePetsParams) []domain.ShelterPet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterPet{}
+	for _, p := range s.shelterPets {
+		if p.Status != "available" && p.Status != "reserved" {
+			continue
+		}
+		if params.Species != "" && p.Species != params.Species {
+			continue
+		}
+		if params.Sex != "" && p.Sex != params.Sex {
+			continue
+		}
+		if params.Size != "" && p.Size != params.Size {
+			continue
+		}
+		out = append(out, *p)
+	}
+	return out
+}
+
+func (s *MemoryStore) GetShelterPet(petID string) (*domain.ShelterPet, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.shelterPets[petID]
+	if !ok {
+		return nil, fmt.Errorf("shelter pet not found")
+	}
+	out := *p
+	return &out, nil
+}
+
+func (s *MemoryStore) UpsertShelterPet(shelterID string, pet domain.ShelterPet) (domain.ShelterPet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if pet.ID == "" {
+		pet.ID = newID("spet")
+	}
+	if pet.Status == "" {
+		pet.Status = "available"
+	}
+	pet.ShelterID = shelterID
+	pet.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if _, exists := s.shelterPets[pet.ID]; !exists {
+		pet.CreatedAt = pet.UpdatedAt
+	}
+	if s.shelterPets == nil {
+		s.shelterPets = make(map[string]*domain.ShelterPet)
+	}
+	s.shelterPets[pet.ID] = &pet
+	return pet, nil
+}
+
+func (s *MemoryStore) UpdateShelterPetStatus(petID string, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.shelterPets[petID]
+	if !ok {
+		return fmt.Errorf("shelter pet not found")
+	}
+	p.Status = status
+	return nil
+}
+
+func (s *MemoryStore) DeleteShelterPet(petID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.shelterPets, petID)
+	return nil
+}
+
+func (s *MemoryStore) CreateAdoptionApplication(app domain.AdoptionApplication) (domain.AdoptionApplication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if app.ID == "" {
+		app.ID = newID("adopt-app")
+	}
+	if app.Status == "" {
+		app.Status = "pending"
+	}
+	app.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	app.UpdatedAt = app.CreatedAt
+	if s.adoptionApps == nil {
+		s.adoptionApps = make(map[string]*domain.AdoptionApplication)
+	}
+	s.adoptionApps[app.ID] = &app
+	return app, nil
+}
+
+func (s *MemoryStore) ListShelterApplications(shelterID string, statusFilter string) []domain.AdoptionApplication {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.AdoptionApplication{}
+	for _, a := range s.adoptionApps {
+		if a.ShelterID != shelterID {
+			continue
+		}
+		if statusFilter != "" && statusFilter != "all" && a.Status != statusFilter {
+			continue
+		}
+		out = append(out, *a)
+	}
+	return out
+}
+
+func (s *MemoryStore) ListUserApplications(userID string) []domain.AdoptionApplication {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.AdoptionApplication{}
+	for _, a := range s.adoptionApps {
+		if a.UserID == userID {
+			out = append(out, *a)
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) GetApplication(appID string) (*domain.AdoptionApplication, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.adoptionApps[appID]
+	if !ok {
+		return nil, fmt.Errorf("application not found")
+	}
+	out := *a
+	return &out, nil
+}
+
+func (s *MemoryStore) ApproveApplication(appID string, conversationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.adoptionApps[appID]
+	if !ok {
+		return fmt.Errorf("application not found")
+	}
+	a.Status = "chat_open"
+	a.ConversationID = &conversationID
+	if p, ok := s.shelterPets[a.PetID]; ok {
+		p.Status = "reserved"
+	}
+	return nil
+}
+
+func (s *MemoryStore) RejectApplication(appID string, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.adoptionApps[appID]
+	if !ok {
+		return fmt.Errorf("application not found")
+	}
+	a.Status = "rejected"
+	a.RejectionReason = reason
+	return nil
+}
+
+func (s *MemoryStore) CompleteAdoption(appID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.adoptionApps[appID]
+	if !ok {
+		return fmt.Errorf("application not found")
+	}
+	a.Status = "adopted"
+	if p, ok := s.shelterPets[a.PetID]; ok {
+		p.Status = "adopted"
+	}
+	return nil
+}
+
+func (s *MemoryStore) WithdrawApplication(appID string, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.adoptionApps[appID]
+	if !ok || a.UserID != userID {
+		return fmt.Errorf("cannot withdraw this application")
+	}
+	a.Status = "withdrawn"
+	return nil
+}
+
+// ── Shelter onboarding applications (v0.14) ─────────────────────────
+
+func (s *MemoryStore) CreateShelterOnboardingApplication(app domain.ShelterApplication) (domain.ShelterApplication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shelterOnboardApps == nil {
+		s.shelterOnboardApps = make(map[string]*domain.ShelterApplication)
+	}
+	// Duplicate email guard — mirrors the Postgres unique index.
+	email := strings.ToLower(strings.TrimSpace(app.PrimaryContactEmail))
+	for _, existing := range s.shelterOnboardApps {
+		if strings.ToLower(existing.PrimaryContactEmail) == email &&
+			(existing.Status == "submitted" || existing.Status == "under_review") {
+			return domain.ShelterApplication{}, ErrShelterApplicationDuplicateEmail
+		}
+	}
+	app.ID = newID("shelter-app")
+	app.Status = "submitted"
+	now := time.Now().UTC()
+	app.SubmittedAt = now.Format(time.RFC3339)
+	app.SLADeadline = now.Add(48 * time.Hour).Format(time.RFC3339)
+	app.AccessToken = newID("shapp-token") + newID("shapp")
+	stored := app
+	s.shelterOnboardApps[stored.ID] = &stored
+	return stored, nil
+}
+
+func (s *MemoryStore) GetShelterOnboardingApplication(appID string) (*domain.ShelterApplication, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.shelterOnboardApps[appID]
+	if !ok {
+		return nil, ErrShelterApplicationNotFound
+	}
+	out := *a
+	return &out, nil
+}
+
+func (s *MemoryStore) GetShelterOnboardingApplicationByToken(accessToken string) (*domain.ShelterApplication, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, a := range s.shelterOnboardApps {
+		if a.AccessToken == accessToken {
+			out := *a
+			return &out, nil
+		}
+	}
+	return nil, ErrShelterApplicationNotFound
+}
+
+func (s *MemoryStore) ListShelterOnboardingApplications(statusFilter string, limit int, offset int) []domain.ShelterApplication {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterApplication{}
+	for _, a := range s.shelterOnboardApps {
+		if statusFilter != "" && a.Status != statusFilter {
+			continue
+		}
+		copy := *a
+		// Never surface the public access token in admin listings — the
+		// wizard confirmation screen is the one source of truth for it.
+		copy.AccessToken = ""
+		out = append(out, copy)
+	}
+	// Oldest-first within submitted (so SLA breach risk surfaces), but
+	// newest-first otherwise.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Status == "submitted" && out[j].Status == "submitted" {
+			return out[i].SubmittedAt < out[j].SubmittedAt
+		}
+		return out[i].SubmittedAt > out[j].SubmittedAt
+	})
+	if offset > 0 && offset < len(out) {
+		out = out[offset:]
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out
+}
+
+// ApproveShelterOnboardingApplication atomically mints a Shelter row
+// from an approved application and links both records together. The
+// caller supplies `passwordHash` — we do not generate passwords in the
+// store, that's the handler's job (so the handler can also return the
+// plaintext temp password to the admin UI).
+func (s *MemoryStore) ApproveShelterOnboardingApplication(appID string, reviewerID string, passwordHash string) (domain.Shelter, domain.ShelterApplication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.shelterOnboardApps[appID]
+	if !ok {
+		return domain.Shelter{}, domain.ShelterApplication{}, ErrShelterApplicationNotFound
+	}
+	if a.Status == "approved" || a.Status == "rejected" {
+		return domain.Shelter{}, domain.ShelterApplication{}, fmt.Errorf("application already decided: %s", a.Status)
+	}
+	// Mint shelter (same defaults as admin-direct path)
+	now := time.Now().UTC().Format(time.RFC3339)
+	sh := domain.Shelter{
+		ID:                 newID("shelter"),
+		Email:              strings.ToLower(strings.TrimSpace(a.PrimaryContactEmail)),
+		Name:               a.OrgName,
+		Phone:              a.PrimaryContactPhone,
+		Website:            a.DonationURL,
+		Address:            a.OrgAddress,
+		CityLabel:          a.OperatingRegionCity,
+		Status:             "active",
+		MustChangePassword: true,
+		CreatedAt:          now,
+		VerifiedAt:         now,
+		OperatingCountry:   strings.ToUpper(a.OperatingRegionCountry),
+	}
+	s.shelters[sh.ID] = &sh
+	s.shelterPasswords[sh.ID] = passwordHash
+	a.Status = "approved"
+	a.ReviewedAt = now
+	a.ReviewedBy = reviewerID
+	a.CreatedShelterID = sh.ID
+	return sh, *a, nil
+}
+
+func (s *MemoryStore) RejectShelterOnboardingApplication(appID string, reviewerID string, reasonCode string, reasonNote string) (domain.ShelterApplication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(reasonNote) > 500 {
+		return domain.ShelterApplication{}, fmt.Errorf("rejection note must be at most 500 characters")
+	}
+	a, ok := s.shelterOnboardApps[appID]
+	if !ok {
+		return domain.ShelterApplication{}, ErrShelterApplicationNotFound
+	}
+	if a.Status == "approved" || a.Status == "rejected" {
+		return domain.ShelterApplication{}, fmt.Errorf("application already decided: %s", a.Status)
+	}
+	a.Status = "rejected"
+	a.ReviewedAt = time.Now().UTC().Format(time.RFC3339)
+	a.ReviewedBy = reviewerID
+	a.RejectionReasonCode = reasonCode
+	a.RejectionReasonNote = reasonNote
+	return *a, nil
+}
+
+// ── Shelter team accounts + audit log (v0.15, in-memory stubs) ──────
+// Mirrors the Postgres implementation closely enough that unit tests and
+// local dev exercise the same surface. Thread-safety piggybacks on the
+// top-level MemoryStore mutex.
+
+func (s *MemoryStore) ListShelterMembers(shelterID string) []domain.ShelterMember {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterMember{}
+	for _, m := range s.shelterMembers {
+		if m.ShelterID == shelterID {
+			out = append(out, *m)
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) GetShelterMember(memberID string) (*domain.ShelterMember, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return nil, ErrShelterMemberNotFound
+	}
+	out := *m
+	return &out, nil
+}
+
+// GetShelterMemberByEmailForLogin resolves login credentials. It returns
+// the *first* active member matching the email across all shelters —
+// in practice a human with multiple shelter memberships using the same
+// address would first need to pick which shelter they're logging into,
+// but launch scope treats the primary email as globally unique.
+func (s *MemoryStore) GetShelterMemberByEmailForLogin(email string) (*domain.ShelterMember, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id, m := range s.shelterMembers {
+		if strings.EqualFold(m.Email, email) && m.Status == "active" {
+			out := *m
+			return &out, s.shelterMemberHashes[id], nil
+		}
+	}
+	return nil, "", ErrShelterMemberNotFound
+}
+
+func (s *MemoryStore) UpdateShelterMemberRole(memberID, newRole string) (*domain.ShelterMember, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return nil, ErrShelterMemberNotFound
+	}
+	// Last-admin guard: if demoting the only active admin, reject.
+	if m.Role == "admin" && newRole != "admin" {
+		activeAdmins := 0
+		for _, other := range s.shelterMembers {
+			if other.ShelterID == m.ShelterID && other.Role == "admin" && other.Status == "active" {
+				activeAdmins++
+			}
+		}
+		if activeAdmins <= 1 {
+			return nil, ErrShelterLastAdmin
+		}
+	}
+	m.Role = newRole
+	out := *m
+	return &out, nil
+}
+
+func (s *MemoryStore) UpdateShelterMemberPassword(memberID, passwordHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return ErrShelterMemberNotFound
+	}
+	s.shelterMemberHashes[memberID] = passwordHash
+	m.MustChangePassword = false
+	return nil
+}
+
+func (s *MemoryStore) UpdateShelterMemberName(memberID, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return ErrShelterMemberNotFound
+	}
+	m.Name = name
+	return nil
+}
+
+func (s *MemoryStore) RevokeShelterMember(memberID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return ErrShelterMemberNotFound
+	}
+	if m.Role == "admin" && m.Status == "active" {
+		activeAdmins := 0
+		for _, other := range s.shelterMembers {
+			if other.ShelterID == m.ShelterID && other.Role == "admin" && other.Status == "active" {
+				activeAdmins++
+			}
+		}
+		if activeAdmins <= 1 {
+			return ErrShelterLastAdmin
+		}
+	}
+	m.Status = "revoked"
+	return nil
+}
+
+func (s *MemoryStore) MarkShelterMemberLoggedIn(memberID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.shelterMembers[memberID]
+	if !ok {
+		return ErrShelterMemberNotFound
+	}
+	m.LastLoginAt = time.Now().UTC().Format(time.RFC3339)
+	return nil
+}
+
+func (s *MemoryStore) CountActiveShelterMembers(shelterID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, m := range s.shelterMembers {
+		if m.ShelterID == shelterID && m.Status == "active" {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *MemoryStore) CountActiveShelterAdmins(shelterID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, m := range s.shelterMembers {
+		if m.ShelterID == shelterID && m.Role == "admin" && m.Status == "active" {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *MemoryStore) CreateShelterMemberInvite(invite domain.ShelterMemberInvite) (domain.ShelterMemberInvite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shelterMemberInvites == nil {
+		s.shelterMemberInvites = make(map[string]*domain.ShelterMemberInvite)
+	}
+	normalisedEmail := strings.ToLower(strings.TrimSpace(invite.Email))
+	// Duplicate active invite guard.
+	for _, existing := range s.shelterMemberInvites {
+		if existing.ShelterID == invite.ShelterID &&
+			strings.ToLower(existing.Email) == normalisedEmail &&
+			existing.AcceptedAt == "" && existing.RevokedAt == "" {
+			return domain.ShelterMemberInvite{}, ErrShelterMemberInviteDuplicateEmail
+		}
+	}
+	// Duplicate active member guard.
+	for _, m := range s.shelterMembers {
+		if m.ShelterID == invite.ShelterID &&
+			strings.EqualFold(m.Email, invite.Email) &&
+			m.Status == "active" {
+			return domain.ShelterMemberInvite{}, ErrShelterMemberDuplicateEmail
+		}
+	}
+	// Team-size cap.
+	activeSeats := 0
+	for _, m := range s.shelterMembers {
+		if m.ShelterID == invite.ShelterID && m.Status == "active" {
+			activeSeats++
+		}
+	}
+	for _, other := range s.shelterMemberInvites {
+		if other.ShelterID == invite.ShelterID && other.AcceptedAt == "" && other.RevokedAt == "" {
+			activeSeats++
+		}
+	}
+	if activeSeats >= 20 {
+		return domain.ShelterMemberInvite{}, ErrShelterTeamFull
+	}
+	if invite.ID == "" {
+		invite.ID = newID("invite")
+	}
+	now := time.Now().UTC()
+	invite.CreatedAt = now.Format(time.RFC3339)
+	invite.ExpiresAt = now.Add(72 * time.Hour).Format(time.RFC3339)
+	// Simple deterministic token for memory; pgstore uses crypto/rand.
+	invite.Token = newID("token") + "-" + strings.ReplaceAll(invite.ID, "-", "")
+	invite.Email = normalisedEmail
+	stored := invite
+	s.shelterMemberInvites[stored.ID] = &stored
+	return stored, nil
+}
+
+func (s *MemoryStore) ListShelterMemberInvites(shelterID string) []domain.ShelterMemberInvite {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterMemberInvite{}
+	for _, inv := range s.shelterMemberInvites {
+		if inv.ShelterID == shelterID {
+			copy := *inv
+			// Scrub tokens from list results — UI calls /resend to see
+			// a fresh link.
+			copy.Token = ""
+			out = append(out, copy)
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) GetShelterMemberInviteByID(inviteID string) (*domain.ShelterMemberInvite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	inv, ok := s.shelterMemberInvites[inviteID]
+	if !ok {
+		return nil, ErrShelterMemberInviteNotFound
+	}
+	out := *inv
+	return &out, nil
+}
+
+func (s *MemoryStore) GetShelterMemberInviteByToken(token string) (*domain.ShelterMemberInvite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, inv := range s.shelterMemberInvites {
+		if inv.Token == token {
+			out := *inv
+			return &out, nil
+		}
+	}
+	return nil, ErrShelterMemberInviteNotFound
+}
+
+func (s *MemoryStore) RevokeShelterMemberInvite(inviteID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	inv, ok := s.shelterMemberInvites[inviteID]
+	if !ok {
+		return ErrShelterMemberInviteNotFound
+	}
+	if inv.AcceptedAt != "" {
+		return ErrShelterMemberInviteAlreadyUsed
+	}
+	inv.RevokedAt = time.Now().UTC().Format(time.RFC3339)
+	return nil
+}
+
+func (s *MemoryStore) ResendShelterMemberInvite(inviteID string) (domain.ShelterMemberInvite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	inv, ok := s.shelterMemberInvites[inviteID]
+	if !ok {
+		return domain.ShelterMemberInvite{}, ErrShelterMemberInviteNotFound
+	}
+	if inv.AcceptedAt != "" {
+		return domain.ShelterMemberInvite{}, ErrShelterMemberInviteAlreadyUsed
+	}
+	if inv.RevokedAt != "" {
+		return domain.ShelterMemberInvite{}, ErrShelterMemberInviteRevoked
+	}
+	now := time.Now().UTC()
+	inv.Token = newID("token") + "-" + strings.ReplaceAll(inv.ID, "-", "")
+	inv.ExpiresAt = now.Add(72 * time.Hour).Format(time.RFC3339)
+	out := *inv
+	return out, nil
+}
+
+func (s *MemoryStore) AcceptShelterMemberInvite(token, passwordHash, name string) (domain.ShelterMember, domain.ShelterMemberInvite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var invite *domain.ShelterMemberInvite
+	for _, inv := range s.shelterMemberInvites {
+		if inv.Token == token {
+			invite = inv
+			break
+		}
+	}
+	if invite == nil {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteNotFound
+	}
+	if invite.AcceptedAt != "" {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteAlreadyUsed
+	}
+	if invite.RevokedAt != "" {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteRevoked
+	}
+	if expires, err := time.Parse(time.RFC3339, invite.ExpiresAt); err == nil && time.Now().After(expires) {
+		return domain.ShelterMember{}, domain.ShelterMemberInvite{}, ErrShelterMemberInviteExpired
+	}
+
+	memberID := newID("member")
+	now := time.Now().UTC().Format(time.RFC3339)
+	member := &domain.ShelterMember{
+		ID:                 memberID,
+		ShelterID:          invite.ShelterID,
+		Email:              invite.Email,
+		Name:               name,
+		Role:               invite.Role,
+		Status:             "active",
+		MustChangePassword: false,
+		InvitedByMemberID:  invite.InvitedByMemberID,
+		InvitedAt:          invite.CreatedAt,
+		JoinedAt:           now,
+	}
+	s.shelterMembers[memberID] = member
+	s.shelterMemberHashes[memberID] = passwordHash
+	invite.AcceptedAt = now
+	invite.AcceptedMemberID = memberID
+	return *member, *invite, nil
+}
+
+func (s *MemoryStore) RecordShelterAudit(entry domain.ShelterAuditEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry.ID == "" {
+		entry.ID = newID("audit")
+	}
+	if entry.CreatedAt == "" {
+		entry.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	s.shelterAuditEntries = append(s.shelterAuditEntries, entry)
+	return nil
+}
+
+func (s *MemoryStore) ListShelterAuditLog(shelterID string, limit int, offset int) []domain.ShelterAuditEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterAuditEntry{}
+	for _, e := range s.shelterAuditEntries {
+		if e.ShelterID == shelterID {
+			out = append(out, e)
+		}
+	}
+	// Newest-first.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt > out[j].CreatedAt
+	})
+	if offset > 0 && offset < len(out) {
+		out = out[offset:]
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out
+}
+
+// ── Listing moderation (stubs; prod uses Postgres) ──────────────────
+// The memory store is a seed/demo backing; listing compliance work
+// must run against the Postgres store. These stubs satisfy the Store
+// interface and keep basic in-memory behaviour (state transitions
+// update the pet row) so unit tests against the memory store can still
+// exercise transition validation without booting Postgres.
+
+func (s *MemoryStore) TransitionListingState(listingID, newState, actorID, actorRole, reasonCode, note string, meta map[string]any) (domain.ShelterPet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pet, ok := s.shelterPets[listingID]
+	if !ok || pet == nil {
+		return domain.ShelterPet{}, fmt.Errorf("listing not found")
+	}
+	prev := pet.ListingState
+	if prev == "" {
+		prev = domain.ListingStatePublished
+	}
+	if !domain.ListingTransitionAllowed(prev, newState, actorRole) {
+		return *pet, fmt.Errorf("transition %s → %s not allowed for %s", prev, newState, actorRole)
+	}
+	pet.ListingState = newState
+	if newState == domain.ListingStateRejected {
+		pet.LastRejectionCode = reasonCode
+		pet.LastRejectionNote = note
+	}
+	return *pet, nil
+}
+
+func (s *MemoryStore) SetListingAutoFlagReasons(listingID string, reasons []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pet, ok := s.shelterPets[listingID]
+	if !ok || pet == nil {
+		return fmt.Errorf("listing not found")
+	}
+	pet.AutoFlagReasons = reasons
+	return nil
+}
+
+func (s *MemoryStore) ListListingTransitions(listingID string) []domain.ListingStateTransition {
+	return []domain.ListingStateTransition{}
+}
+
+func (s *MemoryStore) ListListingsByState(state string, limit, offset int) ([]domain.ShelterPet, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.ShelterPet{}
+	for _, p := range s.shelterPets {
+		if p == nil {
+			continue
+		}
+		if state == "" || state == "all" || p.ListingState == state {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	total := len(out)
+	if offset > 0 && offset < len(out) {
+		out = out[offset:]
+	}
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, total
+}
+
+func (s *MemoryStore) CreateListingReport(report domain.ListingReport) (domain.ListingReport, error) {
+	if report.ID == "" {
+		report.ID = newID("lreport")
+	}
+	if report.CreatedAt == "" {
+		report.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if report.Status == "" {
+		report.Status = "open"
+	}
+	return report, nil
+}
+
+func (s *MemoryStore) ListListingReports(status string, trustedOnly bool, limit, offset int) ([]domain.ListingReport, int) {
+	return []domain.ListingReport{}, 0
+}
+
+func (s *MemoryStore) GetListingReport(reportID string) (*domain.ListingReport, error) {
+	return nil, fmt.Errorf("listing report not found")
+}
+
+func (s *MemoryStore) ResolveListingReport(reportID, resolution, note, actorID string) error {
+	return nil
+}
+
+func (s *MemoryStore) CreateStatementOfReasons(sor domain.ListingStatementOfReasons) (domain.ListingStatementOfReasons, error) {
+	if sor.ID == "" {
+		sor.ID = newID("sor")
+	}
+	if sor.IssuedAt == "" {
+		sor.IssuedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	return sor, nil
+}
+
+func (s *MemoryStore) ListStatementsOfReasons(listingID string) []domain.ListingStatementOfReasons {
+	return []domain.ListingStatementOfReasons{}
+}
+
+func (s *MemoryStore) CountShelterRejectionsLast90Days(shelterID string) int { return 0 }
+
+func (s *MemoryStore) ListShelterRejections(shelterID string, windowDays int) []domain.ListingStateTransition {
+	return []domain.ListingStateTransition{}
+}
+
+func (s *MemoryStore) DeleteStaleDrafts(olderThanDays int) error { return nil }
+
+// Analytics stubs — shelter analytics are a Postgres-only feature in
+// this repo. Memory store returns zeros so tests compile; no handler
+// uses these in-memory in production.
+func (s *MemoryStore) IncrementPetViewCount(petID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.shelterPets[petID]; ok && p != nil {
+		p.ViewCount++
+	}
+	return nil
+}
+func (s *MemoryStore) CountPetFavorites(petID string) int                        { return 0 }
+func (s *MemoryStore) CountShelterAdoptionsInRange(shelterID, interval string) int { return 0 }
+func (s *MemoryStore) CountShelterAdoptionsThisMonth(shelterID string) int        { return 0 }
+func (s *MemoryStore) CountShelterAdoptionsThisYear(shelterID string) int         { return 0 }
+func (s *MemoryStore) CountShelterActiveListings(shelterID string) int            { return 0 }
+func (s *MemoryStore) AvgDaysToAdoption(shelterID string) (float64, int)          { return 0, 0 }
+func (s *MemoryStore) TopApplicationListing(shelterID, interval string) (string, string, int) {
+	return "", "", 0
+}
+func (s *MemoryStore) ListingPerformance(shelterID, interval string) []domain.ListingPerformanceRow {
+	return []domain.ListingPerformanceRow{}
+}
+func (s *MemoryStore) ApplicationFunnel(shelterID, interval string) domain.ApplicationFunnel {
+	return domain.ApplicationFunnel{}
+}
+
+func (s *MemoryStore) RestoreShelterPet(petID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.shelterPets[petID]; ok && p != nil {
+		p.DeletedAt = ""
+	}
+	return nil
+}
+
+func (s *MemoryStore) SetAdoptionOutcome(petID, adopterName, adoptionDate, notes string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.shelterPets[petID]
+	if !ok || p == nil {
+		return fmt.Errorf("listing not found")
+	}
+	p.AdopterName = adopterName
+	p.AdoptionDate = adoptionDate
+	p.AdoptionNotes = notes
+	return nil
+}
+
+func (s *MemoryStore) GetShelterBySlug(slug string) (*domain.Shelter, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sh := range s.shelters {
+		if sh != nil && sh.Slug == slug && sh.VerifiedAt != "" {
+			copy := *sh
+			return &copy, nil
+		}
+	}
+	return nil, fmt.Errorf("shelter not found")
+}
+
+func (s *MemoryStore) AssignShelterSlug(shelterID, baseSlug string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shelters[shelterID]
+	if !ok || sh == nil {
+		return "", fmt.Errorf("shelter not found")
+	}
+	if sh.Slug != "" {
+		return sh.Slug, nil
+	}
+	sh.Slug = baseSlug
+	return sh.Slug, nil
+}
+
+func (s *MemoryStore) ListRecentlyAdopted(shelterID string, limit int) []domain.ShelterPet {
+	return []domain.ShelterPet{}
+}
+
+func (s *MemoryStore) ListFeaturedShelters(limit int) []domain.Shelter {
+	return []domain.Shelter{}
+}
+
+func (s *MemoryStore) SetShelterFeatured(shelterID string, featured bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shelters[shelterID]
+	if !ok || sh == nil {
+		return fmt.Errorf("shelter not found")
+	}
+	sh.IsFeatured = featured
+	return nil
+}
+
+func (s *MemoryStore) SuspendShelter(shelterID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shelters[shelterID]
+	if !ok {
+		return fmt.Errorf("shelter not found")
+	}
+	sh.Status = "suspended"
+	s.shelters[shelterID] = sh
+	return nil
 }
 
 // ── Pet Albums ──────────────────────────────────────────────────────

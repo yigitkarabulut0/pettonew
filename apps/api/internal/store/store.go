@@ -1,10 +1,34 @@
 package store
 
 import (
+	"errors"
 	"time"
 
 	"github.com/yigitkarabulut/petto/apps/api/internal/domain"
 )
+
+// ErrShelterApplicationDuplicateEmail is returned by
+// CreateShelterOnboardingApplication when the submitter's email already
+// has a submitted/under_review application open.
+var ErrShelterApplicationDuplicateEmail = errors.New("an application with this email is already in review")
+
+// ErrShelterApplicationNotFound is returned for lookups by id/token that
+// don't resolve.
+var ErrShelterApplicationNotFound = errors.New("shelter application not found")
+
+// ── Shelter team errors ────────────────────────────────────────────
+// Surface these as sentinel errors so HTTP handlers can map them to
+// specific status codes (409/410/423) without sniffing message text.
+
+var ErrShelterMemberNotFound = errors.New("shelter member not found")
+var ErrShelterMemberDuplicateEmail = errors.New("a member with this email already exists for this shelter")
+var ErrShelterMemberInviteNotFound = errors.New("shelter member invite not found")
+var ErrShelterMemberInviteDuplicateEmail = errors.New("an active invite for this email already exists")
+var ErrShelterMemberInviteExpired = errors.New("invite has expired")
+var ErrShelterMemberInviteAlreadyUsed = errors.New("invite has already been used")
+var ErrShelterMemberInviteRevoked = errors.New("invite has been revoked")
+var ErrShelterTeamFull = errors.New("team is full (20-member limit)")
+var ErrShelterLastAdmin = errors.New("cannot leave the shelter without an admin")
 
 // SendGroupMessageInput describes the payload for sending a group chat message.
 type SendGroupMessageInput struct {
@@ -31,6 +55,23 @@ type ListPlaydatesParams struct {
 	From   string // ISO — inclusive lower bound on playdate.date
 	To     string // ISO — exclusive upper bound
 	Sort   string // "distance" (default) | "time"
+}
+
+// ListAdoptablePetsParams filters the public adoption browse feed.
+type ListAdoptablePetsParams struct {
+	Species          string // dog|cat|...
+	Sex              string // male|female|multi-value "male,female"
+	Size             string // small|medium|large|xl|multi "small,medium"
+	City             string
+	MinAge           int // months; 0 = no lower bound
+	MaxAge           int // months; 0 = no upper bound
+	SpecialNeedsOnly bool
+	Lat              float64
+	Lng              float64
+	MaxDistanceKm    float64 // 0 = no distance cap
+	Search           string
+	Limit            int
+	Offset           int
 }
 
 type Store interface {
@@ -175,6 +216,12 @@ type Store interface {
 	// Venue reviews
 	ListVenueReviews(venueID string) []domain.VenueReview
 	CreateVenueReview(review domain.VenueReview) domain.VenueReview
+	// Venue detail extras (v0.12)
+	GetVenueStats(venueID string) domain.VenueStats
+	ListVenueCheckInsScoped(venueID string, mode string, limit int) []domain.VenueCheckIn
+	ListVenuePostsWithPhotos(venueID string, limit int) []domain.VenuePhotoFeedItem
+	UserHasCheckedIn(venueID string, userID string) bool
+	UserHasReviewed(venueID string, userID string) bool
 	// Pet sitters
 	ListPetSitters(city string) []domain.PetSitter
 	CreatePetSitter(sitter domain.PetSitter) domain.PetSitter
@@ -195,12 +242,125 @@ type Store interface {
 	ListWalkRoutes(city string) []domain.WalkRoute
 	CreateWalkRoute(route domain.WalkRoute) domain.WalkRoute
 	DeleteWalkRoute(routeID string) error
-	// Adoptions
-	ListAdoptions() []domain.AdoptionListing
-	CreateAdoption(listing domain.AdoptionListing) domain.AdoptionListing
-	UpdateAdoptionStatus(listingID string, status string) error
-	DeleteAdoption(listingID string) error
-	GetAdoption(listingID string) (*domain.AdoptionListing, error)
+	// Shelters & adoption (v0.13)
+	CreateShelter(shelter domain.Shelter, passwordHash string) (domain.Shelter, error)
+	ListShelters() []domain.Shelter
+	GetShelter(shelterID string) (*domain.Shelter, error)
+	GetShelterByEmail(email string) (*domain.Shelter, string, error) // returns shelter, passwordHash
+	UpdateShelter(shelterID string, patch domain.Shelter) (*domain.Shelter, error)
+	UpdateShelterPassword(shelterID string, passwordHash string) error
+	DeleteShelter(shelterID string) error
+	MarkShelterLoggedIn(shelterID string) error
+	GetShelterStats(shelterID string) domain.ShelterStats
+	ListShelterPets(shelterID string, statusFilter string) []domain.ShelterPet
+	ListPublicAdoptablePets(params ListAdoptablePetsParams) []domain.ShelterPet
+	GetShelterPet(petID string) (*domain.ShelterPet, error)
+	UpsertShelterPet(shelterID string, pet domain.ShelterPet) (domain.ShelterPet, error)
+	UpdateShelterPetStatus(petID string, status string) error
+	DeleteShelterPet(petID string) error
+	// RestoreShelterPet reverses a soft delete while the 30-day recovery
+	// window is still open.
+	RestoreShelterPet(petID string) error
+	// SetAdoptionOutcome persists the optional metadata captured by the
+	// "Mark adopted" dialog: adopter name, adoption date, internal notes.
+	SetAdoptionOutcome(petID, adopterName, adoptionDate, notes string) error
+	CreateAdoptionApplication(app domain.AdoptionApplication) (domain.AdoptionApplication, error)
+	ListShelterApplications(shelterID string, statusFilter string) []domain.AdoptionApplication
+	ListUserApplications(userID string) []domain.AdoptionApplication
+	GetApplication(appID string) (*domain.AdoptionApplication, error)
+	ApproveApplication(appID string, conversationID string) error
+	RejectApplication(appID string, reason string) error
+	CompleteAdoption(appID string) error
+	WithdrawApplication(appID string, userID string) error
+	// Shelter onboarding applications (v0.14) — public wizard → admin queue.
+	// CreateShelterOnboardingApplication assigns ID + access token + SLA
+	// deadline (submitted_at + 48h) and returns the full row. Returns
+	// ErrShelterApplicationDuplicateEmail if the email already has an
+	// in-flight submission.
+	CreateShelterOnboardingApplication(app domain.ShelterApplication) (domain.ShelterApplication, error)
+	GetShelterOnboardingApplication(appID string) (*domain.ShelterApplication, error)
+	GetShelterOnboardingApplicationByToken(accessToken string) (*domain.ShelterApplication, error)
+	ListShelterOnboardingApplications(statusFilter string, limit int, offset int) []domain.ShelterApplication
+	ApproveShelterOnboardingApplication(appID string, reviewerID string, passwordHash string) (domain.Shelter, domain.ShelterApplication, error)
+	RejectShelterOnboardingApplication(appID string, reviewerID string, reasonCode string, reasonNote string) (domain.ShelterApplication, error)
+	// Shelter team members + invites + audit log (v0.15).
+	// Multi-user access per shelter with 3 roles (admin/editor/viewer),
+	// 72h invite links, append-only audit log. Authentication lookups
+	// flow through ListShelterMembers / GetShelterMemberByEmail instead
+	// of the single-user Shelter row.
+	ListShelterMembers(shelterID string) []domain.ShelterMember
+	GetShelterMember(memberID string) (*domain.ShelterMember, error)
+	GetShelterMemberByEmailForLogin(email string) (*domain.ShelterMember, string, error) // member, passwordHash
+	UpdateShelterMemberRole(memberID string, newRole string) (*domain.ShelterMember, error)
+	UpdateShelterMemberPassword(memberID string, passwordHash string) error
+	UpdateShelterMemberName(memberID string, name string) error
+	RevokeShelterMember(memberID string) error
+	MarkShelterMemberLoggedIn(memberID string) error
+	CountActiveShelterMembers(shelterID string) int
+	CountActiveShelterAdmins(shelterID string) int
+
+	CreateShelterMemberInvite(invite domain.ShelterMemberInvite) (domain.ShelterMemberInvite, error)
+	ListShelterMemberInvites(shelterID string) []domain.ShelterMemberInvite
+	GetShelterMemberInviteByID(inviteID string) (*domain.ShelterMemberInvite, error)
+	GetShelterMemberInviteByToken(token string) (*domain.ShelterMemberInvite, error)
+	RevokeShelterMemberInvite(inviteID string) error
+	ResendShelterMemberInvite(inviteID string) (domain.ShelterMemberInvite, error)
+	AcceptShelterMemberInvite(token string, passwordHash string, name string) (domain.ShelterMember, domain.ShelterMemberInvite, error)
+
+	RecordShelterAudit(entry domain.ShelterAuditEntry) error
+	ListShelterAuditLog(shelterID string, limit int, offset int) []domain.ShelterAuditEntry
+
+	// Listing state machine + DSA moderation (v0.17). TransitionListingState
+	// validates the (from, to, actor) triple against domain.AllowedListing-
+	// Transitions, writes the new state on the listing row, appends a row to
+	// listing_state_transitions, and — for `rejected` moves — persists a
+	// Statement of Reasons. All inside a single tx so the state, audit
+	// trail and SoR stay consistent.
+	TransitionListingState(listingID, newState, actorID, actorRole, reasonCode, note string, meta map[string]any) (domain.ShelterPet, error)
+	SetListingAutoFlagReasons(listingID string, reasons []string) error
+	ListListingTransitions(listingID string) []domain.ListingStateTransition
+	ListListingsByState(state string, limit, offset int) ([]domain.ShelterPet, int)
+	CreateListingReport(report domain.ListingReport) (domain.ListingReport, error)
+	ListListingReports(status string, trustedOnly bool, limit, offset int) ([]domain.ListingReport, int)
+	GetListingReport(reportID string) (*domain.ListingReport, error)
+	ResolveListingReport(reportID, resolution, note, actorID string) error
+	CreateStatementOfReasons(sor domain.ListingStatementOfReasons) (domain.ListingStatementOfReasons, error)
+	ListStatementsOfReasons(listingID string) []domain.ListingStatementOfReasons
+	CountShelterRejectionsLast90Days(shelterID string) int
+	ListShelterRejections(shelterID string, windowDays int) []domain.ListingStateTransition
+	SuspendShelter(shelterID string) error
+
+	// Public profile (v0.21). GetShelterBySlug returns nil if unverified
+	// or no match; AssignShelterSlug is called on application approval
+	// and is idempotent once a slug is set.
+	GetShelterBySlug(slug string) (*domain.Shelter, error)
+	AssignShelterSlug(shelterID, baseSlug string) (string, error)
+	ListRecentlyAdopted(shelterID string, limit int) []domain.ShelterPet
+
+	// Featured shelters rail (v0.24). Admin-curated list surfaced on
+	// the fetcht discovery home. Server caps at 10.
+	ListFeaturedShelters(limit int) []domain.Shelter
+	SetShelterFeatured(shelterID string, featured bool) error
+
+	// DeleteStaleDrafts removes any shelter_pets row in listing_state=
+	// 'draft' with updated_at older than `olderThanDays`. Called on an
+	// hourly sweeper goroutine started from cmd/api. Returns only fatal
+	// errors; the sweeper treats this as best-effort.
+	DeleteStaleDrafts(olderThanDays int) error
+
+	// Analytics (v0.22) — shelter-scoped, server-computed aggregates.
+	// `interval` is a Postgres INTERVAL literal string (e.g. "30 days"
+	// or "12 months"); empty string means no time filter.
+	IncrementPetViewCount(petID string) error
+	CountPetFavorites(petID string) int
+	CountShelterAdoptionsInRange(shelterID, interval string) int
+	CountShelterAdoptionsThisMonth(shelterID string) int
+	CountShelterAdoptionsThisYear(shelterID string) int
+	CountShelterActiveListings(shelterID string) int
+	AvgDaysToAdoption(shelterID string) (float64, int)
+	TopApplicationListing(shelterID, interval string) (string, string, int)
+	ListingPerformance(shelterID, interval string) []domain.ListingPerformanceRow
+	ApplicationFunnel(shelterID, interval string) domain.ApplicationFunnel
 	// Pet albums
 	ListPetAlbums(petID string) []domain.PetAlbum
 	CreatePetAlbum(album domain.PetAlbum) domain.PetAlbum

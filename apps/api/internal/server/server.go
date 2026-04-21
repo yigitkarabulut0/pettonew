@@ -142,6 +142,32 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/reset-password", s.handleResetPassword)
 		})
 
+		// v0.14 — Public shelter onboarding. The wizard runs
+		// unauthenticated (applicants don't have accounts yet); rate
+		// limiting is handled at the edge.
+		router.Route("/public", func(router chi.Router) {
+			router.Get("/taxonomies/shelter-entity-types", s.handlePublicShelterEntityTypes)
+			router.Post("/shelter-applications", s.handlePublicShelterApplicationSubmit)
+			router.Get("/shelter-applications/{token}", s.handlePublicShelterApplicationStatus)
+			router.Post("/shelter-applications/presign", s.handlePublicShelterApplicationPresign)
+			// v0.15 — Public shelter member invite accept.
+			router.Get("/shelter-invites/{token}", s.handlePublicShelterInviteInfo)
+			router.Post("/shelter-invites/{token}/accept", s.handlePublicShelterInviteAccept)
+			// v0.24 — Featured shelters rail for the fetcht discovery
+			// home. Admin-curated, verified-only, capped at 10.
+			// Registered BEFORE the slug route so chi's trie picks the
+			// literal match first.
+			router.Get("/shelters/featured", s.handlePublicListFeaturedShelters)
+			// v0.21 — Public shelter profile pages. Slug-keyed,
+			// verified-only; contact channels stripped from payload.
+			router.Get("/shelters/{slug}", s.handlePublicShelterProfile)
+			router.Get("/shelters/{slug}/pets", s.handlePublicShelterPets)
+			router.Get("/shelters/{slug}/pets/{petID}", s.handlePublicShelterPetDetail)
+			router.Get("/shelters/{slug}/recently-adopted", s.handlePublicShelterRecentlyAdopted)
+			// v0.22 — Anonymous view tracking (increments view_count).
+			router.Post("/pets/{petID}/view", s.handlePublicPetView)
+		})
+
 		router.Group(func(router chi.Router) {
 			router.Use(s.appAuth)
 			router.Get("/me", s.handleMe)
@@ -255,20 +281,30 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/training-tips/{tipID}/complete", s.handleCompleteTip)
 			// Vet clinics nearby
 			router.Get("/vet-clinics", s.handleListVetClinicsNearby)
-			// Venue reviews
+			// Venue reviews & detail
+			router.Get("/venues/{venueID}", s.handleVenueDetail)
 			router.Get("/venues/{venueID}/photos", s.handleVenuePhotos)
+			router.Get("/venues/{venueID}/posts", s.handleVenuePostsFeed)
+			router.Get("/venues/{venueID}/check-ins", s.handleVenueCheckInsList)
 			router.Get("/venues/{venueID}/reviews", s.handleListVenueReviews)
 			router.Post("/venues/{venueID}/reviews", s.handleCreateVenueReview)
+			router.Get("/venues/{venueID}/reviews/summary", s.handleVenueReviewSummary)
+			router.Get("/venues/{venueID}/reviews/eligibility", s.handleVenueReviewEligibility)
 			// Pet sitters
 			router.Get("/pet-sitters", s.handleListPetSitters)
 			router.Post("/pet-sitters", s.handleCreatePetSitter)
 			// Walk routes
 			router.Get("/walk-routes", s.handleListWalkRoutes)
-			// Adoptions
-			router.Get("/adoptions", s.handleListAdoptions)
-			router.Post("/adoptions", s.handleCreateAdoption)
-			router.Patch("/adoptions/{listingID}", s.handleUpdateMyAdoption)
-			router.Delete("/adoptions/{listingID}", s.handleDeleteMyAdoption)
+
+			// Adoption (shelter-powered, v0.13) — public browse + user application flow.
+			router.Get("/shelters", s.handlePublicListShelters)
+			router.Get("/shelters/{shelterID}", s.handlePublicGetShelter)
+			router.Get("/adoption-pets", s.handlePublicListAdoptablePets)
+			router.Get("/adoption-pets/{petID}", s.handlePublicGetAdoptablePet)
+			router.Post("/adoption-applications", s.handlePublicCreateApplication)
+			router.Get("/me/adoption-applications", s.handlePublicListMyApplications)
+			router.Post("/adoption-applications/{appID}/withdraw", s.handlePublicWithdrawApplication)
+
 			// Pet albums
 			router.Get("/pets/{petID}/albums", s.handleListPetAlbums)
 			router.Post("/pets/{petID}/albums", s.handleCreatePetAlbum)
@@ -349,10 +385,8 @@ func (s *Server) Routes() http.Handler {
 				router.Get("/walk-routes", s.handleAdminListWalkRoutes)
 				router.Post("/walk-routes", s.handleAdminCreateWalkRoute)
 				router.Delete("/walk-routes/{routeID}", s.handleAdminDeleteWalkRoute)
-				// Adoptions
-				router.Get("/adoptions", s.handleAdminListAdoptions)
-				router.Patch("/adoptions/{listingID}", s.handleAdminUpdateAdoption)
-				router.Delete("/adoptions/{listingID}", s.handleAdminDeleteAdoption)
+				// Shelters & shelter pets (v0.13) — routes registered in a
+				// dedicated block below alongside the new handlers.
 
 				// Playdates
 				router.Get("/playdates", s.handleAdminPlaydates)
@@ -398,6 +432,38 @@ func (s *Server) Routes() http.Handler {
 
 				// Audit
 				router.Get("/audit-logs", s.handleAdminAuditLogs)
+
+				// Shelters (v0.13) — create/list/delete + password reset.
+				router.Get("/shelters", s.handleAdminListShelters)
+				router.Post("/shelters", s.handleAdminCreateShelter)
+				router.Get("/shelters/{shelterID}", s.handleAdminGetShelter)
+				router.Delete("/shelters/{shelterID}", s.handleAdminDeleteShelter)
+				router.Post("/shelters/{shelterID}/reset-password", s.handleAdminResetShelterPassword)
+				// v0.24 — Featured-on-discovery toggle.
+				router.Post("/shelters/{shelterID}/featured", s.handleAdminSetShelterFeatured)
+
+				// Listings moderation (v0.17) — DSA Art. 16/17/22/23 queue,
+				// reports queue, and shelter strike tracking.
+				router.Get("/listings", s.handleAdminListingQueue)
+				router.Get("/listings/rejection-codes", s.handleAdminListingRejectionCodes)
+				router.Get("/listings/{listingID}", s.handleAdminListingDetail)
+				router.Post("/listings/{listingID}/approve", s.handleAdminApproveListing)
+				router.Post("/listings/{listingID}/reject", s.handleAdminRejectListing)
+				router.Get("/listing-reports", s.handleAdminListListingReports)
+				router.Post("/listing-reports/{reportID}/resolve", s.handleAdminResolveListingReport)
+				router.Get("/shelters/{shelterID}/strikes", s.handleAdminShelterStrikes)
+				router.Post("/shelters/{shelterID}/suspend", s.handleAdminSuspendShelter)
+
+				// Shelter onboarding applications (v0.14) — public wizard → admin queue.
+				router.Get("/shelter-applications", s.handleAdminListShelterApplications)
+				router.Get("/shelter-applications/{appID}", s.handleAdminGetShelterApplication)
+				router.Post("/shelter-applications/{appID}/approve", s.handleAdminApproveShelterApplication)
+				router.Post("/shelter-applications/{appID}/reject", s.handleAdminRejectShelterApplication)
+
+				// Shelter teams & audit (v0.15) — per-shelter read-only views.
+				router.Get("/shelters/{shelterID}/members", s.handleAdminShelterMembers)
+				router.Get("/shelters/{shelterID}/audit-log", s.handleAdminShelterAuditLog)
+				router.Post("/shelters/{shelterID}/transfer-admin", s.handleAdminShelterTransferAdmin)
 
 				// Moderation — conversations, matches, swipes, blocks
 				router.Get("/conversations", s.handleAdminConversations)
@@ -451,6 +517,78 @@ func (s *Server) Routes() http.Handler {
 				router.Delete("/badges/{id}", s.handleAdminDeleteBadge)
 			})
 		})
+
+		// ── Shelter panel API (v0.13) ────────────────────────────
+		// Signed-in shelter uses /shelter/v1. Public URL shape:
+		//   POST /shelter/v1/auth/login
+		//   GET  /shelter/v1/me
+		//   GET  /shelter/v1/pets ...
+		router.Route("/shelter", func(router chi.Router) {
+			router.Post("/auth/login", s.handleShelterLogin)
+			router.Group(func(router chi.Router) {
+				router.Use(s.shelterAuth)
+				router.Get("/me", s.handleShelterMe)
+				router.Put("/me", s.handleShelterUpdateProfile)
+				router.Post("/me/password", s.handleShelterChangePassword)
+				router.Get("/stats", s.handleShelterStats)
+
+				// Shared catalogue + uploads so shelters can use the same species
+				// and breed taxonomy as admins, and upload photos directly to R2.
+				router.Get("/taxonomies/{kind}", s.handleTaxonomyList)
+				router.Post("/media/presign", s.handleMediaPresign)
+
+				router.Get("/pets", s.handleShelterListPets)
+				router.Post("/pets", s.handleShelterCreatePet)
+				router.Get("/pets/{petID}", s.handleShelterGetPet)
+				router.Put("/pets/{petID}", s.handleShelterUpdatePet)
+				router.Patch("/pets/{petID}/status", s.handleShelterUpdatePetStatus)
+				router.Delete("/pets/{petID}", s.handleShelterDeletePet)
+				// Listing lifecycle (v0.17) — DSA state machine.
+				router.Post("/pets/{petID}/submit", s.handleShelterSubmitListing)
+				router.Post("/pets/{petID}/transition", s.handleShelterListingTransition)
+				// Wizard support (v0.18) — jurisdiction config + duplicate.
+				router.Get("/listing-config", s.handleShelterListingConfig)
+				router.Post("/pets/{petID}/duplicate", s.handleShelterDuplicateListing)
+				// Bulk CSV import (v0.19) — client pre-validates rows; server
+				// re-checks compliance + creates drafts in a single POST.
+				router.Post("/pets/bulk", s.handleShelterBulkCreate)
+				// Post-publish management (v0.20) — bulk actions, restore.
+				router.Post("/pets/bulk-action", s.handleShelterBulkAction)
+				router.Post("/pets/{petID}/restore", s.handleShelterRestoreListing)
+
+				// Analytics dashboard (v0.22) — editor+ only.
+				router.Group(func(r chi.Router) {
+					r.Use(s.requireShelterRole("editor"))
+					r.Get("/analytics/overview", s.handleShelterAnalyticsOverview)
+					r.Get("/analytics/listings", s.handleShelterAnalyticsListings)
+					r.Get("/analytics/funnel", s.handleShelterAnalyticsFunnel)
+					r.Get("/analytics/export.csv", s.handleShelterAnalyticsExport)
+				})
+
+				router.Get("/applications", s.handleShelterListApplications)
+				router.Get("/applications/{appID}", s.handleShelterGetApplication)
+				router.Post("/applications/{appID}/approve", s.handleShelterApproveApplication)
+				router.Post("/applications/{appID}/reject", s.handleShelterRejectApplication)
+				router.Post("/applications/{appID}/complete", s.handleShelterCompleteAdoption)
+
+				// v0.15 — team members + invites + audit log.
+				router.Get("/members", s.handleShelterListMembers)
+				router.Patch("/members/{memberID}", s.handleShelterUpdateMemberRole)
+				router.Delete("/members/{memberID}", s.handleShelterRevokeMember)
+				router.Get("/members/invites", s.handleShelterListMemberInvites)
+				router.Post("/members/invites", s.handleShelterCreateMemberInvite)
+				router.Post("/members/invites/{inviteID}/resend", s.handleShelterResendMemberInvite)
+				router.Delete("/members/invites/{inviteID}", s.handleShelterRevokeMemberInvite)
+				router.Get("/audit-log", s.handleShelterListAuditLog)
+
+				// Shelters reuse the user messaging endpoints through their shelter
+				// identity; GET /shelter/v1/conversations proxies the same store.
+				router.Get("/conversations", s.handleConversations)
+				router.Get("/messages", s.handleMessages)
+				router.Post("/messages", s.handleSendMessage)
+				router.Post("/messages/read", s.handleMarkMessagesRead)
+			})
+		})
 	})
 
 	return router
@@ -492,6 +630,62 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 
 		next.ServeHTTP(writer, request.WithContext(context.WithValue(request.Context(), userIDKey, userID)))
 	})
+}
+
+// shelterAuth validates shelter-issued JWTs (kind="shelter"). The shelter
+// identity is stored under userIDKey so handlers can read it with
+// currentUserID(r) — consistent with the user and admin middlewares.
+//
+// Starting with v0.15 (team accounts), the JWT subject is a member ID
+// (not the shelter ID directly). The middleware looks up the member,
+// enforces active status, and injects memberID/shelterID/role into
+// context so downstream handlers can gate per-role without re-querying.
+func (s *Server) shelterAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		memberID, err := s.authenticate(request, s.cfg.AdminJWTSecret, "shelter")
+		if err != nil {
+			writeError(writer, http.StatusUnauthorized, err.Error())
+			return
+		}
+		member, err := s.store.GetShelterMember(memberID)
+		if err != nil || member == nil {
+			writeError(writer, http.StatusUnauthorized, "invalid session")
+			return
+		}
+		// Revoke takes effect at the next request — the member's JWT
+		// is still signed and unexpired, but we refuse it here.
+		if member.Status != "active" {
+			writeError(writer, http.StatusUnauthorized, "member is no longer active")
+			return
+		}
+		ctx := request.Context()
+		// Keep userIDKey pointing at the shelter ID so every legacy
+		// handler that calls `currentShelterID(r)` (which is aliased to
+		// currentUserID) keeps working — it reads the shelter scope,
+		// not who's acting. Member-specific helpers read from the new
+		// keys below.
+		ctx = context.WithValue(ctx, userIDKey, member.ShelterID)
+		ctx = context.WithValue(ctx, shelterMemberIDKey, member.ID)
+		ctx = context.WithValue(ctx, shelterMemberRoleKey, member.Role)
+		next.ServeHTTP(writer, request.WithContext(ctx))
+	})
+}
+
+const shelterMemberIDKey contextKey = "shelterMemberID"
+const shelterMemberRoleKey contextKey = "shelterMemberRole"
+
+func currentShelterMemberID(r *http.Request) string {
+	if v, ok := r.Context().Value(shelterMemberIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func currentShelterMemberRole(r *http.Request) string {
+	if v, ok := r.Context().Value(shelterMemberRoleKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 func (s *Server) authenticate(request *http.Request, secret string, expectedKind string) (string, error) {
@@ -544,6 +738,27 @@ func (s *Server) issueAdminSession(adminID string) (map[string]any, error) {
 	return map[string]any{
 		"accessToken": accessToken,
 		"expiresIn":   28800,
+	}, nil
+}
+
+// issueShelterSession produces a shelter JWT. Signed with AdminJWTSecret
+// (separate namespace via kind="shelter") so we don't need a new env var.
+//
+// The JWT subject is the member ID (v0.15+). Clients receive the full
+// shelter + member object in the response so they can render role-based
+// UI without a second round-trip. `shelter` is kept for back-compat
+// with older web/mobile builds; new clients read `member.role`.
+func (s *Server) issueShelterSession(shelter *domain.Shelter, member *domain.ShelterMember) (map[string]any, error) {
+	accessToken, err := auth.CreateToken(s.cfg.AdminJWTSecret, member.ID, "shelter", "petto-shelter", 12*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"shelter":            shelter,
+		"member":             member,
+		"accessToken":        accessToken,
+		"expiresIn":          12 * 60 * 60,
+		"mustChangePassword": member.MustChangePassword,
 	}, nil
 }
 
@@ -1257,6 +1472,28 @@ func (s *Server) handleReport(writer http.ResponseWriter, request *http.Request)
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// DSA notice-and-action (Art. 16): listing reports also enter the
+	// dedicated listing_reports queue so admins can apply listing-
+	// specific resolutions (dismiss / warn / remove / suspend) and so
+	// trusted flaggers (Art. 22) can be prioritised.
+	if payload.TargetType == "shelter_listing" && payload.TargetID != "" {
+		shelterID := ""
+		if pet, err := s.store.GetShelterPet(payload.TargetID); err == nil && pet != nil {
+			shelterID = pet.ShelterID
+		}
+		_, _ = s.store.CreateListingReport(domain.ListingReport{
+			ListingID:      payload.TargetID,
+			ShelterID:      shelterID,
+			ReporterID:     user.Profile.ID,
+			ReporterName:   user.Profile.FirstName,
+			TrustedFlagger: domain.IsTrustedFlagger(user.Profile.ID),
+			Reason:         payload.Reason,
+			Description:    payload.TargetLabel,
+			Status:         "open",
+		})
+	}
+
 	writeJSON(writer, http.StatusCreated, map[string]any{"data": report})
 }
 
@@ -2748,8 +2985,24 @@ func (s *Server) handleCreateVenueReview(writer http.ResponseWriter, request *ht
 	if !decodeJSON(writer, request, &payload) {
 		return
 	}
+	if payload.Rating < 1 || payload.Rating > 5 {
+		writeError(writer, http.StatusBadRequest, "rating must be between 1 and 5")
+		return
+	}
 
 	userID := currentUserID(request)
+	venueID := chi.URLParam(request, "venueID")
+
+	// Gate: only past visitors may review; one review per user per venue.
+	if !s.store.UserHasCheckedIn(venueID, userID) {
+		writeError(writer, http.StatusForbidden, "you must check in at this venue before reviewing")
+		return
+	}
+	if s.store.UserHasReviewed(venueID, userID) {
+		writeError(writer, http.StatusConflict, "you have already reviewed this venue")
+		return
+	}
+
 	user, err := s.store.GetUser(userID)
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
@@ -2757,7 +3010,7 @@ func (s *Server) handleCreateVenueReview(writer http.ResponseWriter, request *ht
 	}
 
 	review := s.store.CreateVenueReview(domain.VenueReview{
-		VenueID:  chi.URLParam(request, "venueID"),
+		VenueID:  venueID,
 		UserID:   userID,
 		UserName: strings.TrimSpace(user.Profile.FirstName + " " + user.Profile.LastName),
 		Rating:   payload.Rating,
@@ -2833,96 +3086,8 @@ func (s *Server) handleAdminDeleteWalkRoute(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
 }
 
-// ── Adoptions ───────────────────────────────────────────────────────
-
-func (s *Server) handleListAdoptions(writer http.ResponseWriter, request *http.Request) {
-	adoptions := s.store.ListAdoptions()
-	writeJSON(writer, http.StatusOK, map[string]any{"data": adoptions})
-}
-
-func (s *Server) handleCreateAdoption(writer http.ResponseWriter, request *http.Request) {
-	var payload domain.AdoptionListing
-	if !decodeJSON(writer, request, &payload) {
-		return
-	}
-	payload.UserID = currentUserID(request)
-	result := s.store.CreateAdoption(payload)
-	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
-}
-
-func (s *Server) handleAdminListAdoptions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListAdoptions()})
-}
-
-func (s *Server) handleAdminUpdateAdoption(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Status string `json:"status"`
-	}
-	if !decodeJSON(w, r, &payload) {
-		return
-	}
-	if err := s.store.UpdateAdoptionStatus(chi.URLParam(r, "listingID"), payload.Status); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
-}
-
-func (s *Server) handleAdminDeleteAdoption(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteAdoption(chi.URLParam(r, "listingID")); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
-}
-
-func (s *Server) handleUpdateMyAdoption(w http.ResponseWriter, r *http.Request) {
-	listingID := chi.URLParam(r, "listingID")
-	userID := currentUserID(r)
-
-	listing, err := s.store.GetAdoption(listingID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "listing not found")
-		return
-	}
-	if listing.UserID != userID {
-		writeError(w, http.StatusForbidden, "not your listing")
-		return
-	}
-
-	var payload struct {
-		Status string `json:"status"`
-	}
-	if !decodeJSON(w, r, &payload) {
-		return
-	}
-	if err := s.store.UpdateAdoptionStatus(listingID, payload.Status); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"updated": true}})
-}
-
-func (s *Server) handleDeleteMyAdoption(w http.ResponseWriter, r *http.Request) {
-	listingID := chi.URLParam(r, "listingID")
-	userID := currentUserID(r)
-
-	listing, err := s.store.GetAdoption(listingID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "listing not found")
-		return
-	}
-	if listing.UserID != userID {
-		writeError(w, http.StatusForbidden, "not your listing")
-		return
-	}
-
-	if err := s.store.DeleteAdoption(listingID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
-}
+// Adoptions v0.13 — old user-created listings removed. See server.go
+// shelter + adoption-application routes below for the new flow.
 
 // ── Pet Albums ──────────────────────────────────────────────────────
 

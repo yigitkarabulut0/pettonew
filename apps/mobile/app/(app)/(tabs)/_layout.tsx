@@ -118,6 +118,11 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />
         }}
       />
+      {/* Legacy files still present in the folder but hidden from the tab
+          bar. Keeping them here (with href: null) stops Expo Router from
+          auto-appending them as tabs without forcing a delete. */}
+      <Tabs.Screen name="chat" options={{ href: null }} />
+      <Tabs.Screen name="explore" options={{ href: null }} />
     </Tabs>
   );
 }

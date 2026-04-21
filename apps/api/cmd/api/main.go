@@ -91,6 +91,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Background draft sweeper — deletes shelter_pets rows stuck in
+	// `draft` for 30+ days. Hourly cadence; stops with the process.
+	apiServer.StartDraftSweeper(ctx)
+
 	go func() {
 		log.Printf("fetcht api listening on http://localhost:%s", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {

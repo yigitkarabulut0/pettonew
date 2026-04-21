@@ -38,6 +38,8 @@ import {
 
 import { useTranslation } from "react-i18next";
 
+import { DebugTapTrigger } from "@petto/debug-panel";
+
 import { Avatar } from "@/components/avatar";
 import { PetDetailModal } from "@/components/pet-card";
 import { ReportModal } from "@/components/report-modal";
@@ -206,11 +208,13 @@ export default function HomePage() {
           paddingHorizontal: mobileTheme.spacing.xl
         }}
       >
-        <Avatar
-          uri={session?.user.avatarUrl}
-          name={session?.user.firstName}
-          size="md"
-        />
+        <DebugTapTrigger>
+          <Avatar
+            uri={session?.user.avatarUrl}
+            name={session?.user.firstName}
+            size="md"
+          />
+        </DebugTapTrigger>
         <Text
           style={{
             fontSize: mobileTheme.typography.heading.fontSize,
@@ -320,7 +324,7 @@ export default function HomePage() {
           {[
             { label: t("home.groups"), icon: Users, route: "/(app)/groups", color: theme.colors.secondary },
             { label: t("home.playdates"), icon: Calendar, route: "/(app)/playdates", color: theme.colors.primary },
-            { label: t("home.adopt"), icon: Heart, route: "/(app)/lost-pets", color: theme.colors.primary }
+            { label: t("home.adopt"), icon: Heart, route: "/(app)/adopt", color: theme.colors.primary }
           ].map((item) => (
             <Pressable
               key={item.label}

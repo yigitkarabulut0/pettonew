@@ -1,5 +1,7 @@
 import type {
-  AdoptionListing,
+  AdoptablePetFilters,
+  AdoptionApplication,
+  AdoptionApplicationInput,
   Badge,
   CommunityGroup,
   Conversation,
@@ -24,7 +26,14 @@ import type {
   TaxonomyKind,
   TrainingTip,
   UploadedAsset,
+  Shelter,
+  ShelterPet,
   UserProfile,
+  VenueCheckIn,
+  VenueDetail,
+  VenuePhotoFeedItem,
+  VenueStats,
+  ReviewEligibility,
   VetClinic,
   VetContact,
   VenueReview,
@@ -1597,40 +1606,211 @@ export async function createVenueReview(accessToken: string, venueId: string, ra
   return request<VenueReview>(`/v1/venues/${venueId}/reviews`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ rating, comment }) });
 }
 
-export async function listAdoptions(accessToken: string): Promise<AdoptionListing[]> {
-  const data = await request<AdoptionListing[] | null>("/v1/adoptions", { headers: authHeaders(accessToken) });
+// Venue detail + derived feeds (v0.12)
+export async function getVenueDetail(
+  accessToken: string,
+  venueId: string,
+  lat?: number,
+  lng?: number
+): Promise<VenueDetail> {
+  const params = new URLSearchParams();
+  if (typeof lat === "number") params.set("lat", String(lat));
+  if (typeof lng === "number") params.set("lng", String(lng));
+  const qs = params.toString();
+  const path = qs ? `/v1/venues/${venueId}?${qs}` : `/v1/venues/${venueId}`;
+  return request<VenueDetail>(path, { headers: authHeaders(accessToken) });
+}
+
+export async function listVenuePosts(
+  accessToken: string,
+  venueId: string,
+  limit = 50
+): Promise<VenuePhotoFeedItem[]> {
+  const data = await request<VenuePhotoFeedItem[] | null>(
+    `/v1/venues/${venueId}/posts?limit=${limit}`,
+    { headers: authHeaders(accessToken) }
+  );
   return data ?? [];
 }
 
-export async function createAdoption(
+export async function listVenueCheckIns(
   accessToken: string,
-  listing: Omit<AdoptionListing, "id" | "status" | "userId" | "userName" | "createdAt">
-): Promise<AdoptionListing> {
-  return request<AdoptionListing>("/v1/adoptions", {
+  venueId: string,
+  mode: "active" | "history" | "all" = "active",
+  limit = 50
+): Promise<VenueCheckIn[]> {
+  const data = await request<VenueCheckIn[] | null>(
+    `/v1/venues/${venueId}/check-ins?mode=${mode}&limit=${limit}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+
+export async function getVenueReviewSummary(
+  accessToken: string,
+  venueId: string
+): Promise<VenueStats> {
+  return request<VenueStats>(`/v1/venues/${venueId}/reviews/summary`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function getReviewEligibility(
+  accessToken: string,
+  venueId: string
+): Promise<ReviewEligibility> {
+  return request<ReviewEligibility>(`/v1/venues/${venueId}/reviews/eligibility`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+// ── Shelters & adoption (v0.13) ───────────────────────────────────
+// User-side browsing + application submission. Shelter account actions
+// live in apps/shelter-mobile (separate app) and apps/shelter-web.
+
+export async function listShelters(accessToken: string): Promise<Shelter[]> {
+  const data = await request<Shelter[] | null>("/v1/shelters", {
+    headers: authHeaders(accessToken)
+  });
+  return data ?? [];
+}
+
+// ShelterProfile is the enriched response for /v1/shelters/:id. The
+// server now bundles recently-adopted + jurisdiction disclosure so
+// the mobile detail screen renders in one request.
+export type ShelterProfileResponse = {
+  shelter: Shelter;
+  pets: ShelterPet[];
+  recentlyAdopted?: ShelterPet[] | null;
+  disclosure?: {
+    country: string;
+    title: string;
+    body: string;
+    linkUrl?: string;
+  } | null;
+};
+
+export async function getShelter(
+  accessToken: string,
+  shelterId: string,
+  location?: { latitude: number; longitude: number }
+): Promise<ShelterProfileResponse> {
+  const qs = location
+    ? `?lat=${location.latitude}&lng=${location.longitude}`
+    : "";
+  return request<ShelterProfileResponse>(
+    `/v1/shelters/${shelterId}${qs}`,
+    { headers: authHeaders(accessToken) }
+  );
+}
+
+export async function listAdoptablePets(
+  accessToken: string,
+  filters: AdoptablePetFilters & {
+    minAgeMonths?: number;
+    specialNeedsOnly?: boolean;
+    maxDistanceKm?: number;
+  } = {},
+  location?: { latitude: number; longitude: number }
+): Promise<ShelterPet[]> {
+  const params = new URLSearchParams();
+  if (filters.species) params.set("species", filters.species);
+  if (filters.sex) params.set("sex", filters.sex);
+  if (filters.size) params.set("size", filters.size);
+  if (filters.city) params.set("city", filters.city);
+  if (filters.minAgeMonths) params.set("minAgeMonths", String(filters.minAgeMonths));
+  if (filters.maxAgeMonths) params.set("maxAgeMonths", String(filters.maxAgeMonths));
+  if (filters.specialNeedsOnly) params.set("specialNeeds", "1");
+  if (filters.maxDistanceKm && filters.maxDistanceKm > 0) {
+    params.set("maxDistanceKm", String(filters.maxDistanceKm));
+  }
+  if (filters.search) params.set("search", filters.search);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  if (location) {
+    params.set("lat", String(location.latitude));
+    params.set("lng", String(location.longitude));
+  }
+  const qs = params.toString();
+  const path = qs ? `/v1/adoption-pets?${qs}` : "/v1/adoption-pets";
+  const data = await request<ShelterPet[] | null>(path, {
+    headers: authHeaders(accessToken)
+  });
+  return data ?? [];
+}
+
+// Featured shelters rail (v0.24). Anonymous public endpoint; no bearer
+// token needed, but the mobile app always has one so sending it is fine.
+export async function listFeaturedShelters(): Promise<Shelter[]> {
+  const data = await request<Shelter[] | null>("/v1/public/shelters/featured");
+  return data ?? [];
+}
+
+// AdoptablePetDetail is the enriched response for /v1/adoption-pets/:id.
+// Server strips the microchip ID and returns only the `microchipPresent`
+// flag; shelter mini-card + jurisdiction disclosure are bundled.
+export type AdoptablePetDetail = {
+  pet: ShelterPet;
+  microchipPresent: boolean;
+  shelter: Shelter;
+  disclosure?: {
+    country: string;
+    title: string;
+    body: string;
+    linkUrl?: string;
+  } | null;
+};
+
+export async function getAdoptablePet(
+  accessToken: string,
+  petId: string,
+  location?: { latitude: number; longitude: number }
+): Promise<AdoptablePetDetail> {
+  const qs = location
+    ? `?lat=${location.latitude}&lng=${location.longitude}`
+    : "";
+  return request<AdoptablePetDetail>(`/v1/adoption-pets/${petId}${qs}`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+// Fire-and-forget view counter for adopter analytics. Errors are
+// swallowed — a failed view-track shouldn't block navigation.
+export async function trackPetView(petId: string): Promise<void> {
+  try {
+    await request(`/v1/public/pets/${petId}/view`, { method: "POST" });
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function createAdoptionApplication(
+  accessToken: string,
+  input: AdoptionApplicationInput
+): Promise<AdoptionApplication> {
+  return request<AdoptionApplication>("/v1/adoption-applications", {
     method: "POST",
     headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
-    body: JSON.stringify(listing)
+    body: JSON.stringify(input)
   });
 }
 
-export async function updateAdoptionStatus(
-  accessToken: string,
-  listingId: string,
-  status: string
-): Promise<void> {
-  await request(`/v1/adoptions/${listingId}`, {
-    method: "PATCH",
-    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
-    body: JSON.stringify({ status })
-  });
+export async function listMyAdoptionApplications(
+  accessToken: string
+): Promise<AdoptionApplication[]> {
+  const data = await request<AdoptionApplication[] | null>(
+    "/v1/me/adoption-applications",
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
 }
 
-export async function deleteAdoption(
+export async function withdrawAdoptionApplication(
   accessToken: string,
-  listingId: string
+  appId: string
 ): Promise<void> {
-  await request(`/v1/adoptions/${listingId}`, {
-    method: "DELETE",
+  await request(`/v1/adoption-applications/${appId}/withdraw`, {
+    method: "POST",
     headers: authHeaders(accessToken)
   });
 }

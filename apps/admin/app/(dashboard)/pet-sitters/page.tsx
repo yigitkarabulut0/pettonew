@@ -1,27 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { LocationPicker, type LocationValue } from "@/components/common/LocationPicker";
 import { getAdminPetSitters } from "@/lib/admin-api";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 const cookieName = "petto_admin_session";
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
-const DEFAULT_LNG = -0.1278;
-const DEFAULT_LAT = 51.5074;
-
-interface GeocodingFeature {
-  id: string;
-  place_name: string;
-  center: [number, number];
-}
 
 function getToken() {
   if (typeof document === "undefined") return "";
@@ -54,6 +45,23 @@ async function createAdminPetSitter(sitter: {
   return res.json();
 }
 
+const EMPTY_LOCATION: LocationValue = {
+  address: "",
+  latitude: 0,
+  longitude: 0,
+  cityLabel: ""
+};
+
+type SitterFormValues = {
+  name: string;
+  bio: string;
+  hourlyRate: string;
+  cityLabel: string;
+  servicesText: string;
+  phone: string;
+  currency: string;
+};
+
 export default function PetSittersPage() {
   const queryClient = useQueryClient();
   const { data: rawSitters, isLoading } = useQuery({
@@ -62,170 +70,21 @@ export default function PetSittersPage() {
   });
   const sitters = rawSitters ?? [];
 
-  const { register, handleSubmit, reset, setValue } = useForm<{
-    name: string;
-    bio: string;
-    hourlyRate: string;
-    cityLabel: string;
-    servicesText: string;
-    phone: string;
-    currency: string;
-    address: string;
-  }>({
-    defaultValues: {
-      currency: "USD"
-    }
+  const { register, handleSubmit, reset, setValue, watch } = useForm<SitterFormValues>({
+    defaultValues: { currency: "USD" }
   });
 
-  /* ---- map + geocoding state ---- */
-  const [addressQuery, setAddressQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<GeocodingFeature[]>([]);
-  const [selectedLat, setSelectedLat] = useState(DEFAULT_LAT);
-  const [selectedLng, setSelectedLng] = useState(DEFAULT_LNG);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
 
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markerRef = useRef<mapboxgl.Marker | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /* ---- initialise map ---- */
-  useEffect(() => {
-    let map: mapboxgl.Map | undefined;
-
-    async function initMap() {
-      const mapboxgl = (await import("mapbox-gl")).default;
-      mapboxgl.accessToken = MAPBOX_TOKEN;
-
-      if (!mapContainerRef.current) return;
-
-      map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/streets-v12",
-        center: [selectedLng, selectedLat],
-        zoom: 12
-      });
-
-      map.addControl(new mapboxgl.NavigationControl(), "top-right");
-
-      const marker = new mapboxgl.Marker({
-        draggable: true,
-        color: "#6d28d9"
-      })
-        .setLngLat([selectedLng, selectedLat])
-        .addTo(map);
-
-      marker.on("dragend", () => {
-        const lngLat = marker.getLngLat();
-        setSelectedLat(lngLat.lat);
-        setSelectedLng(lngLat.lng);
-        reverseGeocode(lngLat.lng, lngLat.lat);
-      });
-
-      mapRef.current = map;
-      markerRef.current = marker;
-
-      map.on("load", () => setMapLoaded(true));
+  const handleLocationChange = (next: LocationValue) => {
+    setLocation(next);
+    if (next.cityLabel && !watch("cityLabel")) {
+      setValue("cityLabel", next.cityLabel);
     }
-
-    initMap();
-
-    return () => {
-      if (map) {
-        map.remove();
-      }
-      mapRef.current = null;
-      markerRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ---- reverse geocode (for marker drag) ---- */
-  const reverseGeocode = useCallback(
-    async (lng: number, lat: number) => {
-      if (!MAPBOX_TOKEN) return;
-      try {
-        const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`
-        );
-        const json = (await res.json()) as { features: GeocodingFeature[] };
-        const place = json.features?.[0];
-        if (place) {
-          setValue("address", place.place_name);
-          setAddressQuery(place.place_name);
-        }
-      } catch {
-        /* silently ignore network errors */
-      }
-    },
-    [setValue]
-  );
-
-  /* ---- forward geocoding with debounce ---- */
-  const handleAddressChange = useCallback(
-    (value: string) => {
-      setAddressQuery(value);
-      setValue("address", value);
-
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-
-      if (value.trim().length < 3) {
-        setSuggestions([]);
-        setShowSuggestions(false);
-        return;
-      }
-
-      debounceRef.current = setTimeout(async () => {
-        if (!MAPBOX_TOKEN) return;
-        try {
-          const res = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value)}.json?access_token=${MAPBOX_TOKEN}&limit=5`
-          );
-          const json = (await res.json()) as {
-            features: GeocodingFeature[];
-          };
-          setSuggestions(json.features ?? []);
-          setShowSuggestions(true);
-        } catch {
-          setSuggestions([]);
-        }
-      }, 500);
-    },
-    [setValue]
-  );
-
-  /* ---- select a geocoding suggestion ---- */
-  const selectSuggestion = useCallback(
-    (feature: GeocodingFeature) => {
-      const [lng, lat] = feature.center;
-      setSelectedLng(lng);
-      setSelectedLat(lat);
-      setAddressQuery(feature.place_name);
-      setValue("address", feature.place_name);
-      setSuggestions([]);
-      setShowSuggestions(false);
-
-      if (mapRef.current) {
-        mapRef.current.flyTo({ center: [lng, lat], zoom: 15 });
-      }
-      if (markerRef.current) {
-        markerRef.current.setLngLat([lng, lat]);
-      }
-    },
-    [setValue]
-  );
+  };
 
   const createMutation = useMutation({
-    mutationFn: (values: {
-      name: string;
-      bio: string;
-      hourlyRate: string;
-      cityLabel: string;
-      servicesText: string;
-      phone: string;
-      currency: string;
-    }) =>
+    mutationFn: (values: SitterFormValues) =>
       createAdminPetSitter({
         name: values.name.trim(),
         bio: values.bio.trim(),
@@ -237,25 +96,13 @@ export default function PetSittersPage() {
           .filter(Boolean),
         phone: values.phone?.trim() || undefined,
         currency: values.currency || undefined,
-        latitude: selectedLat,
-        longitude: selectedLng
+        latitude: location.latitude,
+        longitude: location.longitude
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-pet-sitters"] });
       reset();
-      setAddressQuery("");
-      setSuggestions([]);
-      setSelectedLat(DEFAULT_LAT);
-      setSelectedLng(DEFAULT_LNG);
-      if (mapRef.current) {
-        mapRef.current.flyTo({
-          center: [DEFAULT_LNG, DEFAULT_LAT],
-          zoom: 12
-        });
-      }
-      if (markerRef.current) {
-        markerRef.current.setLngLat([DEFAULT_LNG, DEFAULT_LAT]);
-      }
+      setLocation(EMPTY_LOCATION);
     }
   });
 
@@ -269,8 +116,7 @@ export default function PetSittersPage() {
           Manage pet sitter profiles
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--petto-muted)]">
-          Add and manage trusted pet sitters available to users in different
-          cities.
+          Add and manage trusted pet sitters available to users in different cities.
         </p>
       </Card>
 
@@ -278,19 +124,10 @@ export default function PetSittersPage() {
         <p className="mb-4 text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
           Add Pet Sitter
         </p>
-        <form
-          className="grid gap-3"
-          onSubmit={handleSubmit((v) => createMutation.mutate(v))}
-        >
+        <form className="grid gap-3" onSubmit={handleSubmit((v) => createMutation.mutate(v))}>
           <div className="grid gap-3 lg:grid-cols-2">
-            <Input
-              placeholder="Name"
-              {...register("name", { required: true })}
-            />
-            <Input
-              placeholder="City"
-              {...register("cityLabel", { required: true })}
-            />
+            <Input placeholder="Name" {...register("name", { required: true })} />
+            <Input placeholder="City" {...register("cityLabel", { required: true })} />
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
             <Input
@@ -321,65 +158,14 @@ export default function PetSittersPage() {
             </select>
           </div>
 
-          {/* Area / Address with autocomplete */}
-          <div className="relative">
-            <Input
-              placeholder="Area / Address (start typing to search)"
-              value={addressQuery}
-              onChange={(e) => handleAddressChange(e.target.value)}
-              onFocus={() => {
-                if (suggestions.length > 0) setShowSuggestions(true);
-              }}
-              onBlur={() => {
-                setTimeout(() => setShowSuggestions(false), 200);
-              }}
-            />
-            <input type="hidden" {...register("address")} />
-
-            {showSuggestions && suggestions.length > 0 && (
-              <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-lg border border-[var(--petto-border)] bg-white shadow-lg">
-                {suggestions.map((feature) => (
-                  <li key={feature.id}>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-2.5 text-left text-sm text-[var(--petto-ink)] transition-colors hover:bg-[var(--petto-primary)]/5"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        selectSuggestion(feature);
-                      }}
-                    >
-                      {feature.place_name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Map Preview */}
-          <div>
-            <div
-              ref={mapContainerRef}
-              className="w-full overflow-hidden rounded-xl border border-[var(--petto-border)]"
-              style={{ height: 400 }}
-            />
-            <div className="mt-2 flex items-center gap-4 text-xs text-[var(--petto-muted)]">
-              <span>
-                Lat: <strong>{selectedLat.toFixed(6)}</strong>
-              </span>
-              <span>
-                Lng: <strong>{selectedLng.toFixed(6)}</strong>
-              </span>
-              {!mapLoaded && (
-                <span className="animate-pulse text-amber-600">
-                  Loading map...
-                </span>
-              )}
-              <span className="ml-auto text-[var(--petto-muted)]">
-                Drag marker to set sitter area
-              </span>
-            </div>
-          </div>
+          <LocationPicker
+            value={location}
+            onChange={handleLocationChange}
+            markerColor="#6d28d9"
+            label="Area / address"
+            placeholder="Area / address (start typing to search)"
+            mapHeight={360}
+          />
 
           <textarea
             className="flex min-h-[80px] w-full rounded-md border border-[var(--petto-border)] bg-white px-4 py-3 text-sm text-[var(--petto-ink)] outline-none placeholder:text-[var(--petto-muted)] focus:ring-2 focus:ring-[var(--petto-primary)]/20"
@@ -409,16 +195,10 @@ export default function PetSittersPage() {
           <Card key={sitter.id}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="font-semibold text-[var(--petto-ink)]">
-                  {sitter.name}
-                </p>
-                <p className="text-sm text-[var(--petto-muted)]">
-                  {sitter.cityLabel}
-                </p>
+                <p className="font-semibold text-[var(--petto-ink)]">{sitter.name}</p>
+                <p className="text-sm text-[var(--petto-muted)]">{sitter.cityLabel}</p>
                 {sitter.phone && (
-                  <p className="text-sm text-[var(--petto-muted)]">
-                    {sitter.phone}
-                  </p>
+                  <p className="text-sm text-[var(--petto-muted)]">{sitter.phone}</p>
                 )}
               </div>
               <span className="shrink-0 text-lg font-semibold text-[var(--petto-primary)]">
@@ -440,9 +220,7 @@ export default function PetSittersPage() {
                 {sitter.hourlyRate}/hr
               </span>
             </div>
-            <p className="mt-3 text-sm leading-7 text-[var(--petto-muted)]">
-              {sitter.bio}
-            </p>
+            <p className="mt-3 text-sm leading-7 text-[var(--petto-muted)]">{sitter.bio}</p>
             {sitter.services && sitter.services.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {sitter.services.map((service: string) => (

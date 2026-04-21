@@ -8,30 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { LocationPicker, type LocationValue } from "@/components/common/LocationPicker";
 import { createAdminGroup, getAdminGroups, getTaxonomy } from "@/lib/admin-api";
-
-const CITY_PRESETS = [
-  { label: "Istanbul", lat: 41.0082, lng: 28.9784 },
-  { label: "Ankara", lat: 39.9334, lng: 32.8597 },
-  { label: "Izmir", lat: 38.4192, lng: 27.1287 },
-  { label: "Antalya", lat: 36.8969, lng: 30.7133 },
-  { label: "Bursa", lat: 40.1885, lng: 29.0610 },
-  { label: "London", lat: 51.5074, lng: -0.1278 },
-  { label: "New York", lat: 40.7128, lng: -74.0060 },
-  { label: "Berlin", lat: 52.5200, lng: 13.4050 },
-  { label: "Paris", lat: 48.8566, lng: 2.3522 },
-];
 
 interface GroupFormValues {
   name: string;
   description: string;
   petType: string;
   cityLabel: string;
-  latitude: string;
-  longitude: string;
   code: string;
   isPrivate: boolean;
 }
+
+const EMPTY_LOCATION: LocationValue = {
+  address: "",
+  latitude: 0,
+  longitude: 0,
+  cityLabel: ""
+};
 
 export default function GroupsPage() {
   const queryClient = useQueryClient();
@@ -47,12 +41,19 @@ export default function GroupsPage() {
     defaultValues: {
       petType: "all",
       cityLabel: "",
-      latitude: "",
-      longitude: "",
       code: "",
       isPrivate: false
     }
   });
+
+  const [location, setLocation] = useState<LocationValue>(EMPTY_LOCATION);
+
+  const handleLocationChange = (next: LocationValue) => {
+    setLocation(next);
+    if (next.cityLabel && !watch("cityLabel")) {
+      setValue("cityLabel", next.cityLabel);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (values: GroupFormValues) =>
@@ -61,22 +62,17 @@ export default function GroupsPage() {
         description: values.description,
         petType: values.petType,
         cityLabel: values.cityLabel || undefined,
-        latitude: values.latitude ? parseFloat(values.latitude) : 0,
-        longitude: values.longitude ? parseFloat(values.longitude) : 0,
+        latitude: location.latitude,
+        longitude: location.longitude,
         code: values.code || undefined,
         isPrivate: values.isPrivate
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-groups"] });
       reset();
+      setLocation(EMPTY_LOCATION);
     }
   });
-
-  const applyPreset = (preset: typeof CITY_PRESETS[0]) => {
-    setValue("cityLabel", preset.label);
-    setValue("latitude", String(preset.lat));
-    setValue("longitude", String(preset.lng));
-  };
 
   return (
     <div className="space-y-5">
@@ -111,30 +107,15 @@ export default function GroupsPage() {
           {/* Row 3: Location */}
           <div className="rounded-xl border border-[var(--petto-border)] bg-white/60 p-4 space-y-3">
             <p className="text-sm font-semibold text-[var(--petto-ink)]">Location</p>
-
-            {/* Quick city presets */}
-            <div className="flex flex-wrap gap-2">
-              {CITY_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => applyPreset(preset)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    watch("cityLabel") === preset.label
-                      ? "border-[var(--petto-primary)] bg-[var(--petto-primary)] text-white"
-                      : "border-[var(--petto-border)] bg-white text-[var(--petto-ink)] hover:border-[var(--petto-primary)] hover:text-[var(--petto-primary)]"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-3">
-              <Input placeholder="City name" {...register("cityLabel")} />
-              <Input placeholder="Latitude" type="number" step="any" {...register("latitude")} />
-              <Input placeholder="Longitude" type="number" step="any" {...register("longitude")} />
-            </div>
+            <LocationPicker
+              value={location}
+              onChange={handleLocationChange}
+              markerColor="#6d28d9"
+              label="Group base location"
+              placeholder="Search a city or neighbourhood…"
+              mapHeight={260}
+            />
+            <Input placeholder="City name" {...register("cityLabel")} />
           </div>
 
           {/* Row 4: Privacy */}

@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
-import * as Location from "expo-location";
 import {
   Animated,
   Dimensions,
@@ -54,6 +53,8 @@ import type { Playdate } from "@petto/contracts";
 import { useRouter } from "expo-router";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useLocalRefresh } from "@/lib/use-local-refresh";
+import { useReferenceLocation } from "@/lib/useReferenceLocation";
+import { getTodayStatus } from "@/lib/hours";
 import { useSessionStore } from "@/store/session";
 
 /* ------------------------------------------------------------------ */
@@ -335,10 +336,18 @@ export default function DiscoverPage() {
   const [petPickerOpen, setPetPickerOpen] = useState(false);
   const [petPickerVenueId, setPetPickerVenueId] = useState<string | null>(null);
   const [selectedPetIds, setSelectedPetIds] = useState<string[]>([]);
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+
+  // v0.12 — Shared stable reference location. `roundedKey` absorbs GPS jitter
+  // so discover queries no longer refetch every time presence.ts ticks.
+  const refLoc = useReferenceLocation();
+  const userLocation = useMemo(
+    () =>
+      refLoc.latitude != null && refLoc.longitude != null
+        ? { latitude: refLoc.latitude, longitude: refLoc.longitude }
+        : null,
+    [refLoc.latitude, refLoc.longitude]
+  );
+  const locationKey = refLoc.roundedKey ?? null;
 
   const tabBarOffset = insets.bottom + 82;
 
@@ -349,9 +358,19 @@ export default function DiscoverPage() {
     refetch: refetchVenues,
     isLoading: venuesLoading
   } = useQuery({
-    queryKey: ["explore-venues", session?.tokens.accessToken, userLocation?.latitude, userLocation?.longitude],
-    queryFn: () => listExploreVenues(session!.tokens.accessToken, userLocation?.latitude, userLocation?.longitude),
-    enabled: Boolean(session)
+    queryKey: ["explore-venues", session?.tokens.accessToken, locationKey],
+    queryFn: () =>
+      listExploreVenues(
+        session!.tokens.accessToken,
+        userLocation?.latitude,
+        userLocation?.longitude
+      ),
+    enabled: Boolean(session),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false
   });
 
   // v0.11.0 — unified feed: admin events + user-created playdates, merged
@@ -362,19 +381,19 @@ export default function DiscoverPage() {
     refetch: refetchEvents,
     isLoading: eventsLoading
   } = useQuery({
-    queryKey: [
-      "explore-feed",
-      session?.tokens.accessToken,
-      userLocation?.latitude,
-      userLocation?.longitude
-    ],
+    queryKey: ["explore-feed", session?.tokens.accessToken, locationKey],
     queryFn: () =>
       listExploreFeed(
         session!.tokens.accessToken,
         userLocation?.latitude,
         userLocation?.longitude
       ),
-    enabled: Boolean(session)
+    enabled: Boolean(session),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false
   });
   const events = feed.events;
   const feedPlaydates = feed.playdates;
@@ -387,12 +406,26 @@ export default function DiscoverPage() {
   });
 
   const { data: vetClinics = [] } = useQuery({
-    queryKey: ["vet-clinics-discover", session?.tokens.accessToken, userLocation?.latitude],
-    queryFn: () => listVetClinics(session!.tokens.accessToken, userLocation?.latitude ?? 0, userLocation?.longitude ?? 0),
-    enabled: Boolean(session) && Boolean(userLocation)
+    queryKey: ["vet-clinics-discover", session?.tokens.accessToken, locationKey],
+    queryFn: () =>
+      listVetClinics(
+        session!.tokens.accessToken,
+        userLocation?.latitude ?? 0,
+        userLocation?.longitude ?? 0
+      ),
+    enabled: Boolean(session) && Boolean(userLocation),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false
   });
 
   const refetchActiveTab = useCallback(async () => {
+    // Pull-to-refresh: both re-fetch the active feed and nudge the
+    // reference location so a user who has walked further than the grid
+    // cell gets fresh nearby venues.
+    await refLoc.refresh();
     if (activeTab === "venues") {
       await refetchVenues();
     } else if (activeTab === "events") {
@@ -400,31 +433,29 @@ export default function DiscoverPage() {
     } else {
       await refetchVenues();
     }
-  }, [activeTab, refetchVenues, refetchEvents]);
+  }, [activeTab, refetchVenues, refetchEvents, refLoc]);
   const { refreshing, handleRefresh } = useLocalRefresh(refetchActiveTab);
 
   /* ---- Location ---- */
 
+  // Animate the map to the user once, the first time we know where they are.
+  // Further GPS drift is ignored — the map should feel static unless the
+  // user actively taps the "center on me" control.
+  const hasCenteredRef = useRef(false);
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const loc = await Location.getCurrentPositionAsync({});
-        setUserLocation({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude
-        });
-        if (mapRef.current && loc) {
-          mapRef.current.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05
-          }, 500);
-        }
-      }
-    })();
-  }, []);
+    if (hasCenteredRef.current) return;
+    if (!userLocation || !mapRef.current) return;
+    hasCenteredRef.current = true;
+    mapRef.current.animateToRegion(
+      {
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05
+      },
+      500
+    );
+  }, [userLocation]);
 
   /* ---- Derived data ---- */
 
@@ -531,7 +562,7 @@ export default function DiscoverPage() {
   }, [mapVenues, session?.user?.id]);
 
   const { data: venuePhotos = [] } = useQuery({
-    queryKey: ["venue-photos", selectedVenueId, session?.tokens.accessToken],
+    queryKey: ["venue-photos", selectedVenueId],
     queryFn: async () => {
       if (!selectedVenueId || !session) return [];
       try {
@@ -543,7 +574,9 @@ export default function DiscoverPage() {
         return (json.data as string[]) ?? [];
       } catch { return []; }
     },
-    enabled: Boolean(selectedVenueId) && Boolean(session)
+    enabled: Boolean(selectedVenueId) && Boolean(session),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const primaryPetIds = useMemo(
@@ -1320,20 +1353,56 @@ export default function DiscoverPage() {
               </View>
             )}
 
-            {/* Action buttons */}
-            {isCheckedIn ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 20, backgroundColor: theme.colors.successBg }}>
+            {/* Action buttons — View Details + Check In side by side */}
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={() => router.push(`/venue/${selectedVenue.id}`)}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 12,
+                  borderRadius: 20,
+                  borderWidth: 1.5,
+                  borderColor: theme.colors.primary,
+                  backgroundColor: pressed ? theme.colors.primaryBg : "transparent"
+                })}
+              >
+                <Text style={{ color: theme.colors.primary, fontFamily: "Inter_700Bold", fontSize: 13 }}>
+                  {t("discover.viewDetails", "View Details")}
+                </Text>
+              </Pressable>
+
+              {isCheckedIn ? (
+                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 20, backgroundColor: theme.colors.successBg }}>
                   <Check size={15} color={theme.colors.success} />
                   <Text style={{ color: theme.colors.success, fontFamily: "Inter_700Bold", fontSize: 13 }}>{t("discover.checkedInHere")}</Text>
                 </View>
-              </View>
-            ) : (
-              <Pressable onPress={() => handleCheckInPress(selectedVenue.id)} disabled={checkInMutation.isPending} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 20, backgroundColor: theme.colors.primary, opacity: checkInMutation.isPending ? 0.5 : pressed ? 0.85 : 1 })}>
-                <Check size={15} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontFamily: "Inter_700Bold", fontSize: 13 }}>{checkInMutation.isPending ? t("common.loading") : t("discover.checkIn")}</Text>
-              </Pressable>
-            )}
+              ) : (
+                <Pressable
+                  onPress={() => handleCheckInPress(selectedVenue.id)}
+                  disabled={checkInMutation.isPending}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    paddingVertical: 12,
+                    borderRadius: 20,
+                    backgroundColor: theme.colors.primary,
+                    opacity: checkInMutation.isPending ? 0.5 : pressed ? 0.85 : 1
+                  })}
+                >
+                  <Check size={15} color="#FFFFFF" />
+                  <Text style={{ color: "#FFFFFF", fontFamily: "Inter_700Bold", fontSize: 13 }}>
+                    {checkInMutation.isPending ? t("common.loading") : t("discover.checkIn")}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
         );
@@ -1600,6 +1669,7 @@ function VenuesTab({
         const color = getCategoryColor(venue.category);
         const Icon = getCategoryIcon(venue.category);
         const checkIns = venue.currentCheckIns.length;
+        const todayStatus = getTodayStatus(venue.hours);
 
         return (
           <View
@@ -1613,9 +1683,79 @@ function VenuesTab({
               borderColor: isSelected
                 ? theme.colors.primary
                 : theme.colors.border,
-              overflow: "hidden"
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: 0.05,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 1
             }}
           >
+            {/* Hero image with category chip overlay */}
+            {venue.imageUrl ? (
+              <View style={{ position: "relative" }}>
+                <Image
+                  source={{ uri: venue.imageUrl }}
+                  style={{ width: "100%", height: 140, backgroundColor: theme.colors.border }}
+                  contentFit="cover"
+                  transition={250}
+                  cachePolicy="memory-disk"
+                />
+                {/* Category chip */}
+                <View style={{
+                  position: "absolute",
+                  top: 10,
+                  left: 10,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  paddingHorizontal: 9,
+                  paddingVertical: 5,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: "rgba(0,0,0,0.55)"
+                }}>
+                  <Icon size={11} color="#FFFFFF" />
+                  <Text style={{ fontSize: 10.5, fontFamily: "Inter_700Bold", color: "#FFFFFF", textTransform: "capitalize", letterSpacing: 0.3 }}>
+                    {venue.category}
+                  </Text>
+                </View>
+                {/* Open-now status chip */}
+                <View style={{
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  paddingHorizontal: 9,
+                  paddingVertical: 5,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: todayStatus.open ? "rgba(52, 168, 83, 0.95)" : "rgba(0,0,0,0.55)"
+                }}>
+                  <Text style={{ fontSize: 10.5, fontFamily: "Inter_700Bold", color: "#FFFFFF", letterSpacing: 0.3 }}>
+                    {todayStatus.label}
+                  </Text>
+                </View>
+                {/* Live check-ins badge on image */}
+                {checkIns > 0 && (
+                  <View style={{
+                    position: "absolute",
+                    bottom: 10,
+                    left: 10,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 5,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: mobileTheme.radius.pill,
+                    backgroundColor: theme.colors.primary
+                  }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" }} />
+                    <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#FFFFFF" }}>
+                      {checkIns} {checkIns === 1 ? "here" : "here"}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
+
             <Pressable
               onPress={() => onVenuePress(venue.id)}
               style={({ pressed }) => ({

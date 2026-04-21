@@ -5,6 +5,10 @@ export default {
   version: "0.11.20",
   orientation: "portrait",
   userInterfaceStyle: "light",
+  // react-native-reanimated 4.x requires the new architecture, so this must
+  // stay enabled. If you hit TurboModuleRegistry.getEnforcing errors, do a
+  // clean rebuild (rm ios/build ios/Pods ios/Podfile.lock → pod install →
+  // expo run:ios) rather than flipping this flag.
   newArchEnabled: true,
   icon: "./assets/images/icon.png",
   splash: {

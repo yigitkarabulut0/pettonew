@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/yigitkarabulut/petto/apps/api/internal/domain"
 	"github.com/yigitkarabulut/petto/apps/api/internal/service"
 	"github.com/yigitkarabulut/petto/apps/api/internal/store"
 )
@@ -180,6 +182,109 @@ func (s *Server) handleVenuePhotos(w http.ResponseWriter, r *http.Request) {
 		photos = []string{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": photos})
+}
+
+// handleVenueDetail returns a venue augmented with aggregate stats and
+// (optionally) distance from the caller. Drives the mobile venue detail page.
+func (s *Server) handleVenueDetail(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	v, err := s.store.GetVenue(venueID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "venue not found")
+		return
+	}
+
+	detail := domain.VenueDetail{
+		ExploreVenue: *v,
+		Stats:        s.store.GetVenueStats(venueID),
+	}
+	if lat, lng, ok := parseLatLngQuery(r); ok {
+		d := service.Haversine(lat, lng, v.Latitude, v.Longitude)
+		detail.DistanceKm = &d
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"data": detail})
+}
+
+// handleVenuePostsFeed returns photo-bearing posts tagged to the venue.
+func (s *Server) handleVenuePostsFeed(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	limit := parseLimit(r, 50, 200)
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListVenuePostsWithPhotos(venueID, limit)})
+}
+
+// handleVenueCheckInsList returns check-ins for a venue by mode.
+// Query params: ?mode=active|history|all&limit=50
+func (s *Server) handleVenueCheckInsList(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	mode := r.URL.Query().Get("mode")
+	if mode != "active" && mode != "history" && mode != "all" {
+		mode = "active"
+	}
+	limit := parseLimit(r, 50, 200)
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListVenueCheckInsScoped(venueID, mode, limit)})
+}
+
+// handleVenueReviewSummary returns the rating aggregate used by the card and
+// the reviews section of the detail page (subset of VenueStats).
+func (s *Server) handleVenueReviewSummary(w http.ResponseWriter, r *http.Request) {
+	stats := s.store.GetVenueStats(chi.URLParam(r, "venueID"))
+	writeJSON(w, http.StatusOK, map[string]any{"data": stats})
+}
+
+// handleVenueReviewEligibility tells the client whether the current user can
+// post a review — used to toggle the "Write a review" CTA.
+func (s *Server) handleVenueReviewEligibility(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	uid := currentUserID(r)
+
+	if !s.store.UserHasCheckedIn(venueID, uid) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": domain.ReviewEligibility{Eligible: false, Reason: "no_check_in"},
+		})
+		return
+	}
+	if s.store.UserHasReviewed(venueID, uid) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": domain.ReviewEligibility{Eligible: false, Reason: "already_reviewed"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": domain.ReviewEligibility{Eligible: true},
+	})
+}
+
+// parseLatLngQuery reads ?lat=&lng= from the request; returns ok=false if
+// either value is missing or unparseable.
+func parseLatLngQuery(r *http.Request) (float64, float64, bool) {
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	if latStr == "" || lngStr == "" {
+		return 0, 0, false
+	}
+	lat, err1 := strconv.ParseFloat(latStr, 64)
+	lng, err2 := strconv.ParseFloat(lngStr, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return lat, lng, true
+}
+
+// parseLimit reads a ?limit= query param bounded by max, falling back to def.
+func parseLimit(r *http.Request, def, max int) int {
+	raw := r.URL.Query().Get("limit")
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return def
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 func (s *Server) handleAdminPosts(writer http.ResponseWriter, request *http.Request) {

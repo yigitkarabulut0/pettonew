@@ -183,6 +183,39 @@ export interface ExploreVenue {
   currentCheckIns: VenueCheckIn[];
 }
 
+export interface VenueStats {
+  checkInCount: number;
+  uniqueVisitorCount: number;
+  activeCheckInCount: number;
+  avgRating: number;
+  reviewCount: number;
+  ratingDistribution: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+}
+
+export interface VenueDetail extends ExploreVenue {
+  stats: VenueStats;
+  distanceKm?: number;
+}
+
+export interface VenuePhotoFeedItem {
+  postId: string;
+  imageUrl: string;
+  authorUserId: string;
+  authorName: string;
+  createdAt: string;
+}
+
+export interface ReviewEligibility {
+  eligible: boolean;
+  reason?: "no_check_in" | "already_reviewed";
+}
+
 export interface ExploreEvent {
   id: string;
   title: string;
@@ -622,26 +655,516 @@ export interface WalkRoute {
   createdAt: string;
 }
 
-export interface AdoptionListing {
+// ── Shelters & adoption workflow (v0.13) ───────────────────────────
+// Adoption listings are no longer user-created. Shelter accounts own
+// the pets; app users submit applications that the shelter approves
+// or rejects. Chat opens automatically on approval.
+
+// Public profile fields (v0.21). `slug` is permanent, assigned on
+// verification; the other three are shelter-editable via PUT /me.
+export interface ShelterPublicProfile {
+  slug?: string;
+  adoptionProcess?: string;
+  donationUrl?: string;
+  showRecentlyAdopted?: boolean;
+  speciesFocus?: string[];
+  isFeatured?: boolean;
+}
+
+export interface Shelter extends ShelterPublicProfile {
   id: string;
-  petName: string;
-  petAge: number;
-  petSpecies: string;
-  petBreed: string;
-  gender: string;
-  description: string;
-  contactPhone: string;
-  contactEmail: string;
-  location: string;
-  photos: PetPhoto[];
-  characterTraits: string[];
-  isNeutered: boolean;
-  activityLevel: number;
-  imageUrl?: string;
-  status: "active" | "adopted";
-  userId: string;
-  userName?: string;
+  email: string;
+  name: string;
+  about: string;
+  phone: string;
+  website: string;
+  logoUrl?: string;
+  heroUrl?: string;
+  address: string;
+  cityLabel: string;
+  latitude: number;
+  longitude: number;
+  hours: string;
+  status: string;
+  mustChangePassword: boolean;
   createdAt: string;
+  lastLoginAt?: string;
+  /**
+   * ISO-8601 timestamp the shelter was verified (either by admin-direct
+   * creation or after an approved onboarding application). Absent/null
+   * for unverified accounts — those cannot create listings.
+   */
+  verifiedAt?: string | null;
+  /**
+   * ISO-3166-1 alpha-2 country code driving jurisdiction-specific
+   * compliance rules (breed blocks, microchip requirement).
+   */
+  operatingCountry?: string;
+}
+
+export interface VaccineRecord {
+  name: string;
+  date: string;
+  notes?: string;
+}
+
+export type ShelterPetStatus = "available" | "reserved" | "adopted" | "hidden";
+
+// 7-state listing lifecycle (DSA Art. 16/17/22/23). Orthogonal to
+// `ShelterPetStatus` (availability) — status tracks "is this pet still
+// offered?", listingState tracks "is this listing published?".
+export type ListingState =
+  | "draft"
+  | "pending_review"
+  | "published"
+  | "paused"
+  | "adopted"
+  | "archived"
+  | "rejected";
+
+export type ListingRejectionCode =
+  | "banned_breed"
+  | "prohibited_species"
+  | "under_age"
+  | "welfare_concern"
+  | "inaccurate_info"
+  | "fraud_suspected"
+  | "duplicate"
+  | "policy_violation";
+
+export type ListingReportResolution =
+  | "dismiss"
+  | "warn"
+  | "remove"
+  | "suspend";
+
+export type ListingReportStatus =
+  | "open"
+  | "dismissed"
+  | "warned"
+  | "removed"
+  | "suspended";
+
+export interface ShelterPet {
+  id: string;
+  shelterId: string;
+  shelterName?: string;
+  shelterCity?: string;
+  name: string;
+  species: string;
+  breed: string;
+  sex: string;
+  size: string;
+  color: string;
+  birthDate?: string;
+  ageMonths?: number;
+  description: string;
+  photos: string[];
+  vaccines: VaccineRecord[];
+  isNeutered: boolean;
+  microchipId?: string;
+  specialNeeds?: string;
+  characterTags: string[];
+  intakeDate?: string;
+  status: ShelterPetStatus;
+  listingState: ListingState;
+  lastRejectionCode?: ListingRejectionCode | "";
+  lastRejectionNote?: string;
+  autoFlagReasons?: string[];
+  deletedAt?: string;
+  adopterName?: string;
+  adoptionDate?: string;
+  adoptionNotes?: string;
+  viewCount?: number;
+  // Card-specific enrichments (v0.23). Populated by the public feed.
+  isUrgent?: boolean;
+  publishedAt?: string;
+  distanceKm?: number;
+  shelterVerified?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Shelter analytics (v0.22) ─────────────────────────────────────
+export type AnalyticsRange = "30d" | "90d" | "12m" | "all";
+
+export interface ListingPerformanceRow {
+  listingId: string;
+  name: string;
+  species: string;
+  listingState: ListingState;
+  views: number;
+  saves: number;
+  applications: number;
+  adoptions: number;
+  daysListed: number;
+}
+
+export interface ApplicationFunnel {
+  submitted: number;
+  underReview: number;
+  approved: number;
+  adopted: number;
+}
+
+export interface AnalyticsOverview {
+  range: AnalyticsRange;
+  activeListings: number;
+  adoptionsThisMonth: number;
+  adoptionsThisYear: number;
+  avgDaysToAdoption: number;
+  avgSampleSize: number;
+  topListing?: {
+    id: string;
+    name: string;
+    applicationCount: number;
+  } | null;
+}
+
+export interface ListingStateTransition {
+  id: string;
+  listingId: string;
+  shelterId: string;
+  actorId?: string;
+  actorName?: string;
+  actorRole: "shelter" | "admin" | "system";
+  prevState: ListingState;
+  newState: ListingState;
+  reasonCode?: string;
+  note?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ListingReport {
+  id: string;
+  listingId: string;
+  shelterId: string;
+  reporterId?: string;
+  reporterName?: string;
+  trustedFlagger: boolean;
+  reason: string;
+  description?: string;
+  status: ListingReportStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  resolution?: ListingReportResolution | "";
+  resolutionNote?: string;
+  listingName?: string;
+  listingPhotoUrl?: string;
+  listingCurrentState?: ListingState | "";
+  shelterName?: string;
+}
+
+export interface ListingStatementOfReasons {
+  id: string;
+  listingId: string;
+  shelterId: string;
+  contentDescription: string;
+  legalGround: string;
+  factsReliedOn: string;
+  scope: string;
+  redressOptions: string;
+  issuedAt: string;
+  issuedBy?: string;
+}
+
+// Jurisdiction disclosure rendered on the public listing detail page.
+// Server decides what (if anything) to send based on the shelter's
+// operating_country; the client renders the banner verbatim.
+export interface JurisdictionDisclosure {
+  country: string;
+  title: string;
+  body: string;
+  linkUrl?: string;
+}
+
+// Bundled response for the public listing detail page. Contains the
+// pet, a `microchipPresent` boolean (ID itself is never shipped), the
+// shelter mini-card, and an optional jurisdiction disclosure.
+export interface PublicListingDetail {
+  pet: ShelterPet;
+  microchipPresent: boolean;
+  shelter: Shelter;
+  disclosure: JurisdictionDisclosure | null;
+}
+
+export interface ListingStrikeSummary {
+  shelterId: string;
+  count: number;
+  windowDays: number;
+  threshold: number;
+  triggered: boolean;
+  rejections: ListingStateTransition[];
+}
+
+export type AdoptionApplicationStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "chat_open"
+  | "adopted"
+  | "withdrawn";
+
+export interface AdoptionApplication {
+  id: string;
+  petId: string;
+  petName?: string;
+  petPhoto?: string;
+  shelterId: string;
+  shelterName?: string;
+  userId: string;
+  userName: string;
+  userAvatarUrl?: string;
+  housingType: string;
+  hasOtherPets: boolean;
+  otherPetsDetail: string;
+  experience: string;
+  message: string;
+  status: AdoptionApplicationStatus;
+  rejectionReason?: string;
+  conversationId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShelterStats {
+  totalPets: number;
+  availablePets: number;
+  reservedPets: number;
+  adoptedPets: number;
+  pendingApplications: number;
+  activeChats: number;
+  totalApplications: number;
+}
+
+// NOTE: ShelterSession is defined below in the v0.15 team section so it
+// carries the new `member` field. The two types share the same name on
+// purpose — anything that imported `ShelterSession` before transparently
+// gets the extended shape.
+
+export interface CreateShelterResult {
+  shelter: Shelter;
+  tempPassword: string;
+  passwordNotice: string;
+}
+
+// ── Shelter onboarding (v0.14) ──────────────────────────────────────
+// Public wizard → admin review queue → approval mints a Shelter row
+// with the same temp-password flow as admin-direct creation.
+
+export type ShelterApplicationStatus =
+  | "submitted"
+  | "under_review"
+  | "approved"
+  | "rejected";
+
+export type ShelterApplicationRejectionCode =
+  | "invalid_registration"
+  | "documents_unclear"
+  | "jurisdiction_mismatch"
+  | "duplicate"
+  | "out_of_scope"
+  | "other";
+
+/** ISO-3166-1 alpha-2 for the countries the wizard explicitly supports,
+ * plus an "other_eu" escape hatch that routes to a manual-review bucket. */
+export type ShelterApplicationCountry =
+  | "TR"
+  | "GB"
+  | "US"
+  | "DE"
+  | "FR"
+  | "IT"
+  | "ES"
+  | "NL"
+  | "IE"
+  | "other_eu";
+
+export type ShelterSpecies =
+  | "dog"
+  | "cat"
+  | "rabbit"
+  | "ferret"
+  | "small_mammal";
+
+export interface ShelterEntityType {
+  slug: string;
+  label: string;
+  country: ShelterApplicationCountry;
+}
+
+/**
+ * One shelter onboarding application. Public GET /apply/status surfaces
+ * a redacted subset — the admin queue sees everything except
+ * `accessToken`, which is shown only once at submission time.
+ */
+export interface ShelterApplication {
+  id: string;
+  status: ShelterApplicationStatus;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  /** SubmittedAt + 48h, pre-computed so the admin queue can sort by SLA. */
+  slaDeadline: string;
+
+  entityType: string;
+  country: ShelterApplicationCountry;
+  registrationNumber: string;
+  registrationCertificateUrl: string;
+
+  orgName: string;
+  orgAddress?: string;
+  operatingRegionCountry: ShelterApplicationCountry;
+  operatingRegionCity: string;
+  speciesFocus: ShelterSpecies[];
+  donationUrl?: string;
+
+  primaryContactName: string;
+  primaryContactEmail: string;
+  primaryContactPhone?: string;
+
+  rejectionReasonCode?: ShelterApplicationRejectionCode | "";
+  rejectionReasonNote?: string;
+  createdShelterId?: string;
+
+  /** Only present on the submit response and on /apply/status lookups. */
+  accessToken?: string;
+}
+
+/** Wizard → POST /v1/public/shelter-applications payload. */
+export interface ShelterApplicationSubmission {
+  entityType: string;
+  country: ShelterApplicationCountry;
+  registrationNumber: string;
+  registrationCertificateUrl: string;
+  orgName: string;
+  orgAddress?: string;
+  operatingRegionCountry: ShelterApplicationCountry;
+  operatingRegionCity: string;
+  speciesFocus: ShelterSpecies[];
+  donationUrl?: string;
+  primaryContactName: string;
+  primaryContactEmail: string;
+  primaryContactPhone?: string;
+}
+
+export interface ShelterApplicationSubmitResult {
+  id: string;
+  accessToken: string;
+  status: ShelterApplicationStatus;
+  submittedAt: string;
+  slaDeadline: string;
+}
+
+/** Admin approval mints a Shelter + returns the temp password once. */
+export interface ApproveShelterApplicationResult {
+  shelter: Shelter;
+  application: ShelterApplication;
+  tempPassword: string;
+  passwordNotice: string;
+}
+
+// ── Shelter team accounts (v0.15) ───────────────────────────────────
+// Multi-user access per shelter with 3 roles. Every shelter has ≥1
+// active admin; the API enforces that invariant server-side.
+
+export type ShelterMemberRole = "admin" | "editor" | "viewer";
+export type ShelterMemberStatus = "active" | "pending" | "revoked";
+
+export interface ShelterMember {
+  id: string;
+  shelterId: string;
+  email: string;
+  name?: string;
+  role: ShelterMemberRole;
+  status: ShelterMemberStatus;
+  mustChangePassword: boolean;
+  invitedByMemberId?: string;
+  invitedAt?: string;
+  joinedAt: string;
+  lastLoginAt?: string;
+}
+
+/** A one-time invite link. `token` is only ever populated on the
+ * create/resend response so the admin can show + share it. */
+export interface ShelterMemberInvite {
+  id: string;
+  shelterId: string;
+  email: string;
+  role: ShelterMemberRole;
+  invitedByMemberId?: string;
+  token?: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  acceptedMemberId?: string;
+  revokedAt?: string;
+}
+
+export interface ShelterInviteInfo {
+  email: string;
+  role: ShelterMemberRole;
+  shelterId: string;
+  shelterName: string;
+  expiresAt: string;
+  /** `active` = usable; `expired|accepted|revoked` = accept call will 410. */
+  status: "active" | "expired" | "accepted" | "revoked";
+}
+
+export interface ShelterInviteSubmission {
+  email: string;
+  role: ShelterMemberRole;
+}
+
+export interface ShelterInviteAcceptSubmission {
+  name: string;
+  password: string;
+}
+
+export interface ShelterAuditEntry {
+  id: string;
+  shelterId: string;
+  actorMemberId?: string;
+  actorName: string;
+  actorEmail: string;
+  /** Dot-separated `target.verb`, e.g. `"member.invite"`, `"pet.create"`. */
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Updated login response (v0.15+): adds `member` alongside the
+ * existing `shelter` field. Old clients still read `shelter`. */
+export interface ShelterSession {
+  shelter: Shelter;
+  member: ShelterMember;
+  accessToken: string;
+  expiresIn: number;
+  mustChangePassword: boolean;
+}
+
+export interface AdoptionApplicationInput {
+  petId: string;
+  housingType: string;
+  hasOtherPets: boolean;
+  otherPetsDetail: string;
+  experience: string;
+  message: string;
+}
+
+export interface AdoptablePetFilters {
+  species?: string;
+  sex?: string;
+  size?: string;
+  city?: string;
+  maxAgeMonths?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export interface PetAlbum {

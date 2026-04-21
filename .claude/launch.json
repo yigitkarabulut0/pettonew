@@ -2,16 +2,28 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "expo-go",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--clear"],
-      "port": 8081
-    },
-    {
       "name": "admin",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-C", "apps/admin", "dev"],
       "port": 3000
+    },
+    {
+      "name": "shelter-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "apps/shelter-web", "dev"],
+      "port": 3100
+    },
+    {
+      "name": "shelter-mobile",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "apps/shelter-mobile", "dev"],
+      "port": 8081
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "apps/mobile", "dev"],
+      "port": 8081
     }
   ]
 }
