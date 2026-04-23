@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import {
   TextInput,
   View
 } from "react-native";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { Image } from "expo-image";
 import MapView, { Marker } from "react-native-maps";
 import { LinearGradient } from "expo-linear-gradient";
@@ -51,6 +51,7 @@ import {
   announcePlaydate,
   buildPlaydateShareUrl,
   cancelPlaydate,
+  claimPlaydateShare,
   declinePlaydateInvite,
   getPlaydate,
   kickPlaydateAttendee,
@@ -72,19 +73,52 @@ export default function PlaydateDetailPage() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id, initialTitle, initialImage } = useLocalSearchParams<{
+  const { id, initialTitle, initialImage, t: shareToken } = useLocalSearchParams<{
     id: string;
     initialTitle?: string;
     initialImage?: string;
+    // v0.13.5 — WhatsApp share URL carries `?t={shareToken}` through the
+    // landing page and deep link. We claim it once before the first detail
+    // fetch so the private-visibility gate admits this user.
+    t?: string;
   }>();
   const session = useSessionStore((s) => s.session);
   const queryClient = useQueryClient();
   const token = session?.tokens.accessToken ?? "";
 
-  const { data: playdate, refetch } = useQuery({
+  const [shareClaimed, setShareClaimed] = useState(false);
+  const shouldClaim = Boolean(token && id && shareToken && !shareClaimed);
+
+  // Claim the share token exactly once per (id, shareToken) pair. Until
+  // claiming completes (success or failure) we defer the detail fetch so the
+  // UI doesn't flash a "no access" error state for legitimate invitees.
+  useEffect(() => {
+    if (!shouldClaim) return;
+    let cancelled = false;
+    claimPlaydateShare(token, id, shareToken!)
+      .catch(() => {
+        // Swallow: a bad/expired token still falls through to getPlaydate
+        // where the visibility gate surfaces the error to the UI.
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setShareClaimed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldClaim, id, shareToken, token]);
+
+  const {
+    data: playdate,
+    refetch,
+    isError,
+    isLoading: playdateLoading
+  } = useQuery({
     queryKey: ["playdate-detail", id],
     queryFn: () => getPlaydate(token, id),
-    enabled: Boolean(token && id)
+    enabled: Boolean(token && id) && !shouldClaim,
+    retry: false
   });
 
   // Recompute countdown whenever the screen regains focus.
@@ -227,7 +261,7 @@ export default function PlaydateDetailPage() {
   const handleShare = async () => {
     if (!playdate) return;
     try {
-      const url = buildPlaydateShareUrl(playdate.id);
+      const url = buildPlaydateShareUrl(playdate.id, playdate.shareToken);
       await Share.share({
         message: `${t("playdates.detail.inviteMessage", { title: playdate.title })}\n\n${url}`
       });
@@ -239,7 +273,7 @@ export default function PlaydateDetailPage() {
   const handleInvite = async () => {
     if (!playdate) return;
     try {
-      const url = buildPlaydateShareUrl(playdate.id);
+      const url = buildPlaydateShareUrl(playdate.id, playdate.shareToken);
       await Share.share({
         message:
           `${t("playdates.detail.inviteMessage", { title: playdate.title })}\n\n${url}`
@@ -328,6 +362,81 @@ export default function PlaydateDetailPage() {
     shadowOffset: { width: 0, height: 4 },
     elevation: 4
   };
+
+  // Gate: if the detail fetch failed AND we have no initial-render fallback
+  // (no cached playdate, no share-token claim in flight), show a branded
+  // "no access" state instead of the empty skeleton. Prior to v0.13.5 this
+  // was the silent-null path that made private-invite links look broken.
+  if (isError && !playdate && !shouldClaim) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: theme.colors.background,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 28
+        }}
+      >
+        <Stack.Screen options={{ headerShown: false }} />
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={14}
+          style={{
+            position: "absolute",
+            top: insets.top + 8,
+            left: 12,
+            padding: 10,
+            borderRadius: 999,
+            backgroundColor: theme.colors.surface,
+            ...mobileTheme.shadow.sm
+          }}
+        >
+          <ChevronLeft size={22} color={theme.colors.ink} />
+        </Pressable>
+        <View
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 999,
+            backgroundColor: theme.colors.primaryBg,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 18
+          }}
+        >
+          <Lock size={28} color={theme.colors.primary} />
+        </View>
+        <Text
+          style={{
+            fontSize: 18,
+            fontWeight: "700",
+            color: theme.colors.ink,
+            textAlign: "center",
+            marginBottom: 6,
+            fontFamily: "Inter_700Bold"
+          }}
+        >
+          {t("playdates.detail.noAccessTitle", {
+            defaultValue: "Bu buluşmaya erişimin yok"
+          })}
+        </Text>
+        <Text
+          style={{
+            fontSize: 14,
+            color: theme.colors.muted,
+            textAlign: "center",
+            lineHeight: 20
+          }}
+        >
+          {t("playdates.detail.noAccessBody", {
+            defaultValue:
+              "Link süresi dolmuş olabilir veya özel bir buluşma. Ev sahibinden yeni bir davet iste."
+          })}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -969,41 +1078,14 @@ export default function PlaydateDetailPage() {
       </View>
 
       {/* Attendee sheet */}
-      <Modal
+      <DraggableSheet
         visible={attendeeSheetOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAttendeeSheetOpen(false)}
+        onClose={() => setAttendeeSheetOpen(false)}
+        initialSnap="medium"
+        snapPoints={{ medium: 0.65, large: 0.9 }}
       >
-        <Pressable
-          onPress={() => setAttendeeSheetOpen(false)}
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(22,21,20,0.45)",
-            justifyContent: "flex-end"
-          }}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              paddingTop: 14,
-              paddingBottom: insets.bottom + 20,
-              maxHeight: "82%"
-            }}
-          >
-            <View
-              style={{
-                width: 44,
-                height: 5,
-                borderRadius: 3,
-                backgroundColor: theme.colors.border,
-                alignSelf: "center",
-                marginBottom: 12
-              }}
-            />
+        <View style={{ flex: 1 }}>
+          <View style={{ paddingTop: 4 }}>
             <View
               style={{
                 flexDirection: "row",
@@ -1156,9 +1238,9 @@ export default function PlaydateDetailPage() {
                 </Text>
               </View>
             )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+        </View>
+      </DraggableSheet>
 
       {/* Join flow (non-attendees) */}
       {playdate ? (
@@ -1236,6 +1318,7 @@ export default function PlaydateDetailPage() {
           onClose={() => setInviteOpen(false)}
           playdateId={playdate.id}
           playdateTitle={playdate.title}
+          shareToken={playdate.shareToken}
           onInvited={(count) => {
             if (count > 0) {
               Alert.alert(
@@ -1248,41 +1331,20 @@ export default function PlaydateDetailPage() {
       ) : null}
 
       {/* Announce modal (host only) */}
-      <Modal
+      <DraggableSheet
         visible={announceOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAnnounceOpen(false)}
+        onClose={() => setAnnounceOpen(false)}
+        initialSnap="medium"
+        snapPoints={{ medium: 0.55, large: 0.88 }}
       >
-        <Pressable
-          onPress={() => setAnnounceOpen(false)}
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(22,21,20,0.45)",
-            justifyContent: "flex-end"
-          }}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
+        <View style={{ flex: 1 }}>
+          <View
             style={{
-              backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              paddingTop: 14,
-              paddingBottom: insets.bottom + 20,
+              paddingTop: 4,
               paddingHorizontal: 22,
               gap: 14
             }}
           >
-            <View
-              style={{
-                width: 44,
-                height: 5,
-                borderRadius: 3,
-                backgroundColor: theme.colors.border,
-                alignSelf: "center"
-              }}
-            />
             <Text
               style={{
                 fontSize: 18,
@@ -1348,9 +1410,9 @@ export default function PlaydateDetailPage() {
                 </Text>
               )}
             </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+        </View>
+      </DraggableSheet>
     </View>
   );
 }

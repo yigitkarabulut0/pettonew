@@ -1,7 +1,8 @@
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { PawPrint, X } from "lucide-react-native";
 import type { Pet } from "@petto/contracts";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { mobileTheme, useTheme } from "@/lib/theme";
 
 type PetSharePickerProps = {
@@ -23,42 +24,14 @@ export function PetSharePicker({
 }: PetSharePickerProps) {
   const theme = useTheme();
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="medium"
+      snapPoints={{ medium: 0.55, large: 0.9 }}
     >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "transparent",
-          justifyContent: "flex-end"
-        }}
-      >
-        <Pressable
-          onPress={(event) => event.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 12,
-            paddingBottom: 32,
-            maxHeight: "70%"
-          }}
-        >
-          <View
-            style={{
-              width: 40,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 16
-            }}
-          />
-
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingTop: 4 }}>
           <View
             style={{
               flexDirection: "row",
@@ -165,8 +138,8 @@ export function PetSharePicker({
               })}
             </ScrollView>
           )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </View>
+    </DraggableSheet>
   );
 }

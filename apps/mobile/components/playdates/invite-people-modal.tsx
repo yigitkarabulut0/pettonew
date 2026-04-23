@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   Share,
@@ -11,7 +10,6 @@ import {
   TextInput,
   View
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { Check, Link2, Search, Users, X } from "lucide-react-native";
 
@@ -20,6 +18,7 @@ import {
   createPlaydateInvites,
   listInvitableUsers
 } from "@/lib/api";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 import { Avatar } from "@/components/avatar";
@@ -29,6 +28,9 @@ type InvitePeopleModalProps = {
   onClose: () => void;
   playdateId: string;
   playdateTitle?: string;
+  /** Host-only share token. When present, shareExternal embeds it in the URL
+   *  so WhatsApp recipients can claim access to private playdates. */
+  shareToken?: string;
   onInvited?: (count: number) => void;
 };
 
@@ -37,11 +39,11 @@ export function InvitePeopleModal({
   onClose,
   playdateId,
   playdateTitle,
+  shareToken,
   onInvited
 }: InvitePeopleModalProps) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const session = useSessionStore((s) => s.session);
   const token = session?.tokens.accessToken ?? "";
@@ -95,7 +97,7 @@ export function InvitePeopleModal({
   // want to invite someone outside their match graph (e.g. WhatsApp).
   const shareExternal = async () => {
     try {
-      const url = buildPlaydateShareUrl(playdateId);
+      const url = buildPlaydateShareUrl(playdateId, shareToken);
       const intro = playdateTitle
         ? (t("playdates.detail.inviteMessage", { title: playdateTitle }) as string)
         : (t("playdates.invites.externalCta") as string);
@@ -106,42 +108,14 @@ export function InvitePeopleModal({
   };
 
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="large"
+      snapPoints={{ medium: 0.7, large: 0.92 }}
     >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(22,21,20,0.45)",
-          justifyContent: "flex-end"
-        }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 14,
-            paddingBottom: insets.bottom + 20,
-            maxHeight: "88%"
-          }}
-        >
-          <View
-            style={{
-              width: 44,
-              height: 5,
-              borderRadius: 3,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 12
-            }}
-          />
-
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingTop: 4 }}>
           <View
             style={{
               flexDirection: "row",
@@ -404,8 +378,8 @@ export function InvitePeopleModal({
               {t("playdates.invites.externalHint")}
             </Text>
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </View>
+    </DraggableSheet>
   );
 }

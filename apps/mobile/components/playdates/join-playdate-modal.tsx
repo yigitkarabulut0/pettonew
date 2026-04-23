@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,9 +13,9 @@ import {
   TextInput,
   View
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Pet, Playdate } from "@petto/contracts";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import {
   CalendarDays,
   Check,
@@ -58,7 +57,6 @@ export function JoinPlaydateModal({
 }: JoinPlaydateModalProps) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
   const session = useSessionStore((s) => s.session);
@@ -188,42 +186,14 @@ export function JoinPlaydateModal({
     : (t("playdates.detail.confirmJoin") as string);
 
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="large"
+      snapPoints={{ medium: 0.7, large: 0.95 }}
     >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(22,21,20,0.45)",
-          justifyContent: "flex-end"
-        }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 14,
-            paddingBottom: insets.bottom + 20,
-            maxHeight: "94%"
-          }}
-        >
-          <View
-            style={{
-              width: 44,
-              height: 5,
-              borderRadius: 3,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 12
-            }}
-          />
-
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingTop: 4 }}>
           {/* Header */}
           <View
             style={{
@@ -385,9 +355,9 @@ export function JoinPlaydateModal({
               </Pressable>
             )}
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </View>
+    </DraggableSheet>
   );
 }
 

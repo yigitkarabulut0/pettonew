@@ -10,6 +10,7 @@ import {
   View
 } from "react-native";
 import { Image } from "expo-image";
+import { AppImage } from "@/components/app-image";
 import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -66,26 +67,11 @@ export function DiscoveryPetCard({
         ...mobileTheme.shadow.lg
       }}
     >
-      {photoUrl && photoUrl.length > 0 ? (
-        <Image
-          source={{ uri: photoUrl }}
-          style={{ width: "100%", height: 380 }}
-          contentFit="cover"
-          transition={200}
-        />
-      ) : (
-        <View
-          style={{
-            width: "100%",
-            height: 380,
-            backgroundColor: theme.colors.background,
-            justifyContent: "center",
-            alignItems: "center"
-          }}
-        >
-          <Sparkles size={40} color={theme.colors.muted} />
-        </View>
-      )}
+      <AppImage
+        uri={photoUrl}
+        kind="pet"
+        containerStyle={{ width: "100%", height: 380 }}
+      />
       <View
         style={{ padding: mobileTheme.spacing.xl, gap: mobileTheme.spacing.sm }}
       >
@@ -164,17 +150,15 @@ export function CompactPetCard({
     >
       {pet.photos[0]?.url && pet.photos[0].url.length > 0 ? (
         <View style={{ position: "relative" }}>
-          <Image
-            source={{ uri: pet.photos[0].url }}
-            style={{
+          <AppImage
+            uri={pet.photos[0].url}
+            kind="pet"
+            recyclingKey={pet.id}
+            containerStyle={{
               height: 160,
               width: "100%",
               backgroundColor: theme.colors.primaryBg
             }}
-            contentFit="cover"
-            transition={250}
-            cachePolicy="memory-disk"
-            recyclingKey={pet.id}
           />
           <LinearGradient
             colors={["transparent", "rgba(22,21,20,0.55)"]}

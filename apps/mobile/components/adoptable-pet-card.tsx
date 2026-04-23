@@ -9,14 +9,12 @@
 // anonymous (local-only) contexts.
 
 import { Pressable, Text, View } from "react-native";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   AlertTriangle,
   BadgeCheck,
   Heart,
   MapPin,
-  PawPrint,
   ShieldCheck,
   Sparkles,
   Stethoscope
@@ -24,6 +22,7 @@ import {
 
 import type { ShelterPet } from "@petto/contracts";
 import { mobileTheme, useTheme } from "@/lib/theme";
+import { AppImage } from "@/components/app-image";
 import {
   deriveAdoptableBadges,
   formatAge,
@@ -103,25 +102,17 @@ export function AdoptablePetCard({
     >
       {/* ── Photo frame ────────────────────────────────── */}
       <View style={{ aspectRatio: 4 / 5, backgroundColor: theme.colors.primaryBg }}>
-        {photo ? (
-          <Image
-            source={{ uri: photo }}
-            style={{ width: "100%", height: "100%" }}
-            contentFit="cover"
-            transition={220}
-            cachePolicy="memory-disk"
-            recyclingKey={pet.id}
-          />
-        ) : (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <PawPrint size={32} color={theme.colors.primary} />
-          </View>
-        )}
+        <AppImage
+          uri={photo}
+          kind="pet"
+          recyclingKey={pet.id}
+          containerStyle={{ width: "100%", height: "100%" }}
+        />
 
-        {/* Subtle bottom gradient so name stays legible */}
+        {/* Subtle bottom gradient so name + distance pill stay legible */}
         <LinearGradient
-          colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.55)"]}
-          style={{ position: "absolute", left: 0, right: 0, bottom: 0, top: "55%" }}
+          colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.6)"]}
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, top: "42%" }}
         />
 
         {/* Status badge stack — top-left, wraps */}
@@ -170,13 +161,14 @@ export function AdoptablePetCard({
           </View>
         )}
 
-        {/* Distance pill — bottom-right */}
+        {/* Distance pill — sits above the quick-facts line so it never
+            overlaps the "breed · sex · age" row below. */}
         {distance && (
           <View
             style={{
               position: "absolute",
               right: 8,
-              bottom: 8,
+              bottom: 52,
               flexDirection: "row",
               alignItems: "center",
               gap: 3,

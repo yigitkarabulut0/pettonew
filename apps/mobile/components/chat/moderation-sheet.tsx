@@ -1,6 +1,7 @@
-import { Modal, Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Copy, Flag, MicOff, Pin, PinOff, Trash2, X } from "lucide-react-native";
 import type { Message } from "@petto/contracts";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { mobileTheme, useTheme } from "@/lib/theme";
 
 export type ModerationAction =
@@ -79,36 +80,17 @@ export function ModerationSheet({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "transparent",
-          justifyContent: "flex-end"
-        }}
+    <DraggableSheet
+      visible={visible}
+      onClose={onClose}
+      initialSnap="medium"
+      snapPoints={{ medium: 0.48, large: 0.8 }}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: mobileTheme.spacing.lg }}
       >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 12,
-            paddingBottom: 32
-          }}
-        >
-          <View
-            style={{
-              width: 40,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 8
-            }}
-          />
-
+        <View style={{ paddingTop: 4 }}>
           <View
             style={{
               flexDirection: "row",
@@ -193,8 +175,8 @@ export function ModerationSheet({
               onPress={() => onAction("delete")}
             />
           )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </ScrollView>
+    </DraggableSheet>
   );
 }

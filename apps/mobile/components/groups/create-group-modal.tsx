@@ -43,6 +43,7 @@ import {
 } from "lucide-react-native";
 
 import { createGroup, listTaxonomies, uploadMedia } from "@/lib/api";
+import { UploadProgressOverlay } from "@/components/media/upload-progress-overlay";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -92,6 +93,10 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [successPopup, setSuccessPopup] = useState<{ code: string; conversationId: string; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(
+    undefined
+  );
 
   // Reset on close
   useEffect(() => {
@@ -125,13 +130,21 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
     mutationFn: async () => {
       let imageUrl: string | undefined;
       if (avatarAsset) {
-        const uploaded = await uploadMedia(
-          token,
-          avatarAsset.uri,
-          `group-${Date.now()}.jpg`,
-          avatarAsset.mimeType ?? "image/jpeg"
-        );
-        imageUrl = uploaded.url;
+        setUploading(true);
+        setUploadProgress(0);
+        try {
+          const uploaded = await uploadMedia(
+            token,
+            avatarAsset.uri,
+            `group-${Date.now()}.jpg`,
+            avatarAsset.mimeType ?? undefined,
+            { onProgress: (ratio) => setUploadProgress(ratio) }
+          );
+          imageUrl = uploaded.url;
+        } finally {
+          setUploading(false);
+          setUploadProgress(undefined);
+        }
       }
       return createGroup(token, {
         name: name.trim(),
@@ -909,6 +922,11 @@ export function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <UploadProgressOverlay
+        visible={uploading}
+        progress={uploadProgress}
+        label={t("groups.uploading", { defaultValue: "Grup görseli yükleniyor…" })}
+      />
     </Modal>
 
     {/* ── Success Popup with Group Code (in-app style) ── */}

@@ -133,6 +133,11 @@ type Store interface {
 	AddFavorite(userID string, petID string) error
 	RemoveFavorite(userID string, petID string) error
 	ListFavorites(userID string) []domain.Pet
+	// Adoption favorites — separate from social-match favorites; targets
+	// are shelter_pets (adoptable listings), not owner pets.
+	AddAdoptionFavorite(userID string, shelterPetID string) error
+	RemoveAdoptionFavorite(userID string, shelterPetID string) error
+	ListAdoptionFavorites(userID string) []domain.ShelterPet
 	// Health
 	ListHealthRecords(petID string) []domain.HealthRecord
 	CreateHealthRecord(petID string, record domain.HealthRecord) domain.HealthRecord
@@ -165,6 +170,10 @@ type Store interface {
 	ListInvitableUsers(hostID string, playdateID string) ([]domain.InvitableUser, error)
 	ListMyPendingPlaydateInvites(userID string) []domain.PlaydateInvite
 	RespondToPlaydateInvite(userID string, inviteID string, accept bool) (string, error)
+	// ClaimPlaydateShareToken verifies that `token` matches the playdate's
+	// share_token and, if valid, upserts a pending playdate_invites row so
+	// the caller can pass the GetPlaydateForUser visibility gate.
+	ClaimPlaydateShareToken(userID string, playdateID string, token string) error
 	// Playdate chat (v0.14.0)
 	GetPlaydateByConversation(conversationID string) *domain.Playdate
 	SendPlaydateMessageEx(userID string, playdateID string, input SendGroupMessageInput) (domain.Message, error)

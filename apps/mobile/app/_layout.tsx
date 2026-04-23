@@ -176,6 +176,15 @@ export default function RootLayout() {
       router.push("/(app)/(tabs)/match");
     } else if (data?.type === "health" && data?.petId) {
       router.push(`/(app)/pet-health/${data.petId}` as any);
+    } else if (data?.type === "playdate_invite" && data?.playdateId) {
+      // v0.13.5 — the backend already includes {playdateId, inviteId} on this
+      // push; an invitee row is guaranteed to exist in playdate_invites at
+      // this point, so the detail screen will pass the private-visibility
+      // gate without needing a share token.
+      router.push({
+        pathname: "/(app)/playdates/[id]",
+        params: { id: data.playdateId as string }
+      } as any);
     }
   };
 

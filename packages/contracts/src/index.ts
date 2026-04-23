@@ -478,6 +478,9 @@ export interface Playdate {
   myPetIds?: string[];
   myWaitlistPets?: string[];
   visibility?: "public" | "private";
+  /** v0.13.5 — share token for private-playdate WhatsApp/SMS links. Only
+   *  populated in responses where the caller is the host. */
+  shareToken?: string;
   creatorPetIds?: string[];
   myInviteStatus?: "pending" | "accepted" | "declined";
   myInviteId?: string;

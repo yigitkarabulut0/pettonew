@@ -115,6 +115,8 @@ export function PetForm({
   const [speciesPickerOpen, setSpeciesPickerOpen] = useState(false);
   const [breedPickerOpen, setBreedPickerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadIndex, setUploadIndex] = useState({ current: 0, total: 0 });
 
   function patch<K extends keyof PetFormValues>(k: K, v: PetFormValues[K]) {
     onChange({ ...value, [k]: v });
@@ -146,9 +148,16 @@ export function PetForm({
     });
     if (result.canceled) return;
 
+    const assets = result.assets ?? [];
     setUploading(true);
+    setUploadProgress(0);
+    setUploadIndex({ current: 0, total: assets.length });
     const next = [...value.photos];
-    for (const asset of result.assets ?? []) {
+    for (let i = 0; i < assets.length; i += 1) {
+      const asset = assets[i];
+      if (!asset) continue;
+      setUploadIndex({ current: i + 1, total: assets.length });
+      setUploadProgress(0);
       const size = asset.fileSize ?? 0;
       if (size && size > MAX_PHOTO_MB * 1024 * 1024) {
         Alert.alert("Too large", `${asset.fileName ?? "Image"} is larger than ${MAX_PHOTO_MB} MB.`);
@@ -158,8 +167,9 @@ export function PetForm({
         const url = await uploadImageUriToR2({
           uri: asset.uri,
           fileName: asset.fileName ?? `photo-${Date.now()}.jpg`,
-          mimeType: asset.mimeType ?? "image/jpeg",
-          folder: "shelter-pets"
+          mimeType: asset.mimeType ?? undefined,
+          folder: "shelter-pets",
+          onProgress: (ratio) => setUploadProgress(ratio)
         });
         next.push(url);
       } catch (err) {
@@ -168,6 +178,8 @@ export function PetForm({
     }
     patch("photos", next);
     setUploading(false);
+    setUploadProgress(0);
+    setUploadIndex({ current: 0, total: 0 });
   }
 
   const statusOptions = ["available", "reserved", "adopted", "hidden"] as const;
@@ -357,7 +369,17 @@ export function PetForm({
           }}
         >
           {uploading ? (
-            <ActivityIndicator color={theme.colors.primary} />
+            <View style={{ alignItems: "center", gap: 6 }}>
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.ink }}>
+                {uploadIndex.total > 1
+                  ? `Uploading ${uploadIndex.current}/${uploadIndex.total} · ${Math.round(uploadProgress * 100)}%`
+                  : `Uploading · ${Math.round(uploadProgress * 100)}%`}
+              </Text>
+              <Text style={{ fontSize: 10, color: theme.colors.muted }}>
+                Optimising to WebP — ~50% smaller
+              </Text>
+            </View>
           ) : (
             <>
               <ImagePlus size={22} color={theme.colors.primary} />
@@ -365,7 +387,7 @@ export function PetForm({
                 Upload photos ({value.photos.length}/{MAX_PHOTOS})
               </Text>
               <Text style={{ fontSize: 10, color: theme.colors.muted, textAlign: "center" }}>
-                JPG / PNG / HEIC · up to {MAX_PHOTO_MB} MB each · ideally 1200×1200 px
+                JPG / PNG / HEIC · up to {MAX_PHOTO_MB} MB each · auto-optimised
               </Text>
             </>
           )}

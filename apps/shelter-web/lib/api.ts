@@ -287,15 +287,30 @@ export const shelterPresignUpload = (fileName: string, mimeType: string, folder:
     body: { fileName, mimeType, folder }
   });
 
-export async function uploadFileToR2(file: File, folder: string): Promise<string> {
-  const presign = await shelterPresignUpload(file.name, file.type, folder);
-  const put = await fetch(presign.uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file
-  });
-  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+export async function uploadFileToR2(
+  file: File,
+  folder: string,
+  opts: { onProgress?: (ratio: number) => void } = {}
+): Promise<string> {
+  const { encodeFileToWebP, putWithProgressAndRetry } = await import("./media");
+  const encoded = await encodeFileToWebP(file);
+  const base = file.name.replace(/\.[^.]+$/, "") || "upload";
+  const canonicalName = `${base}${encoded.extension}`;
+
+  const presign = await shelterPresignUpload(
+    canonicalName,
+    encoded.mimeType,
+    folder
+  );
   const publicUrl = presign.url ?? presign.publicUrl;
   if (!publicUrl) throw new Error("Upload succeeded but no public URL returned");
+
+  await putWithProgressAndRetry({
+    uploadUrl: presign.uploadUrl,
+    publicUrl,
+    body: encoded.blob,
+    contentType: encoded.mimeType,
+    onProgress: opts.onProgress
+  });
   return publicUrl;
 }

@@ -11,11 +11,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { LocationPicker, type LocationValue } from "@/components/common/LocationPicker";
 import {
-  adminPresignUpload,
   getPosts,
   getVenues,
   updateVenue,
 } from "@/lib/admin-api";
+import { uploadImageFile } from "@/lib/media";
 import type { ExploreVenue } from "@petto/contracts";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -97,13 +97,7 @@ export default function VenueDetailPage() {
       if (imageFile) {
         setUploading(true);
         try {
-          const presign = await adminPresignUpload(imageFile.name, imageFile.type, "venues");
-          await fetch(presign.uploadUrl, {
-            method: "PUT",
-            body: imageFile,
-            headers: { "Content-Type": imageFile.type },
-          });
-          imageUrl = presign.publicUrl;
+          imageUrl = await uploadImageFile(imageFile, "venues");
         } finally {
           setUploading(false);
         }

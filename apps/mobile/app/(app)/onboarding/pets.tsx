@@ -1,5 +1,5 @@
 import { Picker } from "@react-native-picker/picker";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useMemo, useRef, useState } from "react";
@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
+import { UploadProgressOverlay } from "@/components/media/upload-progress-overlay";
 import { listTaxonomies, savePet, uploadMedia } from "@/lib/api";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -59,6 +60,7 @@ export default function PetsOnboardingPage() {
   const petCount = useSessionStore((state) => state.petCount);
   const setPetCount = useSessionStore((state) => state.setPetCount);
   const setActivePetId = useSessionStore((state) => state.setActivePetId);
+  const queryClient = useQueryClient();
   const [photoAssets, setPhotoAssets] = useState<
     Array<{ uri: string; mimeType?: string | null }>
   >([]);
@@ -71,6 +73,10 @@ export default function PetsOnboardingPage() {
   const [charactersModalOpen, setCharactersModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(
+    undefined
+  );
+  const [uploading, setUploading] = useState(false);
 
   const { data: species = [] } = useQuery({
     queryKey: ["species", session?.tokens.accessToken],
@@ -208,13 +214,26 @@ export default function PetsOnboardingPage() {
         throw new Error(t("common.noSessionFound"));
       }
 
+      setUploading(true);
+      setUploadProgress(0);
+      const perPhoto = new Array<number>(photoAssets.length).fill(0);
+      const publishAggregate = () => {
+        const sum = perPhoto.reduce((acc, r) => acc + r, 0);
+        setUploadProgress(sum / Math.max(1, perPhoto.length));
+      };
       const uploadedPhotos = await Promise.all(
         photoAssets.map(async (asset, index) => {
           const uploaded = await uploadMedia(
             session.tokens.accessToken,
             asset.uri,
             `pet-photo-${index + 1}.jpg`,
-            asset.mimeType ?? "image/jpeg"
+            asset.mimeType ?? undefined,
+            {
+              onProgress: (ratio) => {
+                perPhoto[index] = ratio;
+                publishAggregate();
+              }
+            }
           );
           return {
             id: uploaded.id,
@@ -222,7 +241,10 @@ export default function PetsOnboardingPage() {
             isPrimary: index === 0
           };
         })
-      );
+      ).finally(() => {
+        setUploading(false);
+        setUploadProgress(undefined);
+      });
 
       return savePet(session.tokens.accessToken, {
         name: values.name.trim(),
@@ -245,6 +267,19 @@ export default function PetsOnboardingPage() {
     onSuccess: (pet) => {
       setPetCount(petCount + 1);
       setActivePetId(pet.id);
+      // Fragmented pet query keys across the app — invalidate all
+      // known "my pets" caches so the new pet appears immediately on
+      // match / explore / home / discover / profile without waiting
+      // for the 30s staleTime to kick in. Also clear the discovery
+      // feed so the backend uses this pet's empty swipe history (not
+      // the previous active pet's filled one).
+      queryClient.invalidateQueries({ queryKey: ["my-pets"] });
+      queryClient.invalidateQueries({ queryKey: ["my-pets-discovery"] });
+      queryClient.invalidateQueries({ queryKey: ["explore-my-pets"] });
+      queryClient.invalidateQueries({ queryKey: ["home-my-pets"] });
+      queryClient.invalidateQueries({ queryKey: ["discover-my-pets"] });
+      queryClient.invalidateQueries({ queryKey: ["discovery-feed"] });
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
       router.replace("/");
     },
     onError: (error) => {
@@ -790,6 +825,11 @@ export default function PetsOnboardingPage() {
           )
         }
         onClose={() => setCharactersModalOpen(false)}
+      />
+      <UploadProgressOverlay
+        visible={uploading}
+        progress={uploadProgress}
+        label={t("onboarding.pets.uploading", { defaultValue: "Fotoğraflar yükleniyor…" })}
       />
     </ScreenShell>
   );

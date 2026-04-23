@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { LocationPicker, type LocationValue } from "@/components/common/LocationPicker";
-import { adminPresignUpload, createVenue, deleteVenue, getVenues } from "@/lib/admin-api";
+import { createVenue, deleteVenue, getVenues } from "@/lib/admin-api";
+import { uploadImageFile } from "@/lib/media";
 
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-[var(--petto-border)] bg-white px-3 py-2 text-sm";
@@ -96,13 +97,7 @@ export default function VenuesPage() {
       if (imageFile) {
         setUploading(true);
         try {
-          const presign = await adminPresignUpload(imageFile.name, imageFile.type, "venues");
-          await fetch(presign.uploadUrl, {
-            method: "PUT",
-            body: imageFile,
-            headers: { "Content-Type": imageFile.type }
-          });
-          imageUrl = presign.publicUrl;
+          imageUrl = await uploadImageFile(imageFile, "venues");
         } finally {
           setUploading(false);
         }

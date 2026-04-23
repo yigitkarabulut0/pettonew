@@ -43,6 +43,7 @@ import { DebugTapTrigger } from "@petto/debug-panel";
 import { Avatar } from "@/components/avatar";
 import { PetDetailModal } from "@/components/pet-card";
 import { ReportModal } from "@/components/report-modal";
+import { UploadProgressOverlay } from "@/components/media/upload-progress-overlay";
 import { WeatherWidget } from "@/components/weather-widget";
 import {
   createHomePost,
@@ -84,6 +85,10 @@ export default function HomePage() {
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(
+    undefined
+  );
 
   const { data: posts = [], isLoading: postsLoading, refetch: refetchPosts } = useQuery({
     queryKey: ["home-feed", session?.tokens.accessToken],
@@ -113,13 +118,21 @@ export default function HomePage() {
 
       let imageUrl: string | undefined;
       if (imageAsset) {
-        const uploaded = await uploadMedia(
-          session.tokens.accessToken,
-          imageAsset.uri,
-          "home-post.jpg",
-          imageAsset.mimeType ?? "image/jpeg"
-        );
-        imageUrl = uploaded.url;
+        setUploading(true);
+        setUploadProgress(0);
+        try {
+          const uploaded = await uploadMedia(
+            session.tokens.accessToken,
+            imageAsset.uri,
+            "home-post.jpg",
+            imageAsset.mimeType ?? undefined,
+            { onProgress: (ratio) => setUploadProgress(ratio) }
+          );
+          imageUrl = uploaded.url;
+        } finally {
+          setUploading(false);
+          setUploadProgress(undefined);
+        }
       }
 
       return createHomePost(session.tokens.accessToken, {
@@ -929,6 +942,11 @@ export default function HomePage() {
         targetType={reportTarget?.type ?? "post"}
         targetID={reportTarget?.id ?? ""}
         targetLabel={reportTarget?.label ?? ""}
+      />
+      <UploadProgressOverlay
+        visible={uploading}
+        progress={uploadProgress}
+        label={t("home.composer.uploading", { defaultValue: "Fotoğraf yükleniyor…" })}
       />
     </View>
   );

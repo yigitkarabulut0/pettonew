@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,9 +12,9 @@ import {
   View
 } from "react-native";
 import { Image } from "expo-image";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Playdate } from "@petto/contracts";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import {
   CalendarDays,
   ListChecks,
@@ -49,7 +48,6 @@ export function CreatePlaydateModal({
 }: CreatePlaydateModalProps) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const session = useSessionStore((s) => s.session);
   const queryClient = useQueryClient();
   const token = session?.tokens.accessToken ?? "";
@@ -190,41 +188,14 @@ export function CreatePlaydateModal({
     : (t("playdates.newPlaydate") as string);
 
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="large"
+      snapPoints={{ medium: 0.7, large: 0.95 }}
     >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(22,21,20,0.45)",
-          justifyContent: "flex-end"
-        }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 14,
-            paddingBottom: insets.bottom + 24,
-            maxHeight: "92%"
-          }}
-        >
-          <View
-            style={{
-              width: 44,
-              height: 5,
-              borderRadius: 3,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 14
-            }}
-          />
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingTop: 4 }}>
           <View
             style={{
               flexDirection: "row",
@@ -670,8 +641,8 @@ export function CreatePlaydateModal({
               </Pressable>
             </ScrollView>
           </KeyboardAvoidingView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </View>
+      </View>
+    </DraggableSheet>
   );
 }

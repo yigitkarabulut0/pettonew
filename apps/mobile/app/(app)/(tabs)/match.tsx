@@ -83,10 +83,23 @@ export default function MatchesPage() {
     enabled: Boolean(session)
   });
 
+  const activePet = useMemo(() => {
+    if (activePetId) {
+      return myPets.find((p) => p.id === activePetId) ?? null;
+    }
+    return myPets.length > 0 ? myPets[0] : null;
+  }, [myPets, activePetId]);
+
+  // Fall back to the raw `activePetId` even if myPets cache hasn't
+  // loaded the new pet yet — otherwise a freshly-created pet's feed
+  // silently hits the "no pet" branch on the backend, which excludes
+  // targets already swiped by any of the user's OTHER pets (so the
+  // new pet inherits old swipe history and the deck looks empty).
+  const activePetIdForFeed = activePet?.id ?? activePetId ?? undefined;
   const { data: feed = [], isLoading: feedLoading } = useQuery({
-    queryKey: ["discovery-feed", session?.tokens.accessToken, activePet?.id],
+    queryKey: ["discovery-feed", session?.tokens.accessToken, activePetIdForFeed],
     queryFn: () =>
-      getDiscoveryFeed(session!.tokens.accessToken, activePet?.id ?? undefined),
+      getDiscoveryFeed(session!.tokens.accessToken, activePetIdForFeed),
     enabled: Boolean(session)
   });
 
@@ -99,13 +112,6 @@ export default function MatchesPage() {
     refetchInterval: 3000
   });
   const { refreshing: matchesRefreshing, handleRefresh: handleRefreshMatches } = useLocalRefresh(refetchMatches);
-
-  const activePet = useMemo(() => {
-    if (activePetId) {
-      return myPets.find((p) => p.id === activePetId) ?? null;
-    }
-    return myPets.length > 0 ? myPets[0] : null;
-  }, [myPets, activePetId]);
 
   // Proactively warm expo-image's memory-disk cache for the next few pet
   // cards so swipes feel instant even on slow connections.
@@ -569,6 +575,11 @@ export default function MatchesPage() {
           setPetPickerOpen(false);
           queryClient.invalidateQueries({
             queryKey: ["discovery-feed", session?.tokens.accessToken]
+          });
+          // Each pet has its own match history — refresh the matches
+          // list so the per-pet labels reflect the current active pet.
+          queryClient.invalidateQueries({
+            queryKey: ["matches", session?.tokens.accessToken]
           });
         }}
         onClose={() => setPetPickerOpen(false)}

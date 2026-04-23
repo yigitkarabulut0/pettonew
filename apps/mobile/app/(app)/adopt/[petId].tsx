@@ -57,12 +57,12 @@ import {
 import { Avatar } from "@/components/avatar";
 import { LottieLoading } from "@/components/lottie-loading";
 import {
-  addFavorite,
+  addAdoptionFavorite,
   createAdoptionApplication,
   getAdoptablePet,
-  listFavorites,
+  listAdoptionFavorites,
   listMyAdoptionApplications,
-  removeFavorite,
+  removeAdoptionFavorite,
   trackPetView
 } from "@/lib/api";
 import { getCachedLocation } from "@/lib/location";
@@ -146,9 +146,11 @@ export default function AdoptPetDetailPage() {
   );
 
   // Favorites with optimistic UI + silent rollback per spec.
+  // Uses the adoption-specific endpoint (shelter_pets), not the social
+  // /v1/favorites which targets owner-Pet rows.
   const { data: favorites = [] } = useQuery({
-    queryKey: ["favorites"],
-    queryFn: () => listFavorites(token),
+    queryKey: ["adoption-favorites"],
+    queryFn: () => listAdoptionFavorites(token),
     enabled: Boolean(token),
     staleTime: 60_000
   });
@@ -159,27 +161,30 @@ export default function AdoptPetDetailPage() {
   const toggleFav = useMutation({
     mutationFn: async () => {
       if (!id) return;
-      if (favorited) await removeFavorite(token, id);
-      else await addFavorite(token, id);
+      if (favorited) await removeAdoptionFavorite(token, id);
+      else await addAdoptionFavorite(token, id);
     },
     onMutate: () => {
-      const previous = queryClient.getQueryData<typeof favorites>(["favorites"]);
-      queryClient.setQueryData<typeof favorites>(["favorites"], (cur) => {
-        const list = cur ?? [];
-        if (favorited) return list.filter((p) => p.id !== id);
-        // Stub into the cache so the heart flips instantly; list of
-        // favorites has minimal rendering on this screen so a shallow
-        // entry is fine.
-        if (data?.pet) return [...list, data.pet as any];
-        return list;
-      });
+      const previous = queryClient.getQueryData<typeof favorites>([
+        "adoption-favorites"
+      ]);
+      queryClient.setQueryData<typeof favorites>(
+        ["adoption-favorites"],
+        (cur) => {
+          const list = cur ?? [];
+          if (favorited) return list.filter((p) => p.id !== id);
+          if (data?.pet) return [...list, data.pet];
+          return list;
+        }
+      );
       return { previous };
     },
     onError: (_err, _v, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(["favorites"], ctx.previous);
+      if (ctx?.previous)
+        queryClient.setQueryData(["adoption-favorites"], ctx.previous);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      void queryClient.invalidateQueries({ queryKey: ["adoption-favorites"] });
     }
   });
 

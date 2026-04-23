@@ -457,6 +457,14 @@ func (s *PersistentStore) RemoveFavorite(userID string, petID string) error {
 	return s.persistAfter(s.MemoryStore.RemoveFavorite(userID, petID))
 }
 
+func (s *PersistentStore) AddAdoptionFavorite(userID string, shelterPetID string) error {
+	return s.persistAfter(s.MemoryStore.AddAdoptionFavorite(userID, shelterPetID))
+}
+
+func (s *PersistentStore) RemoveAdoptionFavorite(userID string, shelterPetID string) error {
+	return s.persistAfter(s.MemoryStore.RemoveAdoptionFavorite(userID, shelterPetID))
+}
+
 func (s *PersistentStore) CreateDiaryEntry(userID string, petID string, body string, imageURL *string, mood string) domain.DiaryEntry {
 	entry := s.MemoryStore.CreateDiaryEntry(userID, petID, body, imageURL, mood)
 	_ = s.persist(context.Background())

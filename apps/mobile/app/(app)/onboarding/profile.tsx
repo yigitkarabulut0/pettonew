@@ -27,6 +27,7 @@ import i18n from "@/lib/i18n";
 
 import { Avatar } from "@/components/avatar";
 import { PrimaryButton } from "@/components/primary-button";
+import { UploadProgressOverlay } from "@/components/media/upload-progress-overlay";
 import { updateProfile, uploadMedia } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -54,6 +55,10 @@ export default function ProfileOnboardingPage() {
     mimeType?: string | null;
   } | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(
+    undefined
+  );
   const { control, handleSubmit, setValue, watch } = useForm<ProfileValues>({
     defaultValues: {
       firstName: session?.user.firstName ?? "",
@@ -83,13 +88,21 @@ export default function ProfileOnboardingPage() {
 
       let avatarUrl = removeAvatar ? undefined : session.user.avatarUrl;
       if (avatarAsset) {
-        const uploaded = await uploadMedia(
-          session.tokens.accessToken,
-          avatarAsset.uri,
-          "profile-avatar.jpg",
-          avatarAsset.mimeType ?? "image/jpeg"
-        );
-        avatarUrl = uploaded.url;
+        setUploading(true);
+        setUploadProgress(0);
+        try {
+          const uploaded = await uploadMedia(
+            session.tokens.accessToken,
+            avatarAsset.uri,
+            "profile-avatar.jpg",
+            avatarAsset.mimeType ?? undefined,
+            { onProgress: (ratio) => setUploadProgress(ratio) }
+          );
+          avatarUrl = uploaded.url;
+        } finally {
+          setUploading(false);
+          setUploadProgress(undefined);
+        }
       }
 
       return updateProfile(session.tokens.accessToken, {
@@ -492,6 +505,11 @@ export default function ProfileOnboardingPage() {
         />
       </ScrollView>
       </KeyboardAvoidingView>
+      <UploadProgressOverlay
+        visible={uploading}
+        progress={uploadProgress}
+        label={t("onboarding.profile.uploading", { defaultValue: "Profil fotoğrafı yükleniyor…" })}
+      />
     </View>
   );
 }

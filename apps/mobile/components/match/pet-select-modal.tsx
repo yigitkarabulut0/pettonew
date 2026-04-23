@@ -1,9 +1,9 @@
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Image } from "expo-image";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { Check, X } from "lucide-react-native";
 
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import type { Pet } from "@petto/contracts";
 
@@ -24,22 +24,16 @@ export function PetSelectModal({
 }: PetSelectModalProps) {
   const theme = useTheme();
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
+    <DraggableSheet visible={visible} onClose={onClose} initialSnap="medium">
       <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <View
           style={{
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
-            paddingTop: insets.top + mobileTheme.spacing.md,
+            paddingTop: mobileTheme.spacing.sm,
             paddingBottom: mobileTheme.spacing.md,
             paddingHorizontal: mobileTheme.spacing.xl
           }}
@@ -185,6 +179,6 @@ export function PetSelectModal({
           })}
         </ScrollView>
       </View>
-    </Modal>
+    </DraggableSheet>
   );
 }

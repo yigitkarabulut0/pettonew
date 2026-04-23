@@ -15,6 +15,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+// allowedImageMimes maps accepted Content-Type values to the canonical
+// object-key extension we store in R2. Anything outside this set is refused
+// — clients must client-side-transcode (WebP preferred) before asking for a
+// presigned URL. HEIC is deliberately excluded because Android's expo-image
+// cannot decode it, which produced broken thumbnails in Fetcht.
+var allowedImageMimes = map[string]string{
+	"image/webp": ".webp",
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+}
+
 func (s *Server) handleMediaPresign(writer http.ResponseWriter, request *http.Request) {
 	if s.cfg.R2AccountID == "" || s.cfg.R2Bucket == "" || s.cfg.R2AccessKeyID == "" || s.cfg.R2SecretKey == "" {
 		writeError(writer, http.StatusNotImplemented, "r2 upload is not configured")
@@ -30,8 +41,15 @@ func (s *Server) handleMediaPresign(writer http.ResponseWriter, request *http.Re
 		return
 	}
 
-	objectKey := buildObjectKey(payload.Folder, payload.FileName)
-	uploadURL, err := s.createPresignedUploadURL(request.Context(), objectKey, payload.MimeType)
+	mime := strings.ToLower(strings.TrimSpace(payload.MimeType))
+	ext, ok := allowedImageMimes[mime]
+	if !ok {
+		writeError(writer, http.StatusBadRequest, "unsupported image type; upload as image/webp, image/jpeg or image/png")
+		return
+	}
+
+	objectKey := buildObjectKeyWithExt(payload.Folder, ext)
+	uploadURL, err := s.createPresignedUploadURL(request.Context(), objectKey, mime)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "unable to create upload URL")
 		return
@@ -97,6 +115,21 @@ func buildObjectKey(folder string, fileName string) string {
 		safeFolder = "uploads"
 	}
 	return fmt.Sprintf("%s/%s%s", safeFolder, newAssetID(), extension)
+}
+
+// buildObjectKeyWithExt is the authoritative object-key builder for presigned
+// uploads: the extension comes from the validated MIME type, not from the
+// (user-controlled) filename. Prevents client/server disagreement when a caller
+// picks a HEIC but transcodes it to WebP before upload.
+func buildObjectKeyWithExt(folder string, ext string) string {
+	safeFolder := strings.Trim(strings.ToLower(folder), "/")
+	if safeFolder == "" {
+		safeFolder = "uploads"
+	}
+	if ext == "" {
+		ext = ".webp"
+	}
+	return fmt.Sprintf("%s/%s%s", safeFolder, newAssetID(), ext)
 }
 
 func (s *Server) handleMediaProxy(writer http.ResponseWriter, request *http.Request) {

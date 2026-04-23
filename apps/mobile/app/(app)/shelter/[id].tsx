@@ -29,10 +29,10 @@ import { Avatar } from "@/components/avatar";
 import { AdoptablePetCard } from "@/components/adoptable-pet-card";
 import { LottieLoading } from "@/components/lottie-loading";
 import {
-  addFavorite,
+  addAdoptionFavorite,
   getShelter,
-  listFavorites,
-  removeFavorite
+  listAdoptionFavorites,
+  removeAdoptionFavorite
 } from "@/lib/api";
 import { getCachedLocation } from "@/lib/location";
 import { resolveDistanceUnit } from "@/lib/adoption-format";
@@ -70,10 +70,10 @@ export default function ShelterProfilePage() {
     staleTime: 60_000
   });
 
-  // Favorites — shared query with the browse screen.
+  // Favorites — shared query with the browse screen (adoption scope).
   const { data: favorites = [] } = useQuery({
-    queryKey: ["favorites"],
-    queryFn: () => listFavorites(token),
+    queryKey: ["adoption-favorites"],
+    queryFn: () => listAdoptionFavorites(token),
     enabled: Boolean(token),
     staleTime: 60_000
   });
@@ -83,24 +83,30 @@ export default function ShelterProfilePage() {
   );
   const toggleFav = useMutation({
     mutationFn: async (petId: string) => {
-      if (favSet.has(petId)) await removeFavorite(token, petId);
-      else await addFavorite(token, petId);
+      if (favSet.has(petId)) await removeAdoptionFavorite(token, petId);
+      else await addAdoptionFavorite(token, petId);
     },
     onMutate: (petId: string) => {
-      const previous = queryClient.getQueryData<typeof favorites>(["favorites"]);
-      queryClient.setQueryData<typeof favorites>(["favorites"], (cur) => {
-        const list = cur ?? [];
-        if (favSet.has(petId)) return list.filter((p) => p.id !== petId);
-        const stub = data?.pets?.find((p) => p.id === petId);
-        return stub ? [...list, stub as any] : list;
-      });
+      const previous = queryClient.getQueryData<typeof favorites>([
+        "adoption-favorites"
+      ]);
+      queryClient.setQueryData<typeof favorites>(
+        ["adoption-favorites"],
+        (cur) => {
+          const list = cur ?? [];
+          if (favSet.has(petId)) return list.filter((p) => p.id !== petId);
+          const stub = data?.pets?.find((p) => p.id === petId);
+          return stub ? [...list, stub] : list;
+        }
+      );
       return { previous };
     },
     onError: (_err, _v, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(["favorites"], ctx.previous);
+      if (ctx?.previous)
+        queryClient.setQueryData(["adoption-favorites"], ctx.previous);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      void queryClient.invalidateQueries({ queryKey: ["adoption-favorites"] });
     }
   });
 

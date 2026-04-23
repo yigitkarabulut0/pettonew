@@ -418,6 +418,11 @@ type Playdate struct {
 	MyPetIds        []string           `json:"myPetIds,omitempty"`     // pets the caller has joined with
 	MyWaitlistPets  []string           `json:"myWaitlistPets,omitempty"` // pets the caller has in the waitlist
 	Visibility      string             `json:"visibility"`             // "public" | "private"
+	// ShareToken is a random per-playdate string the host can paste into a
+	// WhatsApp/SMS link to grant access to a private playdate. Only exposed
+	// to the host in the API response — non-host callers see "" to avoid
+	// leaking the token through the detail payload.
+	ShareToken      string             `json:"shareToken,omitempty"`
 	CreatorPetIds   []string           `json:"creatorPetIds,omitempty"` // input-only: pets the host brings when creating
 	MyInviteStatus   string             `json:"myInviteStatus,omitempty"` // "pending" | "accepted" | "declined"
 	MyInviteID       string             `json:"myInviteId,omitempty"`

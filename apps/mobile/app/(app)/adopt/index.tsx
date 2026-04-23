@@ -13,13 +13,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View
 } from "react-native";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as Localization from "expo-localization";
@@ -41,11 +41,11 @@ import { Avatar } from "@/components/avatar";
 import { AdoptablePetCard } from "@/components/adoptable-pet-card";
 import { LottieLoading } from "@/components/lottie-loading";
 import {
-  addFavorite,
+  addAdoptionFavorite,
   listAdoptablePets,
-  listFavorites,
+  listAdoptionFavorites,
   listFeaturedShelters,
-  removeFavorite
+  removeAdoptionFavorite
 } from "@/lib/api";
 import { getCachedLocation, refreshLocation } from "@/lib/location";
 import { resolveDistanceUnit } from "@/lib/adoption-format";
@@ -256,34 +256,42 @@ export default function DiscoveryHomeScreen() {
       .map((x) => x.p);
   }, [filteredPets, railIds, userLoc]);
 
-  // Favorites with optimistic UI.
+  // Adoption favorites with optimistic UI. Uses the adoption-specific
+  // endpoint so shelter_pets IDs are honored (the old /v1/favorites
+  // rejected them because it checked the social `pets` table only).
   const { data: favorites = [] } = useQuery({
-    queryKey: ["favorites"],
-    queryFn: () => listFavorites(token),
+    queryKey: ["adoption-favorites"],
+    queryFn: () => listAdoptionFavorites(token),
     enabled: Boolean(token),
     staleTime: 60_000
   });
   const favSet = useMemo(() => new Set(favorites.map((p) => p.id)), [favorites]);
   const toggleFav = useMutation({
     mutationFn: async (petId: string) => {
-      if (favSet.has(petId)) await removeFavorite(token, petId);
-      else await addFavorite(token, petId);
+      if (favSet.has(petId)) await removeAdoptionFavorite(token, petId);
+      else await addAdoptionFavorite(token, petId);
     },
     onMutate: (petId: string) => {
-      const previous = queryClient.getQueryData<typeof favorites>(["favorites"]);
-      queryClient.setQueryData<typeof favorites>(["favorites"], (cur) => {
-        const list = cur ?? [];
-        if (favSet.has(petId)) return list.filter((p) => p.id !== petId);
-        const stub = filteredPets.find((p) => p.id === petId);
-        return stub ? [...list, stub as any] : list;
-      });
+      const previous = queryClient.getQueryData<typeof favorites>([
+        "adoption-favorites"
+      ]);
+      queryClient.setQueryData<typeof favorites>(
+        ["adoption-favorites"],
+        (cur) => {
+          const list = cur ?? [];
+          if (favSet.has(petId)) return list.filter((p) => p.id !== petId);
+          const stub = filteredPets.find((p) => p.id === petId);
+          return stub ? [...list, stub] : list;
+        }
+      );
       return { previous };
     },
     onError: (_err, _petId, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(["favorites"], ctx.previous);
+      if (ctx?.previous)
+        queryClient.setQueryData(["adoption-favorites"], ctx.previous);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      void queryClient.invalidateQueries({ queryKey: ["adoption-favorites"] });
     }
   });
 
@@ -804,59 +812,49 @@ function FilterModal({
   children: React.ReactNode;
 }) {
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.4)",
-          justifyContent: "flex-end"
+    <DraggableSheet visible={open} onClose={onClose}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: mobileTheme.spacing.xl,
+          paddingTop: mobileTheme.spacing.md,
+          paddingBottom: mobileTheme.spacing.xl,
+          gap: mobileTheme.spacing.md
         }}
+        showsVerticalScrollIndicator={false}
       >
         <View
           style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            paddingHorizontal: mobileTheme.spacing.xl,
-            paddingTop: mobileTheme.spacing.xl,
-            paddingBottom: mobileTheme.spacing.xl,
-            gap: mobileTheme.spacing.md
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between"
           }}
         >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}
+          <Text
+            style={{ fontSize: 16, fontFamily: "Inter_700Bold", color: theme.colors.ink }}
           >
-            <Text
-              style={{ fontSize: 16, fontFamily: "Inter_700Bold", color: theme.colors.ink }}
-            >
-              {title}
-            </Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <X size={18} color={theme.colors.ink} />
-            </Pressable>
-          </View>
-          {children}
-          <Pressable
-            onPress={onClose}
-            style={({ pressed }) => ({
-              paddingVertical: 12,
-              alignItems: "center",
-              borderRadius: mobileTheme.radius.pill,
-              backgroundColor: theme.colors.primary,
-              opacity: pressed ? 0.9 : 1
-            })}
-          >
-            <Text style={{ color: "#FFFFFF", fontSize: 13, fontFamily: "Inter_700Bold" }}>
-              Done
-            </Text>
+            {title}
+          </Text>
+          <Pressable onPress={onClose} hitSlop={8}>
+            <X size={18} color={theme.colors.ink} />
           </Pressable>
         </View>
-      </View>
-    </Modal>
+        {children}
+        <Pressable
+          onPress={onClose}
+          style={({ pressed }) => ({
+            paddingVertical: 12,
+            alignItems: "center",
+            borderRadius: mobileTheme.radius.pill,
+            backgroundColor: theme.colors.primary,
+            opacity: pressed ? 0.9 : 1
+          })}
+        >
+          <Text style={{ color: "#FFFFFF", fontSize: 13, fontFamily: "Inter_700Bold" }}>
+            Done
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </DraggableSheet>
   );
 }
 

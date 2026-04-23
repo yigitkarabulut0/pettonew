@@ -100,6 +100,11 @@ export default function CreatePlaydatePage() {
   // imageUrl if the user doesn't pick one, so existing behavior is preserved.
   const [customCoverUrl, setCustomCoverUrl] = useState<string | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
+  // Progress is tracked but not rendered — the existing spinner-over-preview
+  // UI at CoverPicker (see below) already covers this case. We still pass
+  // onProgress so uploadMedia reports back, which keeps retry heuristics in
+  // sync if we ever surface it in the UI later.
+  const [, setCoverProgress] = useState<number | undefined>(undefined);
 
   // Fetch user's pets for step 1.
   const petsQuery = useQuery({
@@ -192,14 +197,22 @@ export default function CreatePlaydatePage() {
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
       setCoverUploading(true);
+      setCoverProgress(0);
       const asset = result.assets[0];
       const fileName = `playdate-cover-${Date.now()}.jpg`;
-      const uploaded = await uploadMedia(token, asset.uri, fileName);
+      const uploaded = await uploadMedia(
+        token,
+        asset.uri,
+        fileName,
+        asset.mimeType ?? undefined,
+        { onProgress: (ratio) => setCoverProgress(ratio) }
+      );
       setCustomCoverUrl(uploaded.url);
     } catch (err) {
       // Swallow — the user sees the loading spinner disappear and can retry.
     } finally {
       setCoverUploading(false);
+      setCoverProgress(undefined);
     }
   }, [token]);
 

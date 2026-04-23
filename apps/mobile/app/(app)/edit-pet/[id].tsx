@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { PrimaryButton } from "@/components/primary-button";
+import { UploadProgressOverlay } from "@/components/media/upload-progress-overlay";
 import { listMyPets, listTaxonomies, updatePet, uploadMedia } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
@@ -111,6 +112,10 @@ export default function EditPetPage() {
   >([]);
   const [photosInitialized, setPhotosInitialized] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(
+    undefined
+  );
 
   const {
     control,
@@ -225,13 +230,27 @@ export default function EditPetPage() {
 
       // Upload any new assets to R2 first, then merge with existing photos.
       // Re-normalize primary so the first tile is always the primary photo.
+      setUploading(newPhotoAssets.length > 0);
+      setUploadProgress(newPhotoAssets.length > 0 ? 0 : undefined);
+      const perPhoto = new Array<number>(newPhotoAssets.length).fill(0);
+      const publish = () => {
+        if (!newPhotoAssets.length) return;
+        const sum = perPhoto.reduce((a, b) => a + b, 0);
+        setUploadProgress(sum / newPhotoAssets.length);
+      };
       const uploadedNew = await Promise.all(
         newPhotoAssets.map(async (asset, index) => {
           const uploaded = await uploadMedia(
             session.tokens.accessToken,
             asset.uri,
             `pet-photo-${Date.now()}-${index}.jpg`,
-            asset.mimeType ?? "image/jpeg"
+            asset.mimeType ?? undefined,
+            {
+              onProgress: (ratio) => {
+                perPhoto[index] = ratio;
+                publish();
+              }
+            }
           );
           return {
             id: uploaded.id,
@@ -239,7 +258,10 @@ export default function EditPetPage() {
             isPrimary: false
           };
         })
-      );
+      ).finally(() => {
+        setUploading(false);
+        setUploadProgress(undefined);
+      });
       const merged = [...existingPhotos, ...uploadedNew].map((p, i) => ({
         ...p,
         isPrimary: i === 0
@@ -282,6 +304,7 @@ export default function EditPetPage() {
   }
 
   return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
       keyboardDismissMode="on-drag"
@@ -781,6 +804,12 @@ export default function EditPetPage() {
         onClose={() => setCharactersModalOpen(false)}
       />
     </ScrollView>
+      <UploadProgressOverlay
+        visible={uploading}
+        progress={uploadProgress}
+        label={t("onboarding.pets.uploading", { defaultValue: "Fotoğraflar yükleniyor…" })}
+      />
+    </View>
   );
 }
 

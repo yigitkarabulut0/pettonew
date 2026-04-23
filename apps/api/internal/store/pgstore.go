@@ -166,6 +166,10 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	// ── Playdates v0.13.0 ───────────────────────────────────────────
 	// Visibility + per-user invites for private playdates.
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`)
+	// v0.13.5 — share_token unlocks private playdates for users who open a
+	// WhatsApp/SMS share link. See migrations/0009_playdate_share_tokens.sql.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS share_token TEXT NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex')`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_playdates_share_token ON playdates(share_token)`)
 	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_invites (
 		id               TEXT PRIMARY KEY,
 		playdate_id      TEXT NOT NULL,
@@ -756,6 +760,31 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	WHERE NOT EXISTS (
 		SELECT 1 FROM shelter_members m WHERE m.shelter_id = s.id
 	)`)
+
+	// ── Adoption favorites (v0.11.21) ──────────────────────────────
+	// Separate from the social-match `favorites` table because targets
+	// are shelter_pets (adoptable listings), not owner pets. Trying to
+	// reuse the `favorites` table caused AddFavorite to reject shelter
+	// pet IDs (FK-less existence check against `pets` only), which in
+	// turn made the adopter UI optimistic-like flash then revert.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS adoption_favorites (
+		user_id        TEXT NOT NULL,
+		shelter_pet_id TEXT NOT NULL,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (user_id, shelter_pet_id)
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_adoption_favorites_user ON adoption_favorites(user_id)`)
+
+	// ── Match pair uniqueness (v0.13.4) ────────────────────────────
+	// Before this, CreateSwipe could insert a second `matches` row on
+	// every re-like of an already-matched pair (the unique constraint
+	// sits on `swipes` but the mutual-like branch still ran). We add
+	// both a code-level dedup AND canonical unique indexes as a safety
+	// net against future races.
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_pair_unique
+	 ON matches (LEAST(pet_a_id, pet_b_id), GREATEST(pet_a_id, pet_b_id))`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_match_pet_pairs_unique
+	 ON match_pet_pairs (conversation_id, my_pet_id, matched_pet_id)`)
 
 	return &PostgresStore{pool: pool}, nil
 }
@@ -1484,6 +1513,63 @@ func (s *PostgresStore) ListFavorites(userID string) []domain.Pet {
 	return pets
 }
 
+// ── Adoption favorites ──────────────────────────────────────────────
+
+func (s *PostgresStore) AddAdoptionFavorite(userID string, shelterPetID string) error {
+	var exists bool
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT EXISTS(SELECT 1 FROM shelter_pets WHERE id = $1 AND deleted_at IS NULL)`,
+		shelterPetID).Scan(&exists)
+	if !exists {
+		return fmt.Errorf("shelter pet not found")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO adoption_favorites (user_id, shelter_pet_id)
+		 VALUES ($1, $2) ON CONFLICT DO NOTHING`, userID, shelterPetID)
+	if err != nil {
+		return fmt.Errorf("add adoption favorite: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) RemoveAdoptionFavorite(userID string, shelterPetID string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM adoption_favorites WHERE user_id = $1 AND shelter_pet_id = $2`,
+		userID, shelterPetID)
+	if err != nil {
+		return fmt.Errorf("remove adoption favorite: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListAdoptionFavorites(userID string) []domain.ShelterPet {
+	// Subquery (not JOIN) to avoid ambiguous `created_at` between
+	// shelter_pets and adoption_favorites — scanShelterPet expects the
+	// shelter_pets column order from shelterPetCols unaliased.
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT `+shelterPetCols+` FROM shelter_pets
+		 WHERE id = ANY(SELECT shelter_pet_id FROM adoption_favorites WHERE user_id = $1)
+		   AND deleted_at IS NULL
+		 ORDER BY (
+		   SELECT created_at FROM adoption_favorites af
+		   WHERE af.user_id = $1 AND af.shelter_pet_id = shelter_pets.id
+		 ) DESC NULLS LAST`, userID)
+	if err != nil {
+		log.Printf("[adoption-favorites] list query failed: %v", err)
+		return []domain.ShelterPet{}
+	}
+	defer rows.Close()
+	out := []domain.ShelterPet{}
+	for rows.Next() {
+		p, err := scanShelterPet(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // ============================================================
 // MATCHING
 // ============================================================
@@ -1659,6 +1745,26 @@ func (s *PostgresStore) CreateSwipe(userID string, actorPetID string, targetPetI
 		return nil, nil
 	}
 
+	// Idempotency guard: if a match between this pair (either
+	// direction) already exists, do NOT create a new one. Without this
+	// check, the INSERT-ON-CONFLICT above keeps the swipe row unique
+	// but the mutual-like branch still ran on every re-swipe, producing
+	// multiple match rows + match_pet_pairs entries for the same pair.
+	// Observed in prod: some pairs had 3 match rows.
+	var existingMatchID string
+	_ = tx.QueryRow(s.ctx(),
+		`SELECT id FROM matches
+		 WHERE (pet_a_id = $1 AND pet_b_id = $2)
+		    OR (pet_a_id = $2 AND pet_b_id = $1)
+		 LIMIT 1`,
+		actorPetID, targetPetID).Scan(&existingMatchID)
+	if existingMatchID != "" {
+		if commitErr := tx.Commit(s.ctx()); commitErr != nil {
+			return nil, fmt.Errorf("commit: %w", commitErr)
+		}
+		return nil, nil
+	}
+
 	// Mutual like! Create match
 	matchID := newID("match")
 	now := time.Now().UTC()
@@ -1703,7 +1809,8 @@ func (s *PostgresStore) CreateSwipe(userID string, actorPetID string, targetPetI
 		_, _ = tx.Exec(s.ctx(),
 			`INSERT INTO match_pet_pairs (conversation_id, my_pet_id, my_pet_name, my_pet_photo_url,
 			     matched_pet_id, matched_pet_name, matched_pet_photo_url)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)
+			 ON CONFLICT (conversation_id, my_pet_id, matched_pet_id) DO NOTHING`,
 			conversationID, actorPet.ID, actorPet.Name, actorPhotoURL,
 			targetPet.ID, targetPet.Name, targetPhotoURL)
 		// Update conversation title with all pet names
@@ -1734,7 +1841,8 @@ func (s *PostgresStore) CreateSwipe(userID string, actorPetID string, targetPetI
 		_, _ = tx.Exec(s.ctx(),
 			`INSERT INTO match_pet_pairs (conversation_id, my_pet_id, my_pet_name, my_pet_photo_url,
 			     matched_pet_id, matched_pet_name, matched_pet_photo_url)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)
+			 ON CONFLICT (conversation_id, my_pet_id, matched_pet_id) DO NOTHING`,
 			conversationID, actorPet.ID, actorPet.Name, actorPhotoURL,
 			targetPet.ID, targetPet.Name, targetPhotoURL)
 	}
@@ -4373,12 +4481,18 @@ func (s *PostgresStore) getOwnerInfo(userID string) (string, string) {
 	return name, avatarStr
 }
 
-// findConvIDByUsers finds an existing conversation between two users.
+// findConvIDByUsers finds an existing 1-on-1 conversation between the
+// two users. The `array_length = 2` filter is critical: without it, a
+// 3+ member group chat that contains both users would be returned and
+// CreateSwipe would wire a new match against that GROUP conversation —
+// exactly how prod ended up pointing a Bora↔Milo match at a 3-person
+// "Test Group" chat.
 func (s *PostgresStore) findConvIDByUsers(user1ID string, user2ID string) string {
 	var convID string
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT id FROM conversations
 		 WHERE user_ids @> $1::text[] AND user_ids @> $2::text[]
+		   AND array_length(user_ids, 1) = 2
 		 LIMIT 1`,
 		[]string{user1ID}, []string{user2ID}).Scan(&convID)
 	if err != nil {
@@ -4980,13 +5094,13 @@ func (s *PostgresStore) getPlaydateRow(playdateID string) (*domain.Playdate, err
 		        COALESCE(rules, '{}'), COALESCE(status, 'active'),
 		        cancelled_at, COALESCE(conversation_id, ''), COALESCE(waitlist, '{}'),
 		        COALESCE(visibility, 'public'), COALESCE(locked, FALSE),
-		        COALESCE(venue_id, '')
+		        COALESCE(venue_id, ''), COALESCE(share_token, '')
 		 FROM playdates WHERE id = $1`, playdateID).
 		Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date, &p.Location,
 			&p.MaxPets, &p.Attendees, &createdAt,
 			&p.Latitude, &p.Longitude, &p.CityLabel, &img,
 			&p.Rules, &p.Status, &cancelledAt, &p.ConversationID, &p.Waitlist,
-			&p.Visibility, &p.Locked, &p.VenueID)
+			&p.Visibility, &p.Locked, &p.VenueID, &p.ShareToken)
 	if err != nil {
 		return nil, fmt.Errorf("playdate not found")
 	}
@@ -5181,6 +5295,12 @@ func (s *PostgresStore) GetPlaydateForUser(playdateID string, userID string) (*d
 	if p.Visibility == "private" && userID != "" && !p.IsOrganizer &&
 		!p.IsAttending && !p.IsWaitlisted && p.MyInviteStatus == "" {
 		return nil, fmt.Errorf("playdate not found")
+	}
+
+	// share_token is host-only data. Leaking it on the non-host detail response
+	// would let attendees forward the link beyond the host's intent.
+	if !p.IsOrganizer {
+		p.ShareToken = ""
 	}
 
 	// Attendee visibility: pending invitees of a private playdate can see the
@@ -6196,6 +6316,47 @@ func (s *PostgresStore) RespondToPlaydateInvite(userID string, inviteID string, 
 		`UPDATE playdate_invites SET status = $1, responded_at = NOW() WHERE id = $2`,
 		status, inviteID)
 	return playdateID, err
+}
+
+// ClaimPlaydateShareToken validates that `token` matches the playdate's
+// share_token, and if so upserts a pending row in playdate_invites for the
+// caller. This is the bridge between an externally-shared WhatsApp link and
+// the GetPlaydateForUser visibility gate, which only admits hosts, attendees,
+// waitlisters, and users with an invite row.
+//
+// Idempotent: calling twice is a no-op thanks to the unique index on
+// (playdate_id, invited_user_id). The caller's existing status (accepted /
+// declined) is preserved so a re-opened link doesn't resurrect a declined
+// invite.
+func (s *PostgresStore) ClaimPlaydateShareToken(userID string, playdateID string, token string) error {
+	if userID == "" || playdateID == "" || token == "" {
+		return fmt.Errorf("invalid share token")
+	}
+	var (
+		organizerID string
+		stored      string
+	)
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT organizer_id, COALESCE(share_token, '') FROM playdates WHERE id = $1`,
+		playdateID).Scan(&organizerID, &stored)
+	if err != nil {
+		return fmt.Errorf("playdate not found")
+	}
+	if stored == "" || stored != token {
+		return fmt.Errorf("invalid share token")
+	}
+	// Host shouldn't be invited to their own playdate — just succeed silently
+	// so the mobile flow doesn't special-case this.
+	if organizerID == userID {
+		return nil
+	}
+	inviteID := newID("inv")
+	_, err = s.pool.Exec(s.ctx(),
+		`INSERT INTO playdate_invites (id, playdate_id, host_user_id, invited_user_id, status)
+		 VALUES ($1, $2, $3, $4, 'pending')
+		 ON CONFLICT (playdate_id, invited_user_id) DO NOTHING`,
+		inviteID, playdateID, organizerID, userID)
+	return err
 }
 
 func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {

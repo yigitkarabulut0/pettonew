@@ -35,6 +35,7 @@ export default function AppLayout() {
       <Stack.Screen name="adopt/[petId]" options={{ headerShown: false }} />
       <Stack.Screen name="shelter/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="my-applications" options={{ headerShown: false }} />
+      <Stack.Screen name="favorites" options={{ headerShown: false }} />
     </Stack>
   );
 }

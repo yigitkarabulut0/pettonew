@@ -1,17 +1,26 @@
-// Favorites — adopter's hearted pets. Reached from the discovery
-// home's header icon. The /v1/favorites endpoint returns the
-// existing Pet shape (social-matching), which has a different
-// `photos` structure than ShelterPet, so we render a simple list
-// here rather than reusing AdoptablePetCard.
+// Favorites — adopter's hearted shelter listings. Reached from the
+// discovery home's header icon. Uses the /v1/adoption/favorites endpoint
+// so the targets are ShelterPet rows (photos: string[] URLs, not the
+// social PetPhoto shape).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import * as Localization from "expo-localization";
 import { ArrowLeft, Heart, PawPrint } from "lucide-react-native";
 
-import { removeFavorite, listFavorites } from "@/lib/api";
+import {
+  listAdoptionFavorites,
+  removeAdoptionFavorite
+} from "@/lib/api";
+import {
+  formatAge,
+  formatDistance,
+  humanSex,
+  resolveDistanceUnit
+} from "@/lib/adoption-format";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useSessionStore } from "@/store/session";
 
@@ -21,28 +30,34 @@ export default function FavoritesScreen() {
   const session = useSessionStore((s) => s.session);
   const token = session?.tokens.accessToken ?? "";
   const qc = useQueryClient();
+  const distanceUnit = resolveDistanceUnit(
+    Localization.getLocales()[0]?.languageTag
+  );
 
   const { data: favorites = [] } = useQuery({
-    queryKey: ["favorites"],
-    queryFn: () => listFavorites(token),
+    queryKey: ["adoption-favorites"],
+    queryFn: () => listAdoptionFavorites(token),
     enabled: Boolean(token),
     staleTime: 60_000
   });
 
   const removeMut = useMutation({
-    mutationFn: (petId: string) => removeFavorite(token, petId),
+    mutationFn: (petId: string) => removeAdoptionFavorite(token, petId),
     onMutate: (petId: string) => {
-      const previous = qc.getQueryData<typeof favorites>(["favorites"]);
-      qc.setQueryData<typeof favorites>(["favorites"], (cur) =>
+      const previous = qc.getQueryData<typeof favorites>([
+        "adoption-favorites"
+      ]);
+      qc.setQueryData<typeof favorites>(["adoption-favorites"], (cur) =>
         (cur ?? []).filter((p) => p.id !== petId)
       );
       return { previous };
     },
     onError: (_err, _v, ctx) => {
-      if (ctx?.previous) qc.setQueryData(["favorites"], ctx.previous);
+      if (ctx?.previous)
+        qc.setQueryData(["adoption-favorites"], ctx.previous);
     },
     onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ["favorites"] });
+      void qc.invalidateQueries({ queryKey: ["adoption-favorites"] });
     }
   });
 
@@ -151,8 +166,17 @@ export default function FavoritesScreen() {
             gap: mobileTheme.spacing.md
           }}
           renderItem={({ item }) => {
-            // listFavorites returns Pet (social) — `photos` is PetPhoto[].
-            const photoUrl = item.photos?.[0]?.url;
+            const photoUrl = item.photos?.[0];
+            const age = formatAge(item.ageMonths);
+            const distance = formatDistance(item.distanceKm, distanceUnit);
+            const caption = [
+              item.breed,
+              humanSex(item.sex),
+              age,
+              distance ? `· ${distance}` : null
+            ]
+              .filter(Boolean)
+              .join(" · ");
             return (
               <Pressable
                 onPress={() => router.push(`/(app)/adopt/${item.id}` as any)}
@@ -214,10 +238,22 @@ export default function FavoritesScreen() {
                     }}
                     numberOfLines={1}
                   >
-                    {[item.speciesLabel, item.breedLabel]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
+                    {caption || "—"}
                   </Text>
+                  {item.shelterName ? (
+                    <Text
+                      style={{
+                        marginTop: 1,
+                        fontSize: 10,
+                        color: theme.colors.muted,
+                        fontFamily: "Inter_500Medium"
+                      }}
+                      numberOfLines={1}
+                    >
+                      {item.shelterName}
+                      {item.shelterCity ? ` · ${item.shelterCity}` : ""}
+                    </Text>
+                  ) : null}
                 </View>
                 <Pressable
                   onPress={(e) => {

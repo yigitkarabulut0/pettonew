@@ -1,7 +1,7 @@
-import { Text, View } from "react-native";
-import { Image } from "expo-image";
+import { View } from "react-native";
 
-import { mobileTheme, useTheme } from "@/lib/theme";
+import { useTheme } from "@/lib/theme";
+import { AppImage } from "@/components/app-image";
 
 type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 
@@ -37,44 +37,20 @@ export function Avatar({
   const theme = useTheme();
   const dimension = sizeMap[size];
   const fontSize = fontSizeMap[size];
-  const initial = name?.charAt(0)?.toUpperCase() ?? "?";
 
   return (
     <View style={{ position: "relative", width: dimension, height: dimension }}>
-      {uri && uri.length > 0 ? (
-        <Image
-          source={{ uri }}
-          style={{
-            width: dimension,
-            height: dimension,
-            borderRadius: dimension / 2
-          }}
-          contentFit="cover"
-          transition={200}
-        />
-      ) : (
-        <View
-          style={{
-            width: dimension,
-            height: dimension,
-            borderRadius: dimension / 2,
-            backgroundColor: theme.colors.primaryBg,
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
-          <Text
-            style={{
-              fontSize,
-              fontWeight: "700",
-              color: theme.colors.primary,
-              fontFamily: "Inter_700Bold"
-            }}
-          >
-            {initial}
-          </Text>
-        </View>
-      )}
+      <AppImage
+        uri={uri}
+        kind="avatar"
+        fallbackLabel={name}
+        fallbackLabelSize={fontSize}
+        containerStyle={{
+          width: dimension,
+          height: dimension,
+          borderRadius: dimension / 2
+        }}
+      />
       {online && (
         <View
           style={{

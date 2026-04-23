@@ -104,7 +104,7 @@ export default function ProfileScreen() {
       const url = await uploadImageUriToR2({
         uri: asset.uri,
         fileName: asset.fileName ?? `${kind}-${Date.now()}.jpg`,
-        mimeType: asset.mimeType ?? "image/jpeg",
+        mimeType: asset.mimeType ?? undefined,
         folder: `shelters/${kind}`
       });
       if (kind === "logo") setLogoUrl(url);

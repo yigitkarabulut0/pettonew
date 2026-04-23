@@ -502,16 +502,52 @@ function MatchRow({ match, onPress }: MatchRowProps) {
           </Text>
         </View>
 
-        <Text
+        <View
           style={{
-            fontSize: mobileTheme.typography.caption.fontSize,
-            fontFamily: "Inter_500Medium",
-            color: theme.colors.muted,
-            marginTop: 1
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 2
           }}
         >
-          {match.pet.name} & {theirPet.name}
-        </Text>
+          {/* Which of MY pets this match belongs to — quickly signals
+              that each pet has its own match history. */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 3,
+              paddingHorizontal: 6,
+              paddingVertical: 1,
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor: theme.colors.primaryBg,
+              maxWidth: 120
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 9.5,
+                fontFamily: "Inter_700Bold",
+                color: theme.colors.primary,
+                letterSpacing: 0.2
+              }}
+            >
+              {match.pet.name}
+            </Text>
+          </View>
+          <Text
+            numberOfLines={1}
+            style={{
+              fontSize: mobileTheme.typography.caption.fontSize,
+              fontFamily: "Inter_500Medium",
+              color: theme.colors.muted,
+              flex: 1
+            }}
+          >
+            & {theirPet.name}
+          </Text>
+        </View>
 
         {match.lastMessagePreview &&
           match.lastMessagePreview !== "It's a match. Say hello!" && (

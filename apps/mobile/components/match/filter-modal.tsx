@@ -1,9 +1,9 @@
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useEffect, useMemo, useState } from "react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
 
+import { DraggableSheet } from "@/components/draggable-sheet";
 import { PrimaryButton } from "@/components/primary-button";
 import { mobileTheme, useTheme } from "@/lib/theme";
 
@@ -55,7 +55,6 @@ export function FilterModal({
 }: FilterModalProps) {
   const theme = useTheme();
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const [local, setLocal] = useState<Filters>(filters);
 
   useEffect(() => {
@@ -91,11 +90,11 @@ export function FilterModal({
   }, [local]);
 
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="large"
+      snapPoints={{ medium: 0.65, large: 0.95 }}
     >
       <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <View
@@ -103,7 +102,7 @@ export function FilterModal({
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
-            paddingTop: insets.top + mobileTheme.spacing.md,
+            paddingTop: mobileTheme.spacing.sm,
             paddingBottom: mobileTheme.spacing.md,
             paddingHorizontal: mobileTheme.spacing.xl
           }}
@@ -279,7 +278,6 @@ export function FilterModal({
           style={{
             paddingHorizontal: mobileTheme.spacing.xl,
             paddingVertical: mobileTheme.spacing.lg,
-            paddingBottom: insets.bottom + mobileTheme.spacing.lg,
             borderTopWidth: 1,
             borderTopColor: theme.colors.border,
             gap: mobileTheme.spacing.sm
@@ -308,7 +306,7 @@ export function FilterModal({
           />
         </View>
       </View>
-    </Modal>
+    </DraggableSheet>
   );
 }
 

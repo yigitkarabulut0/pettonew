@@ -303,7 +303,20 @@
       "Bash(sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 'echo '\\\\''--- minAge=24+specialNeeds ---'\\\\'' && curl -sS -H '\\\\''Authorization: Bearer __TRACKED_VAR__'\\\\'' '\\\\''http://localhost:8080/v1/adoption-pets?minAgeMonths=24&specialNeeds=1&lat=41&lng=29&maxDistanceKm=100'\\\\'' | python3 -c '\\\\''import json,sys; d=json.load\\(sys.stdin\\)[\"data\"]; print\\({ \"count\":len\\(d\\), \"names\":[p[\"name\"] for p in d[:3]], \"has_distance\":all\\(p.get\\(\"distanceKm\"\\) is not None for p in d\\) }\\)'\\\\'' && echo '\\\\''--- maxDistance=1 \\(should be 0 since shelter is 10km away\\) ---'\\\\'' && curl -sS -H '\\\\''Authorization: Bearer __TRACKED_VAR__'\\\\'' '\\\\''http://localhost:8080/v1/adoption-pets?lat=41&lng=29&maxDistanceKm=1'\\\\'' | python3 -c '\\\\''import json,sys; d=json.load\\(sys.stdin\\)[\"data\"]; print\\(\"count=\",len\\(d\\)\\)'\\\\''')",
       "Bash(sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 'echo '\\\\''--- no filters \\(baseline\\) ---'\\\\'' && curl -sS -H '\\\\''Authorization: Bearer __TRACKED_VAR__'\\\\'' '\\\\''http://localhost:8080/v1/adoption-pets'\\\\'' | python3 -c '\\\\''import json,sys; d=json.load\\(sys.stdin\\)[\"data\"]; print\\({ \"count\":len\\(d\\), \"names\":[p[\"name\"] for p in d] }\\)'\\\\'' && echo '\\\\''--- species=rabbit,ferret \\(multi\\) ---'\\\\'' && curl -sS -H '\\\\''Authorization: Bearer __TRACKED_VAR__'\\\\'' '\\\\''http://localhost:8080/v1/adoption-pets?species=rabbit%2Cferret%2Csmall_mammal'\\\\'' | python3 -c '\\\\''import json,sys; d=json.load\\(sys.stdin\\)[\"data\"]; print\\(\"count=\",len\\(d\\)\\)'\\\\'' && echo '\\\\''--- featured shelters public ---'\\\\'' && curl -sS http://localhost:8080/v1/public/shelters/featured | python3 -c '\\\\''import json,sys; d=json.load\\(sys.stdin\\)[\"data\"]; print\\([\\(s[\"name\"], s[\"isFeatured\"], s[\"email\"]\\) for s in d]\\)'\\\\''')",
       "Bash(git rm *)",
-      "Bash(grep -E \"petto-api-linux|\\\\.bak$|\\\\.DS_Store\")"
+      "Bash(grep -E \"petto-api-linux|\\\\.bak$|\\\\.DS_Store\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"cp /opt/petto/petto-api /opt/petto/petto-api.bak.$\\(date -u +%Y%m%d-%H%M%S\\) && ls /opt/petto/petto-api.bak.* | tail -3\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"curl -s http://localhost:8080/healthz; echo; journalctl -u petto-api.service --no-pager -n 15 --since '30 seconds ago'\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"journalctl -u petto-api.service --no-pager -n 30\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"journalctl -u petto-api.service --no-pager -n 5 --since '90 seconds ago'; echo; curl -s -o /dev/null -w '%{http_code}\\\\n' http://localhost:8080/v1/adoption/favorites\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"journalctl -u petto-api.service --no-pager -n 5 --since '5 minutes ago'\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"systemctl status petto-api.service --no-pager -n 30\")",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"date -u; stat /opt/petto/petto-api | head -6\")",
+      "Bash(md5 /tmp/petto-api-linux)",
+      "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"md5sum /opt/petto/petto-api\")",
+      "Bash(sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 'source /opt/petto/.env && psql \"$DATABASE_URL\" -c \"\\\\d adoption_favorites\" 2>&1 | head -20')",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\" ; grep -E \"\\\\\"version\\\\\"|\\\\\"name\\\\\"\" {} | head -3')",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\" ; grep \"\\\\\"version\\\\\"\" {} | head -1')",
+      "Bash(git check-ignore *)"
     ]
   }
 }

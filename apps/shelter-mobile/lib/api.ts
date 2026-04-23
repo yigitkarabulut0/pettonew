@@ -312,27 +312,37 @@ export const shelterPresignUpload = (fileName: string, mimeType: string, folder:
 
 /**
  * Upload a local file URI (from expo-image-picker) to R2 via the presigned
- * PUT. Returns the publicly hosted URL the backend should persist.
+ * PUT. Always transcodes to WebP first (falls back to JPEG on legacy runtimes)
+ * so Android clients in Fetcht can decode the result — raw HEIC uploads from
+ * iPhone 11+ previously landed in R2 as image/heic and rendered as broken
+ * thumbnails downstream.
  */
 export async function uploadImageUriToR2(params: {
   uri: string;
   fileName: string;
-  mimeType: string;
+  /** Accepted for call-site compatibility; the encoder decides the final mime. */
+  mimeType?: string;
   folder: string;
+  onProgress?: (ratio: number) => void;
 }): Promise<string> {
+  const { encodeToWebP, putWithProgressAndRetry } = await import("./media");
+  const encoded = await encodeToWebP(params.uri);
+  const base = params.fileName.replace(/\.[^.]+$/, "") || "upload";
+  const canonicalName = `${base}${encoded.extension}`;
+
   const presign = await shelterPresignUpload(
-    params.fileName,
-    params.mimeType,
+    canonicalName,
+    encoded.mimeType,
     params.folder
   );
-  // React Native's fetch accepts blobs via URI when constructed this way.
-  const fetchRes = await fetch(params.uri);
+  const fetchRes = await fetch(encoded.uri);
   const blob = await fetchRes.blob();
-  const put = await fetch(presign.uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": params.mimeType },
-    body: blob
+  await putWithProgressAndRetry({
+    uploadUrl: presign.uploadUrl,
+    publicUrl: presign.publicUrl,
+    body: blob,
+    contentType: encoded.mimeType,
+    onProgress: params.onProgress
   });
-  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
   return presign.publicUrl;
 }

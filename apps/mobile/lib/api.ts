@@ -91,10 +91,21 @@ export async function updateNotificationPrefs(
  * strips any trailing `/v1` from the configured base so the URL hits the
  * correct root-level route.
  */
-export function buildPlaydateShareUrl(playdateId: string): string {
+export function buildPlaydateShareUrl(
+  playdateId: string,
+  shareToken?: string | null
+): string {
   const raw = getApiBaseUrl();
   const root = raw.replace(/\/v1\/?$/, "").replace(/\/$/, "");
-  return `${root}/p/${encodeURIComponent(playdateId)}`;
+  const base = `${root}/p/${encodeURIComponent(playdateId)}`;
+  // When the host shares a *private* playdate, appending the token to the
+  // URL lets the recipient — who has no playdate_invites row yet — claim a
+  // pending invite on first open. Public playdates pass the token too so
+  // the backend can drop it into the deep link without extra logic.
+  if (shareToken) {
+    return `${base}?t=${encodeURIComponent(shareToken)}`;
+  }
+  return base;
 }
 
 async function parseError(response: Response) {
@@ -899,36 +910,26 @@ export async function demoteGroupAdmin(
   });
 }
 
+export type UploadMediaOptions = {
+  onProgress?: (ratio: number) => void;
+  folder?: string;
+};
+
 export async function uploadMedia(
   accessToken: string,
   uri: string,
   fileName: string,
-  // `mimeType` is accepted for call-site compatibility but the uploader
-  // unconditionally re-encodes to JPEG before upload (see below), so every
-  // object in R2 ends up with Content-Type: image/jpeg regardless of what
-  // the caller guessed.
-  _mimeType = "image/jpeg"
+  // `mimeType` is accepted for call-site compatibility — the uploader always
+  // re-encodes to WebP (with JPEG fallback on legacy runtimes), so the final
+  // Content-Type is decided by encodeToWebP, not by the caller's guess.
+  _mimeType?: string,
+  options: UploadMediaOptions = {}
 ): Promise<UploadedAsset> {
-  // HEIC fix (v0.9.1): iPhone 11+ defaults to HEIC capture, which
-  // expo-image-picker returns unchanged. R2 then stored these with
-  // Content-Type: image/heic, and Android clients (which can't decode HEIC)
-  // saw broken images. We route every upload through expo-image-manipulator
-  // with SaveFormat.JPEG first — this is the same re-encode path the crop
-  // modal already uses for avatars, just lifted up so *every* caller gets it
-  // for free. No-op on images already in JPEG (tiny quality/cost loss from
-  // the re-encode is negligible compared to the cross-platform win).
-  const ImageManipulator = await import("expo-image-manipulator");
-  const converted = await ImageManipulator.manipulateAsync(uri, [], {
-    compress: 0.85,
-    format: ImageManipulator.SaveFormat.JPEG
-  });
-  const jpegUri = converted.uri;
+  const { encodeToWebP, putWithProgressAndRetry } = await import("./media");
+  const encoded = await encodeToWebP(uri);
 
-  // Ensure the object key also ends in .jpg so R2's public URL and any
-  // downstream extension sniffing line up with the actual bytes.
-  const jpegFileName = /\.jpe?g$/i.test(fileName)
-    ? fileName
-    : fileName.replace(/\.[^.]+$/, "") + ".jpg";
+  const base = fileName.replace(/\.[^.]+$/, "") || "upload";
+  const canonicalName = `${base}${encoded.extension}`;
 
   const presigned = await request<
     UploadedAsset & { uploadUrl: string; objectKey: string }
@@ -939,25 +940,22 @@ export async function uploadMedia(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      fileName: jpegFileName,
-      mimeType: "image/jpeg",
-      folder: "mobile"
+      fileName: canonicalName,
+      mimeType: encoded.mimeType,
+      folder: options.folder ?? "mobile"
     })
   });
 
-  const fileResponse = await fetch(jpegUri);
+  const fileResponse = await fetch(encoded.uri);
   const fileBlob = await fileResponse.blob();
-  const uploadResponse = await fetch(presigned.uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "image/jpeg"
-    },
-    body: fileBlob
-  });
 
-  if (!uploadResponse.ok) {
-    throw new Error("Cloudflare R2 upload failed.");
-  }
+  await putWithProgressAndRetry({
+    uploadUrl: presigned.uploadUrl,
+    publicUrl: presigned.url,
+    body: fileBlob,
+    contentType: encoded.mimeType,
+    onProgress: options.onProgress
+  });
 
   return {
     id: presigned.id,
@@ -1058,6 +1056,43 @@ export async function removeFavorite(
   });
 }
 
+// ── Adoption favorites ─────────────────────────────────────────────
+// Scoped to shelter_pets (adoptable listings). Separate from the
+// social-match favorites above because the target type differs.
+
+export async function listAdoptionFavorites(
+  accessToken: string
+): Promise<ShelterPet[]> {
+  const pets = await request<ShelterPet[] | null>("/v1/adoption/favorites", {
+    headers: authHeaders(accessToken)
+  });
+  return pets ?? [];
+}
+
+export async function addAdoptionFavorite(
+  accessToken: string,
+  petId: string
+): Promise<void> {
+  await request("/v1/adoption/favorites", {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ petId })
+  });
+}
+
+export async function removeAdoptionFavorite(
+  accessToken: string,
+  petId: string
+): Promise<void> {
+  await request(`/v1/adoption/favorites/${petId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken)
+  });
+}
+
 export async function listDiary(
   accessToken: string,
   petId: string
@@ -1153,15 +1188,33 @@ export async function listPlaydates(
 export async function getPlaydate(
   accessToken: string,
   playdateId: string
-): Promise<Playdate | null> {
-  try {
-    const data = await request<Playdate>(`/v1/playdates/${playdateId}`, {
+): Promise<Playdate> {
+  // v0.13.5: no longer swallows errors. A 404 from the private-visibility gate
+  // needs to surface to the UI so the detail screen can show a "you don't
+  // have access" state instead of a blank skeleton — see [id].tsx error view.
+  return request<Playdate>(`/v1/playdates/${playdateId}`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+/**
+ * Redeem a host-generated share token (`?t=…` in the WhatsApp/SMS URL) so
+ * the caller can load a private playdate. The backend upserts a pending
+ * playdate_invites row and returns 200. Idempotent: re-claiming a token the
+ * user already redeemed is a no-op.
+ */
+export async function claimPlaydateShare(
+  accessToken: string,
+  playdateId: string,
+  shareToken: string
+): Promise<void> {
+  await request(
+    `/v1/playdates/${encodeURIComponent(playdateId)}/claim-share/${encodeURIComponent(shareToken)}`,
+    {
+      method: "POST",
       headers: authHeaders(accessToken)
-    });
-    return data ?? null;
-  } catch {
-    return null;
-  }
+    }
+  );
 }
 export async function createPlaydate(accessToken: string, playdate: Omit<Playdate, "id" | "organizerId" | "attendees" | "createdAt">): Promise<Playdate> {
   return request<Playdate>("/v1/playdates", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(playdate) });

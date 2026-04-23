@@ -9,6 +9,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -205,6 +206,10 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/favorites", s.handleListFavorites)
 			router.Post("/favorites", s.handleAddFavorite)
 			router.Delete("/favorites/{petID}", s.handleRemoveFavorite)
+			// Adoption favorites — scoped to shelter_pets (adoptable listings).
+			router.Get("/adoption/favorites", s.handleListAdoptionFavorites)
+			router.Post("/adoption/favorites", s.handleAddAdoptionFavorite)
+			router.Delete("/adoption/favorites/{petID}", s.handleRemoveAdoptionFavorite)
 			router.Get("/users/{userID}/profile", s.handlePublicUserProfile)
 			router.Post("/blocks", s.handleBlockUser)
 			router.Post("/reports", s.handleReport)
@@ -241,6 +246,10 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/playdates/{playdateID}/announce", s.handlePlaydateAnnounce)
 			router.Get("/playdates/{playdateID}/invitable-users", s.handleListInvitableUsers)
 			router.Post("/playdates/{playdateID}/invites", s.handleCreatePlaydateInvites)
+			// v0.13.5 — WhatsApp/SMS share-link claim. The token is part of the
+			// URL the host sent out; any authenticated user who opens the URL
+			// can swap it for a pending playdate_invites row.
+			router.Post("/playdates/{playdateID}/claim-share/{token}", s.handleClaimPlaydateShare)
 			router.Get("/me/playdates", s.handleListMyPlaydates)
 			router.Get("/me/playdate-invites", s.handleListMyPlaydateInvites)
 			router.Post("/playdate-invites/{inviteID}/accept", s.handleAcceptPlaydateInvite)
@@ -1395,6 +1404,37 @@ func (s *Server) handleRemoveFavorite(writer http.ResponseWriter, request *http.
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"removed": true}})
 }
 
+func (s *Server) handleListAdoptionFavorites(writer http.ResponseWriter, request *http.Request) {
+	pets := s.store.ListAdoptionFavorites(currentUserID(request))
+	if pets == nil {
+		pets = []domain.ShelterPet{}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": pets})
+}
+
+func (s *Server) handleAddAdoptionFavorite(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		PetID string `json:"petId"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if err := s.store.AddAdoptionFavorite(currentUserID(request), payload.PetID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": map[string]bool{"saved": true}})
+}
+
+func (s *Server) handleRemoveAdoptionFavorite(writer http.ResponseWriter, request *http.Request) {
+	petID := chi.URLParam(request, "petID")
+	if err := s.store.RemoveAdoptionFavorite(currentUserID(request), petID); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"removed": true}})
+}
+
 func (s *Server) handleBlockUser(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
 		TargetUserID string `json:"targetUserId"`
@@ -2441,6 +2481,28 @@ func (s *Server) handleAcceptPlaydateInvite(writer http.ResponseWriter, request 
 	}})
 }
 
+// handleClaimPlaydateShare redeems a host-generated share token. The mobile
+// app calls this when a user opens `petto://playdates/{id}?t={token}` — the
+// backend upserts a pending invite so the subsequent GetPlaydate request
+// passes the private-visibility gate and the detail screen renders.
+func (s *Server) handleClaimPlaydateShare(writer http.ResponseWriter, request *http.Request) {
+	playdateID := chi.URLParam(request, "playdateID")
+	token := chi.URLParam(request, "token")
+	userID := currentUserID(request)
+	if err := s.store.ClaimPlaydateShareToken(userID, playdateID, token); err != nil {
+		msg := err.Error()
+		status := http.StatusBadRequest
+		if msg == "playdate not found" {
+			status = http.StatusNotFound
+		} else if msg == "invalid share token" {
+			status = http.StatusForbidden
+		}
+		writeError(writer, status, msg)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"claimed": true}})
+}
+
 func (s *Server) handleDeclinePlaydateInvite(writer http.ResponseWriter, request *http.Request) {
 	inviteID := chi.URLParam(request, "inviteID")
 	userID := currentUserID(request)
@@ -3412,7 +3474,15 @@ func (s *Server) handlePlaydateShareLanding(writer http.ResponseWriter, request 
 			subtitle = pd.Location
 		}
 	}
+	// Forward the ?t= token from the share URL into the deep link so the
+	// mobile app can claim access before loading the detail screen. Private
+	// playdates are only visible to invitees + token-holders; this is the only
+	// way an off-graph invitee (WhatsApp recipient) can bootstrap themselves
+	// past the visibility gate.
 	deepLink := fmt.Sprintf("petto://playdates/%s", playdateID)
+	if tok := strings.TrimSpace(request.URL.Query().Get("t")); tok != "" {
+		deepLink += "?t=" + url.QueryEscape(tok)
+	}
 	html := `<!doctype html>
 <html lang="tr">
 <head>

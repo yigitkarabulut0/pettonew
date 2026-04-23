@@ -36,6 +36,9 @@ type MemoryStore struct {
 	taxonomies         map[string][]domain.TaxonomyItem
 	reports            []domain.ReportSummary
 	favorites          map[string]map[string]bool
+	// userID -> shelterPetID set. Separate from `favorites` because the
+	// targets live in `shelterPets` (adoptable listings), not in `pets`.
+	adoptionFavorites  map[string]map[string]bool
 	diaryEntries       map[string][]domain.DiaryEntry
 	healthRecords      map[string][]domain.HealthRecord
 	weightEntries      map[string][]domain.WeightEntry
@@ -120,6 +123,7 @@ func NewMemoryStore() *MemoryStore {
 		resetTokens:        make(map[string]string),
 		taxonomies:         make(map[string][]domain.TaxonomyItem),
 		favorites:          make(map[string]map[string]bool),
+		adoptionFavorites:  make(map[string]map[string]bool),
 		diaryEntries:       make(map[string][]domain.DiaryEntry),
 		healthRecords:      make(map[string][]domain.HealthRecord),
 		weightEntries:      make(map[string][]domain.WeightEntry),
@@ -576,6 +580,16 @@ func (s *MemoryStore) CreateSwipe(userID string, actorPetID string, targetPetID 
 		return nil, nil
 	}
 
+	// Idempotency: if a match already exists for this pet pair (in
+	// either direction), don't create another one. Re-swiping on an
+	// already-matched pet used to create duplicate match rows.
+	for _, m := range s.matches {
+		if (m.Pet.ID == actorPetID && m.MatchedPet.ID == targetPetID) ||
+			(m.Pet.ID == targetPetID && m.MatchedPet.ID == actorPetID) {
+			return nil, nil
+		}
+	}
+
 	actorOwnerID := actorPet.OwnerID
 	targetOwnerID := targetPet.OwnerID
 
@@ -1010,6 +1024,49 @@ func (s *MemoryStore) ListFavorites(userID string) []domain.Pet {
 	return result
 }
 
+// ── Adoption favorites ──────────────────────────────────────────────
+// Targets are adoptable shelter pets (s.shelterPets), a distinct table
+// from s.pets used for social match.
+
+func (s *MemoryStore) AddAdoptionFavorite(userID string, shelterPetID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.shelterPets[shelterPetID]; !ok {
+		return fmt.Errorf("shelter pet not found")
+	}
+	if s.adoptionFavorites[userID] == nil {
+		s.adoptionFavorites[userID] = make(map[string]bool)
+	}
+	s.adoptionFavorites[userID][shelterPetID] = true
+	return nil
+}
+
+func (s *MemoryStore) RemoveAdoptionFavorite(userID string, shelterPetID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.adoptionFavorites[userID] != nil {
+		delete(s.adoptionFavorites[userID], shelterPetID)
+	}
+	return nil
+}
+
+func (s *MemoryStore) ListAdoptionFavorites(userID string) []domain.ShelterPet {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := []domain.ShelterPet{}
+	if favs, ok := s.adoptionFavorites[userID]; ok {
+		for petID := range favs {
+			if pet, ok := s.shelterPets[petID]; ok && pet != nil {
+				result = append(result, *pet)
+			}
+		}
+	}
+	return result
+}
+
 // ── Health Records ──────────────────────────────────────────────────
 
 func (s *MemoryStore) ListHealthRecords(petID string) []domain.HealthRecord {
@@ -1268,6 +1325,9 @@ func (s *MemoryStore) ListMyPendingPlaydateInvites(_ string) []domain.PlaydateIn
 }
 func (s *MemoryStore) RespondToPlaydateInvite(_ string, _ string, _ bool) (string, error) {
 	return "", fmt.Errorf("invites require the Postgres store")
+}
+func (s *MemoryStore) ClaimPlaydateShareToken(_ string, _ string, _ string) error {
+	return fmt.Errorf("invites require the Postgres store")
 }
 
 // ── Playdate chat stubs (v0.14.0) ─────────────────────────────────────

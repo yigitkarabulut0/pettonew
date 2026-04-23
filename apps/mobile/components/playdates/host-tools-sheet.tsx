@@ -2,15 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   Text,
   View
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Playdate } from "@petto/contracts";
+import { DraggableSheet } from "@/components/draggable-sheet";
 import {
   Crown,
   Edit3,
@@ -61,7 +60,6 @@ export function HostToolsSheet({
 }: HostToolsSheetProps) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const session = useSessionStore((s) => s.session);
   const token = session?.tokens.accessToken ?? "";
@@ -114,42 +112,14 @@ export function HostToolsSheet({
   );
 
   return (
-    <Modal
+    <DraggableSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      onClose={onClose}
+      initialSnap="large"
+      snapPoints={{ medium: 0.6, large: 0.92 }}
     >
-      <Pressable
-        onPress={onClose}
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(22,21,20,0.45)",
-          justifyContent: "flex-end"
-        }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 14,
-            paddingBottom: insets.bottom + 20,
-            maxHeight: "86%"
-          }}
-        >
-          <View
-            style={{
-              width: 44,
-              height: 5,
-              borderRadius: 3,
-              backgroundColor: theme.colors.border,
-              alignSelf: "center",
-              marginBottom: 14
-            }}
-          />
-
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingTop: 4 }}>
           <View
             style={{
               flexDirection: "row",
@@ -286,45 +256,18 @@ export function HostToolsSheet({
               }}
             />
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
 
       {/* Transfer picker — opened from inside the sheet. */}
-      <Modal
+      <DraggableSheet
         visible={transferPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setTransferPickerOpen(false)}
+        onClose={() => setTransferPickerOpen(false)}
+        initialSnap="medium"
+        snapPoints={{ medium: 0.6, large: 0.88 }}
       >
-        <Pressable
-          onPress={() => setTransferPickerOpen(false)}
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(22,21,20,0.45)",
-            justifyContent: "flex-end"
-          }}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              paddingTop: 14,
-              paddingBottom: insets.bottom + 20,
-              maxHeight: "80%"
-            }}
-          >
-            <View
-              style={{
-                width: 44,
-                height: 5,
-                borderRadius: 3,
-                backgroundColor: theme.colors.border,
-                alignSelf: "center",
-                marginBottom: 14
-              }}
-            />
+        <View style={{ flex: 1 }}>
+          <View style={{ paddingTop: 4 }}>
             <View
               style={{
                 flexDirection: "row",
@@ -453,10 +396,10 @@ export function HostToolsSheet({
                 ))}
               </ScrollView>
             )}
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </Modal>
+          </View>
+        </View>
+      </DraggableSheet>
+    </DraggableSheet>
   );
 }
 
