@@ -30,6 +30,25 @@ var ErrShelterMemberInviteRevoked = errors.New("invite has been revoked")
 var ErrShelterTeamFull = errors.New("team is full (20-member limit)")
 var ErrShelterLastAdmin = errors.New("cannot leave the shelter without an admin")
 
+// MedicationSweeperRow is the slim payload the server-side reminder loop
+// works with: enough to compute "is this dose due right now in the pet's
+// timezone?" and route the push to the owner's devices without hauling the
+// full pet/owner objects from the DB.
+type MedicationSweeperRow struct {
+	MedID         string
+	PetID         string
+	OwnerID       string
+	PetName       string
+	Name          string
+	Dosage        string
+	TimeOfDay     string
+	DaysOfWeek    []int
+	Timezone      string
+	StartDate     string
+	EndDate       string
+	LastPushDate  string // last "YYYY-MM-DD" we already pushed for, in pet TZ
+}
+
 // SendGroupMessageInput describes the payload for sending a group chat message.
 type SendGroupMessageInput struct {
 	Type     string         // "text" | "image" | "pet_share"
@@ -121,6 +140,12 @@ type Store interface {
 	GetVenue(venueID string) (*domain.ExploreVenue, error)
 	UpsertVenue(venueID string, input VenueInput) domain.ExploreVenue
 	DeleteVenue(venueID string) error
+	// Venue photo management (v0.13.7).
+	ListVenuePhotoUrls(venueID string) []string
+	ListVenuePhotosManage(venueID string) []VenuePhotoEntry
+	AddVenueAdminPhoto(venueID string, url string) (VenuePhotoEntry, error)
+	DeleteVenueAdminPhoto(venueID string, photoID string) error
+	SetVenuePostPhotoHidden(venueID string, postID string, hidden bool) error
 	CheckInVenue(userID string, input VenueCheckInInput) (domain.ExploreVenue, error)
 	ListEvents() []domain.ExploreEvent
 	UpsertEvent(eventID string, input EventInput) (domain.ExploreEvent, error)
@@ -142,6 +167,59 @@ type Store interface {
 	ListHealthRecords(petID string) []domain.HealthRecord
 	CreateHealthRecord(petID string, record domain.HealthRecord) domain.HealthRecord
 	DeleteHealthRecord(petID string, recordID string) error
+	// Health profile (allergies + dietary restrictions + emergency notes).
+	// Single row per pet; UpsertHealthProfile creates on first save.
+	GetHealthProfile(petID string) domain.PetHealthProfile
+	UpsertHealthProfile(petID string, profile domain.PetHealthProfile) domain.PetHealthProfile
+	// Symptom log (categorised pet symptoms, vet-export-ready timeline).
+	ListSymptomLogs(petID string) []domain.SymptomLog
+	CreateSymptomLog(petID string, log domain.SymptomLog) domain.SymptomLog
+	DeleteSymptomLog(petID string, logID string) error
+	// Medications (recurring schedule, pushed by server cron in pet TZ).
+	ListMedications(petID string) []domain.PetMedication
+	CreateMedication(petID string, med domain.PetMedication) domain.PetMedication
+	UpdateMedication(petID string, medID string, med domain.PetMedication) (domain.PetMedication, error)
+	DeleteMedication(petID string, medID string) error
+	MarkMedicationGiven(petID string, medID string) (domain.PetMedication, error)
+	// Sweeper helpers — return medications due to be pushed and record the
+	// "already pushed for this scheduled date" state so we don't double-fire.
+	ListActiveMedicationsForSweeper() []MedicationSweeperRow
+	MarkMedicationPushed(medID string, scheduledDateInTZ string) error
+	// Breed care guides (admin-managed, surfaced in the mobile Care tab).
+	// Public lookup falls back from breed-specific to species-wide row.
+	GetBreedCareGuide(speciesID string, breedID string) (*domain.BreedCareGuide, error)
+	ListBreedCareGuides() []domain.BreedCareGuide
+	UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.BreedCareGuide, error)
+	DeleteBreedCareGuide(id string) error
+	// First-aid topics (admin-managed offline handbook).
+	ListFirstAidTopics() []domain.FirstAidTopic
+	GetFirstAidTopic(id string) (*domain.FirstAidTopic, error)
+	UpsertFirstAidTopic(t domain.FirstAidTopic) (domain.FirstAidTopic, error)
+	DeleteFirstAidTopic(id string) error
+	// Pet documents (vaccine cards, microchip papers, insurance, etc.)
+	ListPetDocuments(petID string) []domain.PetDocument
+	CreatePetDocument(petID string, doc domain.PetDocument) domain.PetDocument
+	DeletePetDocument(petID string, docID string) error
+	// Calorie counter — food database (curated + user-added) and meal log.
+	ListFoodItems(userID string, search string, species string, limit int) []domain.FoodItem
+	GetFoodItem(itemID string) (*domain.FoodItem, error)
+	CreateFoodItem(userID string, item domain.FoodItem) domain.FoodItem
+	// Admin variants — see all rows regardless of owner; UpsertFoodItem
+	// respects is_public so admins can curate the public food database.
+	AdminListFoodItems(search string, species string, limit int) []domain.FoodItem
+	AdminUpsertFoodItem(item domain.FoodItem) (domain.FoodItem, error)
+	AdminDeleteFoodItem(itemID string) error
+	ListMealLogs(petID string, fromDate string, toDate string) []domain.MealLog
+	CreateMealLog(petID string, log domain.MealLog) domain.MealLog
+	DeleteMealLog(petID string, logID string) error
+	GetDailyMealSummary(petID string, dateISO string) domain.DailyMealSummary
+	// Weekly summary (Sunday push). Counts user-scoped activity in the
+	// given UTC half-open window [weekStart, weekEnd).
+	GetWeeklyHealthSummaryForUser(userID string, weekStartUTC string, weekEndUTC string) domain.WeeklyHealthSummary
+	// Returns user IDs with at least one push token + "haven't sent yet
+	// this week" flag, used by the cron loop.
+	ListUsersForWeeklySummary(weekStartUTC string) []string
+	RecordWeeklySummarySent(userID string, weekStartUTC string)
 	// Weight
 	ListWeightEntries(petID string) []domain.WeightEntry
 	CreateWeightEntry(petID string, entry domain.WeightEntry) domain.WeightEntry

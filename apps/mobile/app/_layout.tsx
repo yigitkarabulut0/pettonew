@@ -75,7 +75,7 @@ const asyncStoragePersister = createAsyncStoragePersister({
 const PERSIST_OPTIONS = {
   persister: asyncStoragePersister,
   maxAge: 1000 * 60 * 60 * 24, // 24h — show yesterday's data instantly, refetch in bg
-  buster: "0.11.11", // cache busted on version change
+  buster: "0.14.0", // cache busted on version change
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
       // Only persist lightweight list queries — skip large/binary data.
@@ -176,6 +176,14 @@ export default function RootLayout() {
       router.push("/(app)/(tabs)/match");
     } else if (data?.type === "health" && data?.petId) {
       router.push(`/(app)/pet-health/${data.petId}` as any);
+    } else if (data?.type === "medication" && data?.petId) {
+      // Tap on a medication reminder → straight to the medications screen
+      // for that pet, ready for the user to hit "Mark given".
+      router.push(`/(app)/medications/${data.petId}` as any);
+    } else if (data?.type === "weekly_summary") {
+      // Sunday digest opens the Care tab; the per-pet "this week" panel is
+      // a Faz 3 follow-up, so for now we just land on Care.
+      router.push("/(app)/(tabs)/care");
     } else if (data?.type === "playdate_invite" && data?.playdateId) {
       // v0.13.5 — the backend already includes {playdateId, inviteId} on this
       // push; an invitee row is guaranteed to exist in playdate_invites at

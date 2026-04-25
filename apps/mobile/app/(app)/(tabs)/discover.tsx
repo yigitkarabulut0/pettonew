@@ -2,10 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import {
-  Animated,
-  Dimensions,
   Modal,
-  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,6 +13,7 @@ import { Image } from "expo-image";
 import { LottieLoading } from "@/components/lottie-loading";
 import MapView, { Marker, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import {
   Calendar,
   Check,
@@ -61,10 +59,9 @@ import { useSessionStore } from "@/store/session";
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const { height: WINDOW_HEIGHT } = Dimensions.get("window");
+// Used for map padding + floating elements above the collapsed sheet.
+// Matches the bottom-sheet's first snap point (peek height).
 const COLLAPSED_SHEET = 180;
-const EXPANDED_SHEET = Math.round(WINDOW_HEIGHT * 0.65);
-const SHEET_TRAVEL = EXPANDED_SHEET - COLLAPSED_SHEET;
 
 const LONDON_FALLBACK: Region = {
   latitude: 51.5074,
@@ -325,11 +322,12 @@ export default function DiscoverPage() {
   const insets = useSafeAreaInsets();
 
   const mapRef = useRef<MapView | null>(null);
-  const sheetAnim = useRef(new Animated.Value(SHEET_TRAVEL)).current;
-  const dragStart = useRef(SHEET_TRAVEL);
-  const dragCurrent = useRef(SHEET_TRAVEL);
+  const sheetRef = useRef<BottomSheet>(null);
 
-  const [sheetExpanded, setSheetExpanded] = useState(false);
+  // Snap points: peek (180px ~ category header visible), half (~65% screen),
+  // full (~92% screen for power-users browsing long lists).
+  const snapPoints = useMemo(() => [COLLAPSED_SHEET, "65%", "92%"], []);
+
   const [activeTab, setActiveTab] = useState<"venues" | "events" | "vets">("venues");
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -654,48 +652,11 @@ export default function DiscoverPage() {
 
   /* ---- Sheet animation ---- */
 
-  useEffect(() => {
-    Animated.spring(sheetAnim, {
-      toValue: sheetExpanded ? 0 : SHEET_TRAVEL,
-      tension: 68,
-      friction: 12,
-      useNativeDriver: true
-    }).start();
-  }, [sheetExpanded, sheetAnim]);
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gs) =>
-          Math.abs(gs.dy) > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
-        onPanResponderGrant: () => {
-          sheetAnim.stopAnimation((val) => {
-            dragStart.current = val;
-          });
-        },
-        onPanResponderMove: (_, gs) => {
-          const next = Math.max(
-            0,
-            Math.min(SHEET_TRAVEL, dragStart.current + gs.dy)
-          );
-          dragCurrent.current = next;
-          sheetAnim.setValue(next);
-        },
-        onPanResponderRelease: (_, gs) => {
-          const projected = Math.max(
-            0,
-            Math.min(SHEET_TRAVEL, dragStart.current + gs.dy)
-          );
-          dragCurrent.current = projected;
-          const shouldExpand = gs.dy < -30 || projected < SHEET_TRAVEL / 2;
-          setSheetExpanded(shouldExpand);
-        },
-        onPanResponderTerminate: () => {
-          setSheetExpanded(dragCurrent.current < SHEET_TRAVEL / 2);
-        }
-      }),
-    [sheetAnim]
-  );
+  // Light haptic on snap-point change for that "professional bottom sheet"
+  // feel users expect from the best iOS apps.
+  const handleSheetChange = useCallback(() => {
+    Haptics.selectionAsync();
+  }, []);
 
   /* ---- Map interactions ---- */
 
@@ -704,7 +665,8 @@ export default function DiscoverPage() {
       const venue = mapVenues.find((v) => v.id === venueId);
       if (!venue) return;
       setSelectedVenueId(venue.id);
-      setSheetExpanded(false);
+      // Drop the sheet to peek so the floating venue card stays visible above it.
+      sheetRef.current?.snapToIndex(0);
       mapRef.current?.animateToRegion(
         {
           latitude: venue.latitude,
@@ -1128,10 +1090,9 @@ export default function DiscoverPage() {
         const isCheckedIn = userCheckedInVenueId === selectedVenue.id;
         const catColor = getCategoryColor(selectedVenue.category);
         const CatIcon = getCategoryIcon(selectedVenue.category);
-        const allPhotos = [
-          ...(selectedVenue.imageUrl ? [selectedVenue.imageUrl] : []),
-          ...venuePhotos
-        ];
+        // v0.13.7 — public gallery is post-only; cover lives on the hero
+        // above and shouldn't double up in the strip below.
+        const allPhotos = venuePhotos;
         return (
         <View style={{ position: "absolute", left: 12, right: 12, bottom: tabBarOffset + COLLAPSED_SHEET + 8, borderRadius: 20, backgroundColor: theme.colors.white, shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 20, overflow: "hidden" }}>
           {/* Hero Image */}
@@ -1408,191 +1369,182 @@ export default function DiscoverPage() {
         );
       })()}
 
-      {/* ---------- Bottom Sheet ---------- */}
-      <Animated.View
+      {/* ---------- Bottom Sheet ----------
+          Powered by @gorhom/bottom-sheet — runs on Reanimated worklets so the
+          drag is processed on the UI thread. BottomSheetScrollView wires the
+          inner ScrollView's gesture into the sheet's pan, eliminating the
+          PanResponder/ScrollView responder fight that caused the previous
+          glitches. */}
+      <BottomSheet
+        ref={sheetRef}
+        index={0}
+        snapPoints={snapPoints}
+        onChange={handleSheetChange}
+        bottomInset={tabBarOffset - 28}
+        enableDynamicSizing={false}
+        keyboardBehavior="interactive"
+        animateOnMount={false}
+        handleIndicatorStyle={{
+          backgroundColor: theme.colors.border,
+          width: 44,
+          height: 5
+        }}
+        backgroundStyle={{
+          backgroundColor: theme.colors.surface,
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          shadowColor: "#000",
+          shadowOpacity: 0.08,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -6 },
+          elevation: 16
+        }}
         style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: tabBarOffset - 28,
-          height: EXPANDED_SHEET,
-          transform: [{ translateY: sheetAnim }]
+          shadowColor: "#000",
+          shadowOpacity: 0.08,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -6 },
+          elevation: 16
         }}
       >
+        {/* Tab Switcher — stays pinned above the scrollable area. */}
         <View
           style={{
-            flex: 1,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            backgroundColor: theme.colors.surface,
-            shadowColor: "#000",
-            shadowOpacity: 0.08,
-            shadowRadius: 24,
-            shadowOffset: { width: 0, height: -6 },
-            elevation: 16
+            flexDirection: "row",
+            marginHorizontal: mobileTheme.spacing.xl,
+            marginTop: 4,
+            marginBottom: mobileTheme.spacing.md,
+            backgroundColor: theme.colors.background,
+            borderRadius: mobileTheme.radius.pill,
+            padding: 3
           }}
         >
-          {/* Drag handle */}
-          <View
-            {...panResponder.panHandlers}
-            style={{
-              alignItems: "center",
-              paddingTop: 12,
-              paddingBottom: 8
-            }}
-          >
-            <View
-              style={{
-                width: 40,
-                height: 4,
-                borderRadius: 2,
-                backgroundColor: "rgba(22,21,20,0.15)"
-              }}
-            />
-          </View>
-
-          {/* Tab Switcher */}
-          <View
-            style={{
-              flexDirection: "row",
-              marginHorizontal: mobileTheme.spacing.xl,
-              marginBottom: mobileTheme.spacing.md,
-              backgroundColor: theme.colors.background,
+          <Pressable
+            onPress={() => setActiveTab("venues")}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: mobileTheme.spacing.sm + 1,
               borderRadius: mobileTheme.radius.pill,
-              padding: 3
-            }}
+              backgroundColor:
+                activeTab === "venues" ? theme.colors.primary : "transparent",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed && activeTab !== "venues" ? 0.7 : 1
+            })}
           >
-            <Pressable
-              onPress={() => setActiveTab("venues")}
-              style={({ pressed }) => ({
-                flex: 1,
-                paddingVertical: mobileTheme.spacing.sm + 1,
-                borderRadius: mobileTheme.radius.pill,
-                backgroundColor:
-                  activeTab === "venues" ? theme.colors.primary : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed && activeTab !== "venues" ? 0.7 : 1
-              })}
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontWeight: "700",
+                color:
+                  activeTab === "venues" ? "#FFFFFF" : theme.colors.muted,
+                fontFamily: "Inter_700Bold"
+              }}
             >
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  fontWeight: "700",
-                  color:
-                    activeTab === "venues"
-                      ? "#FFFFFF"
-                      : theme.colors.muted,
-                  fontFamily: "Inter_700Bold"
-                }}
-              >
-                {t("discover.venues")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setActiveTab("events")}
-              style={({ pressed }) => ({
-                flex: 1,
-                paddingVertical: mobileTheme.spacing.sm + 1,
-                borderRadius: mobileTheme.radius.pill,
-                backgroundColor:
-                  activeTab === "events" ? theme.colors.primary : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed && activeTab !== "events" ? 0.7 : 1
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  fontWeight: "700",
-                  color:
-                    activeTab === "events"
-                      ? "#FFFFFF"
-                      : theme.colors.muted,
-                  fontFamily: "Inter_700Bold"
-                }}
-              >
-                {t("discover.events")}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setActiveTab("vets")}
-              style={({ pressed }) => ({
-                flex: 1,
-                paddingVertical: mobileTheme.spacing.sm + 1,
-                borderRadius: mobileTheme.radius.pill,
-                backgroundColor:
-                  activeTab === "vets" ? theme.colors.primary : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed && activeTab !== "vets" ? 0.7 : 1
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: mobileTheme.typography.caption.fontSize,
-                  fontWeight: "700",
-                  color:
-                    activeTab === "vets"
-                      ? "#FFFFFF"
-                      : theme.colors.muted,
-                  fontFamily: "Inter_700Bold"
-                }}
-              >
-                {t("discover.vets")}
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Sheet Content */}
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={sheetExpanded}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor={theme.colors.primary}
-              />
-            }
-            contentContainerStyle={{
-              paddingHorizontal: mobileTheme.spacing.xl,
-              paddingBottom: mobileTheme.spacing["3xl"]
-            }}
+              {t("discover.venues")}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab("events")}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: mobileTheme.spacing.sm + 1,
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor:
+                activeTab === "events" ? theme.colors.primary : "transparent",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed && activeTab !== "events" ? 0.7 : 1
+            })}
           >
-            {activeTab === "venues" ? (
-              <VenuesTab
-                venues={mapVenues}
-                selectedVenueId={selectedVenueId}
-                onVenuePress={focusVenue}
-                onCheckIn={handleCheckInPress}
-                checkInPending={checkInMutation.isPending}
-              />
-            ) : activeTab === "events" ? (
-              <EventsTab
-                events={events}
-                playdates={feedPlaydates}
-                onRsvp={handleRsvpPress}
-                rsvpPending={rsvpMutation.isPending}
-                userId={session?.user?.id}
-                onOpenPlaydate={(p) =>
-                  router.push({
-                    pathname: "/(app)/playdates/[id]",
-                    params: {
-                      id: p.id,
-                      initialTitle: p.title,
-                      initialImage: p.coverImageUrl ?? ""
-                    }
-                  } as any)
-                }
-              />
-            ) : (
-              <VetsTab clinics={vetClinics} />
-            )}
-          </ScrollView>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontWeight: "700",
+                color:
+                  activeTab === "events" ? "#FFFFFF" : theme.colors.muted,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {t("discover.events")}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab("vets")}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: mobileTheme.spacing.sm + 1,
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor:
+                activeTab === "vets" ? theme.colors.primary : "transparent",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed && activeTab !== "vets" ? 0.7 : 1
+            })}
+          >
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.caption.fontSize,
+                fontWeight: "700",
+                color:
+                  activeTab === "vets" ? "#FFFFFF" : theme.colors.muted,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {t("discover.vets")}
+            </Text>
+          </Pressable>
         </View>
-      </Animated.View>
+
+        {/* Sheet Content — BottomSheetScrollView ensures the scroll-to-pan
+            handoff happens on the UI thread without responder conflicts. */}
+        <BottomSheetScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.colors.primary}
+            />
+          }
+          contentContainerStyle={{
+            paddingHorizontal: mobileTheme.spacing.xl,
+            paddingBottom: mobileTheme.spacing["3xl"]
+          }}
+        >
+          {activeTab === "venues" ? (
+            <VenuesTab
+              venues={mapVenues}
+              selectedVenueId={selectedVenueId}
+              onVenuePress={focusVenue}
+              onOpenDetail={(id) => router.push(`/venue/${id}`)}
+              onCheckIn={handleCheckInPress}
+              checkInPending={checkInMutation.isPending}
+              selectedVenuePhotos={venuePhotos}
+            />
+          ) : activeTab === "events" ? (
+            <EventsTab
+              events={events}
+              playdates={feedPlaydates}
+              onRsvp={handleRsvpPress}
+              rsvpPending={rsvpMutation.isPending}
+              userId={session?.user?.id}
+              onOpenPlaydate={(p) =>
+                router.push({
+                  pathname: "/(app)/playdates/[id]",
+                  params: {
+                    id: p.id,
+                    initialTitle: p.title,
+                    initialImage: p.coverImageUrl ?? ""
+                  }
+                } as any)
+              }
+            />
+          ) : (
+            <VetsTab clinics={vetClinics} />
+          )}
+        </BottomSheetScrollView>
+      </BottomSheet>
     </View>
   );
 }
@@ -1605,8 +1557,10 @@ function VenuesTab({
   venues,
   selectedVenueId,
   onVenuePress,
+  onOpenDetail,
   onCheckIn,
-  checkInPending
+  checkInPending,
+  selectedVenuePhotos
 }: {
   venues: Array<{
     id: string;
@@ -1626,8 +1580,14 @@ function VenuesTab({
   }>;
   selectedVenueId: string | null;
   onVenuePress: (id: string) => void;
+  /** Navigate to the full venue detail page (tapping a gallery thumb). */
+  onOpenDetail: (id: string) => void;
   onCheckIn: (id: string) => void;
   checkInPending: boolean;
+  /** Photo urls for the currently-selected venue, fetched by the parent via
+   *  /v1/venues/{id}/photos. Already includes cover + admin-curated + non-hidden
+   *  tagged post photos in the order the server returns them. */
+  selectedVenuePhotos: string[];
 }) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -1691,9 +1651,18 @@ function VenuesTab({
               elevation: 1
             }}
           >
-            {/* Hero image with category chip overlay */}
+            {/* Hero image with category chip overlay. Wrapped in a Pressable
+                so tapping the photo opens the venue popup — the row below has
+                a nested check-in button, so the image is the primary hit
+                target for "view details". */}
             {venue.imageUrl ? (
-              <View style={{ position: "relative" }}>
+              <Pressable
+                onPress={() => onVenuePress(venue.id)}
+                style={({ pressed }) => ({
+                  position: "relative",
+                  opacity: pressed ? 0.92 : 1
+                })}
+              >
                 <Image
                   source={{ uri: venue.imageUrl }}
                   style={{ width: "100%", height: 140, backgroundColor: theme.colors.border }}
@@ -1753,7 +1722,7 @@ function VenuesTab({
                     </Text>
                   </View>
                 )}
-              </View>
+              </Pressable>
             ) : null}
 
             <Pressable
@@ -1892,16 +1861,51 @@ function VenuesTab({
                   </Text>
                 ) : null}
 
-                {/* Venue image */}
-                {venue.imageUrl ? (
-                  <Image
-                    source={{ uri: venue.imageUrl }}
-                    style={{ width: "100%", height: 120, borderRadius: mobileTheme.radius.md, backgroundColor: theme.colors.border }}
-                    contentFit="cover"
-                    transition={250}
-                    cachePolicy="memory-disk"
-                  />
-                ) : null}
+                {/* Horizontal photo strip. When this venue is selected we
+                    fetch its full gallery via /v1/venues/{id}/photos — the
+                    server already includes cover + admin-curated + non-hidden
+                    tagged posts, so the caller just renders whatever comes
+                    back. Tap any thumb to open the full venue detail page. */}
+                {(() => {
+                  // v0.13.7 — strip is post-only. Cover is rendered as the
+                  // card hero above (line ~1697); duplicating it here was the
+                  // visible "kapak fotosu galeride yine cikiyor" bug. If the
+                  // venue has no tagged-post photos, the strip just doesn't
+                  // render — hero alone is enough.
+                  const strip = isSelected ? selectedVenuePhotos : [];
+                  if (strip.length === 0) return null;
+                  return (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+                    >
+                      {strip.map((url, idx) => (
+                        <Pressable
+                          key={`${url}-${idx}`}
+                          onPress={() => onOpenDetail(venue.id)}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.88 : 1,
+                            borderRadius: mobileTheme.radius.md,
+                            overflow: "hidden"
+                          })}
+                        >
+                          <Image
+                            source={{ uri: url }}
+                            style={{
+                              width: 160,
+                              height: 120,
+                              backgroundColor: theme.colors.border
+                            }}
+                            contentFit="cover"
+                            transition={250}
+                            cachePolicy="memory-disk"
+                          />
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  );
+                })()}
               </View>
             )}
 

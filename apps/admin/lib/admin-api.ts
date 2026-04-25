@@ -115,6 +115,44 @@ export async function deleteVenue(venueId: string) {
   return apiRequest(`/venues/${venueId}`, { method: "DELETE" });
 }
 
+/* ── Venue photo gallery management (v0.13.7) ─────────────────── */
+
+export type VenuePhotoEntry = {
+  url: string;
+  kind: "cover" | "admin" | "post";
+  /** Present when kind="admin" — used by DELETE. */
+  id?: string;
+  /** Present when kind="post" — used by PATCH hidden flag. */
+  postId?: string;
+  hidden?: boolean;
+};
+
+export async function getVenuePhotosManage(venueId: string) {
+  return apiRequest<VenuePhotoEntry[]>(`/venues/${venueId}/photos`);
+}
+
+export async function addVenuePhoto(venueId: string, url: string) {
+  return apiRequest<VenuePhotoEntry>(`/venues/${venueId}/photos`, {
+    method: "POST",
+    body: { url }
+  });
+}
+
+export async function deleteVenuePhoto(venueId: string, photoId: string) {
+  return apiRequest(`/venues/${venueId}/photos/${photoId}`, { method: "DELETE" });
+}
+
+export async function setVenuePostPhotoHidden(
+  venueId: string,
+  postId: string,
+  hidden: boolean
+) {
+  return apiRequest(`/venues/${venueId}/post-photos/${postId}`, {
+    method: "PATCH",
+    body: { hidden }
+  });
+}
+
 export async function getEvents() {
   return apiRequest<ExploreEvent[]>("/events");
 }
@@ -253,6 +291,113 @@ export async function updateAdminTrainingTip(
   }
 ) {
   return apiRequest(`/training-tips/${tipId}`, { method: "PUT", body: tip });
+}
+
+// Breed care guides (Care v0.14.3)
+export type AdminBreedCareGuide = {
+  id: string;
+  speciesId: string;
+  speciesLabel: string;
+  breedId?: string;
+  breedLabel?: string;
+  title: string;
+  summary?: string;
+  body: string;
+  heroImageUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getAdminBreedCareGuides() {
+  return apiRequest<AdminBreedCareGuide[]>("/breed-care-guides");
+}
+export async function createAdminBreedCareGuide(g: {
+  speciesId: string;
+  speciesLabel: string;
+  breedId?: string;
+  breedLabel?: string;
+  title: string;
+  summary?: string;
+  body: string;
+  heroImageUrl?: string;
+}) {
+  return apiRequest<AdminBreedCareGuide>("/breed-care-guides", { method: "POST", body: g });
+}
+export async function updateAdminBreedCareGuide(guideId: string, g: Partial<AdminBreedCareGuide>) {
+  return apiRequest<AdminBreedCareGuide>(`/breed-care-guides/${guideId}`, { method: "PATCH", body: g });
+}
+export async function deleteAdminBreedCareGuide(guideId: string) {
+  return apiRequest(`/breed-care-guides/${guideId}`, { method: "DELETE" });
+}
+
+// Food items (Calorie Counter database)
+export type AdminFoodItem = {
+  id: string;
+  name: string;
+  brand?: string;
+  kind: "dry" | "wet" | "treat" | "other";
+  speciesLabel?: string;
+  kcalPer100g: number;
+  isPublic: boolean;
+  createdByUser?: string;
+  createdAt: string;
+};
+
+export async function getAdminFoodItems(params: { search?: string; species?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.species) qs.set("species", params.species);
+  const q = qs.toString();
+  return apiRequest<AdminFoodItem[]>(`/food-items${q ? `?${q}` : ""}`);
+}
+export async function createAdminFoodItem(item: {
+  name: string;
+  brand?: string;
+  kind: AdminFoodItem["kind"];
+  speciesLabel?: string;
+  kcalPer100g: number;
+  isPublic: boolean;
+}) {
+  return apiRequest<AdminFoodItem>("/food-items", { method: "POST", body: item });
+}
+export async function updateAdminFoodItem(itemId: string, item: Partial<AdminFoodItem>) {
+  return apiRequest<AdminFoodItem>(`/food-items/${itemId}`, { method: "PATCH", body: item });
+}
+export async function deleteAdminFoodItem(itemId: string) {
+  return apiRequest(`/food-items/${itemId}`, { method: "DELETE" });
+}
+
+// First-aid topics
+export type AdminFirstAidTopic = {
+  id: string;
+  slug: string;
+  title: string;
+  severity: "emergency" | "urgent" | "info";
+  summary?: string;
+  body: string;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getAdminFirstAidTopics() {
+  return apiRequest<AdminFirstAidTopic[]>("/first-aid-topics");
+}
+export async function createAdminFirstAidTopic(t: {
+  title: string;
+  severity: AdminFirstAidTopic["severity"];
+  summary?: string;
+  body: string;
+  displayOrder?: number;
+  slug?: string;
+}) {
+  return apiRequest<AdminFirstAidTopic>("/first-aid-topics", { method: "POST", body: t });
+}
+export async function updateAdminFirstAidTopic(topicId: string, t: Partial<AdminFirstAidTopic>) {
+  return apiRequest<AdminFirstAidTopic>(`/first-aid-topics/${topicId}`, { method: "PATCH", body: t });
+}
+export async function deleteAdminFirstAidTopic(topicId: string) {
+  return apiRequest(`/first-aid-topics/${topicId}`, { method: "DELETE" });
 }
 
 // Pet sitters

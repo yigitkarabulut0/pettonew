@@ -41,6 +41,16 @@ type MemoryStore struct {
 	adoptionFavorites  map[string]map[string]bool
 	diaryEntries       map[string][]domain.DiaryEntry
 	healthRecords      map[string][]domain.HealthRecord
+	healthProfiles     map[string]domain.PetHealthProfile
+	symptomLogs        map[string][]domain.SymptomLog
+	medications        map[string][]domain.PetMedication
+	medPushDates       map[string]string // medID -> last YYYY-MM-DD pushed
+	weeklySummarySent  map[string]string // userID -> ISO weekStart of last sent
+	petDocuments       map[string][]domain.PetDocument
+	foodItems          map[string]*domain.FoodItem
+	mealLogs           map[string][]domain.MealLog
+	breedCareGuides    map[string]*domain.BreedCareGuide
+	firstAidTopics     map[string]*domain.FirstAidTopic
 	weightEntries      map[string][]domain.WeightEntry
 	vetContacts        map[string][]domain.VetContact
 	feedingSchedules   map[string][]domain.FeedingSchedule
@@ -126,6 +136,16 @@ func NewMemoryStore() *MemoryStore {
 		adoptionFavorites:  make(map[string]map[string]bool),
 		diaryEntries:       make(map[string][]domain.DiaryEntry),
 		healthRecords:      make(map[string][]domain.HealthRecord),
+		healthProfiles:     make(map[string]domain.PetHealthProfile),
+		symptomLogs:        make(map[string][]domain.SymptomLog),
+		medications:        make(map[string][]domain.PetMedication),
+		medPushDates:       make(map[string]string),
+		weeklySummarySent:  make(map[string]string),
+		petDocuments:       make(map[string][]domain.PetDocument),
+		foodItems:          make(map[string]*domain.FoodItem),
+		mealLogs:           make(map[string][]domain.MealLog),
+		breedCareGuides:    make(map[string]*domain.BreedCareGuide),
+		firstAidTopics:     make(map[string]*domain.FirstAidTopic),
 		weightEntries:      make(map[string][]domain.WeightEntry),
 		vetContacts:        make(map[string][]domain.VetContact),
 		feedingSchedules:   make(map[string][]domain.FeedingSchedule),
@@ -1100,6 +1120,592 @@ func (s *MemoryStore) DeleteHealthRecord(petID string, recordID string) error {
 		}
 	}
 	return fmt.Errorf("health record not found")
+}
+
+// ── Health Profile (allergies, dietary restrictions, emergency notes) ─
+
+func (s *MemoryStore) GetHealthProfile(petID string) domain.PetHealthProfile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if p, ok := s.healthProfiles[petID]; ok {
+		return p
+	}
+	return domain.PetHealthProfile{
+		PetID:               petID,
+		Allergies:           []string{},
+		DietaryRestrictions: []string{},
+	}
+}
+
+func (s *MemoryStore) UpsertHealthProfile(petID string, profile domain.PetHealthProfile) domain.PetHealthProfile {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile.PetID = petID
+	if profile.Allergies == nil {
+		profile.Allergies = []string{}
+	}
+	if profile.DietaryRestrictions == nil {
+		profile.DietaryRestrictions = []string{}
+	}
+	profile.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.healthProfiles[petID] = profile
+	return profile
+}
+
+// ── Symptom Logs ────────────────────────────────────────────────────
+
+func (s *MemoryStore) ListSymptomLogs(petID string) []domain.SymptomLog {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	logs := s.symptomLogs[petID]
+	if logs == nil {
+		return []domain.SymptomLog{}
+	}
+	return logs
+}
+
+func (s *MemoryStore) CreateSymptomLog(petID string, log domain.SymptomLog) domain.SymptomLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	log.ID = newID("sym")
+	log.PetID = petID
+	if log.Categories == nil {
+		log.Categories = []string{}
+	}
+	if log.OccurredAt == "" {
+		log.OccurredAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	log.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.symptomLogs[petID] = append(s.symptomLogs[petID], log)
+	return log
+}
+
+func (s *MemoryStore) DeleteSymptomLog(petID string, logID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	logs := s.symptomLogs[petID]
+	for i, l := range logs {
+		if l.ID == logID {
+			s.symptomLogs[petID] = slices.Delete(logs, i, i+1)
+			return nil
+		}
+	}
+	return fmt.Errorf("symptom log not found")
+}
+
+// ── Medications (recurring schedule) ────────────────────────────────
+
+func (s *MemoryStore) ListMedications(petID string) []domain.PetMedication {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := s.medications[petID]
+	if out == nil {
+		return []domain.PetMedication{}
+	}
+	cp := make([]domain.PetMedication, len(out))
+	copy(cp, out)
+	return cp
+}
+
+func (s *MemoryStore) CreateMedication(petID string, med domain.PetMedication) domain.PetMedication {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	med.ID = newID("med")
+	med.PetID = petID
+	med.Active = true
+	if med.DaysOfWeek == nil {
+		med.DaysOfWeek = []int{}
+	}
+	med.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.medications[petID] = append(s.medications[petID], med)
+	return med
+}
+
+func (s *MemoryStore) UpdateMedication(petID string, medID string, patch domain.PetMedication) (domain.PetMedication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.medications[petID]
+	for i, m := range list {
+		if m.ID == medID {
+			if patch.Name != "" {
+				m.Name = patch.Name
+			}
+			if patch.Dosage != "" {
+				m.Dosage = patch.Dosage
+			}
+			m.Notes = patch.Notes
+			if patch.TimeOfDay != "" {
+				m.TimeOfDay = patch.TimeOfDay
+			}
+			if patch.DaysOfWeek != nil {
+				m.DaysOfWeek = patch.DaysOfWeek
+			}
+			if patch.Timezone != "" {
+				m.Timezone = patch.Timezone
+			}
+			if patch.StartDate != "" {
+				m.StartDate = patch.StartDate
+			}
+			m.EndDate = patch.EndDate
+			m.Active = patch.Active
+			list[i] = m
+			s.medications[petID] = list
+			return m, nil
+		}
+	}
+	return domain.PetMedication{}, fmt.Errorf("medication not found")
+}
+
+func (s *MemoryStore) DeleteMedication(petID string, medID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.medications[petID]
+	for i, m := range list {
+		if m.ID == medID {
+			s.medications[petID] = slices.Delete(list, i, i+1)
+			delete(s.medPushDates, medID)
+			return nil
+		}
+	}
+	return fmt.Errorf("medication not found")
+}
+
+func (s *MemoryStore) MarkMedicationGiven(petID string, medID string) (domain.PetMedication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.medications[petID]
+	for i, m := range list {
+		if m.ID == medID {
+			m.LastGivenAt = time.Now().UTC().Format(time.RFC3339)
+			list[i] = m
+			s.medications[petID] = list
+			return m, nil
+		}
+	}
+	return domain.PetMedication{}, fmt.Errorf("medication not found")
+}
+
+func (s *MemoryStore) ListActiveMedicationsForSweeper() []MedicationSweeperRow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]MedicationSweeperRow, 0)
+	for petID, list := range s.medications {
+		pet, ok := s.pets[petID]
+		if !ok || pet == nil {
+			continue
+		}
+		for _, m := range list {
+			if !m.Active || m.Timezone == "" || m.TimeOfDay == "" {
+				continue
+			}
+			out = append(out, MedicationSweeperRow{
+				MedID:        m.ID,
+				PetID:        m.PetID,
+				OwnerID:      pet.OwnerID,
+				PetName:      pet.Name,
+				Name:         m.Name,
+				Dosage:       m.Dosage,
+				TimeOfDay:    m.TimeOfDay,
+				DaysOfWeek:   m.DaysOfWeek,
+				Timezone:     m.Timezone,
+				StartDate:    m.StartDate,
+				EndDate:      m.EndDate,
+				LastPushDate: s.medPushDates[m.ID],
+			})
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) MarkMedicationPushed(medID string, scheduledDateInTZ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.medPushDates[medID] = scheduledDateInTZ
+	return nil
+}
+
+// ── Breed Care Guides ───────────────────────────────────────────────
+
+func (s *MemoryStore) GetBreedCareGuide(speciesID string, breedID string) (*domain.BreedCareGuide, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// Prefer breed-specific match; fall back to species-wide row.
+	var speciesWide *domain.BreedCareGuide
+	for _, g := range s.breedCareGuides {
+		if breedID != "" && g.BreedID == breedID {
+			cp := *g
+			return &cp, nil
+		}
+		if g.BreedID == "" && g.SpeciesID == speciesID {
+			cp := *g
+			speciesWide = &cp
+		}
+	}
+	if speciesWide != nil {
+		return speciesWide, nil
+	}
+	return nil, fmt.Errorf("breed care guide not found")
+}
+
+func (s *MemoryStore) ListBreedCareGuides() []domain.BreedCareGuide {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.BreedCareGuide, 0, len(s.breedCareGuides))
+	for _, g := range s.breedCareGuides {
+		out = append(out, *g)
+	}
+	return out
+}
+
+func (s *MemoryStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.BreedCareGuide, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if g.ID == "" {
+		g.ID = newID("bcg")
+		g.CreatedAt = now
+	} else if existing, ok := s.breedCareGuides[g.ID]; ok && existing.CreatedAt != "" {
+		g.CreatedAt = existing.CreatedAt
+	} else {
+		g.CreatedAt = now
+	}
+	g.UpdatedAt = now
+	cp := g
+	s.breedCareGuides[g.ID] = &cp
+	return g, nil
+}
+
+func (s *MemoryStore) DeleteBreedCareGuide(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.breedCareGuides[id]; !ok {
+		return fmt.Errorf("breed care guide not found")
+	}
+	delete(s.breedCareGuides, id)
+	return nil
+}
+
+// ── First-Aid Topics ────────────────────────────────────────────────
+
+func (s *MemoryStore) ListFirstAidTopics() []domain.FirstAidTopic {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.FirstAidTopic, 0, len(s.firstAidTopics))
+	for _, t := range s.firstAidTopics {
+		out = append(out, *t)
+	}
+	// stable display ordering
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].DisplayOrder < out[j-1].DisplayOrder; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) GetFirstAidTopic(id string) (*domain.FirstAidTopic, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if t, ok := s.firstAidTopics[id]; ok {
+		cp := *t
+		return &cp, nil
+	}
+	return nil, fmt.Errorf("first aid topic not found")
+}
+
+func (s *MemoryStore) UpsertFirstAidTopic(t domain.FirstAidTopic) (domain.FirstAidTopic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if t.ID == "" {
+		t.ID = newID("fa")
+		t.CreatedAt = now
+	} else if existing, ok := s.firstAidTopics[t.ID]; ok && existing.CreatedAt != "" {
+		t.CreatedAt = existing.CreatedAt
+	} else {
+		t.CreatedAt = now
+	}
+	t.UpdatedAt = now
+	cp := t
+	s.firstAidTopics[t.ID] = &cp
+	return t, nil
+}
+
+func (s *MemoryStore) DeleteFirstAidTopic(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.firstAidTopics[id]; !ok {
+		return fmt.Errorf("first aid topic not found")
+	}
+	delete(s.firstAidTopics, id)
+	return nil
+}
+
+// ── Pet Documents ───────────────────────────────────────────────────
+
+func (s *MemoryStore) ListPetDocuments(petID string) []domain.PetDocument {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := s.petDocuments[petID]
+	if out == nil {
+		return []domain.PetDocument{}
+	}
+	cp := make([]domain.PetDocument, len(out))
+	copy(cp, out)
+	return cp
+}
+
+func (s *MemoryStore) CreatePetDocument(petID string, doc domain.PetDocument) domain.PetDocument {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc.ID = newID("doc")
+	doc.PetID = petID
+	doc.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.petDocuments[petID] = append(s.petDocuments[petID], doc)
+	return doc
+}
+
+func (s *MemoryStore) DeletePetDocument(petID string, docID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	docs := s.petDocuments[petID]
+	for i, d := range docs {
+		if d.ID == docID {
+			s.petDocuments[petID] = slices.Delete(docs, i, i+1)
+			return nil
+		}
+	}
+	return fmt.Errorf("document not found")
+}
+
+// ── Food items + Meal logs ──────────────────────────────────────────
+
+func (s *MemoryStore) ListFoodItems(userID string, search string, species string, limit int) []domain.FoodItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.FoodItem, 0)
+	q := strings.ToLower(strings.TrimSpace(search))
+	sp := strings.ToLower(strings.TrimSpace(species))
+	for _, item := range s.foodItems {
+		if !item.IsPublic && item.CreatedByUser != userID {
+			continue
+		}
+		if sp != "" && item.SpeciesLabel != "" && strings.ToLower(item.SpeciesLabel) != sp {
+			continue
+		}
+		if q != "" {
+			hay := strings.ToLower(item.Name + " " + item.Brand)
+			if !strings.Contains(hay, q) {
+				continue
+			}
+		}
+		out = append(out, *item)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func (s *MemoryStore) GetFoodItem(itemID string) (*domain.FoodItem, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if item, ok := s.foodItems[itemID]; ok {
+		copy := *item
+		return &copy, nil
+	}
+	return nil, fmt.Errorf("food item not found")
+}
+
+func (s *MemoryStore) CreateFoodItem(userID string, item domain.FoodItem) domain.FoodItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item.ID = newID("food")
+	item.CreatedByUser = userID
+	item.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.foodItems[item.ID] = &item
+	return item
+}
+
+func (s *MemoryStore) AdminListFoodItems(search string, species string, limit int) []domain.FoodItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.FoodItem, 0)
+	q := strings.ToLower(strings.TrimSpace(search))
+	sp := strings.ToLower(strings.TrimSpace(species))
+	for _, item := range s.foodItems {
+		if sp != "" && item.SpeciesLabel != "" && strings.ToLower(item.SpeciesLabel) != sp {
+			continue
+		}
+		if q != "" {
+			hay := strings.ToLower(item.Name + " " + item.Brand)
+			if !strings.Contains(hay, q) {
+				continue
+			}
+		}
+		out = append(out, *item)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func (s *MemoryStore) AdminUpsertFoodItem(item domain.FoodItem) (domain.FoodItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if item.ID == "" {
+		item.ID = newID("food")
+		item.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	} else if existing, ok := s.foodItems[item.ID]; ok {
+		item.CreatedAt = existing.CreatedAt
+		item.CreatedByUser = existing.CreatedByUser
+	}
+	cp := item
+	s.foodItems[item.ID] = &cp
+	return item, nil
+}
+
+func (s *MemoryStore) AdminDeleteFoodItem(itemID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.foodItems[itemID]; !ok {
+		return fmt.Errorf("food item not found")
+	}
+	delete(s.foodItems, itemID)
+	return nil
+}
+
+func (s *MemoryStore) ListMealLogs(petID string, fromDate string, toDate string) []domain.MealLog {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	logs := s.mealLogs[petID]
+	if logs == nil {
+		return []domain.MealLog{}
+	}
+	out := make([]domain.MealLog, 0, len(logs))
+	for _, m := range logs {
+		if fromDate != "" && m.EatenAt < fromDate {
+			continue
+		}
+		if toDate != "" && m.EatenAt >= toDate {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (s *MemoryStore) CreateMealLog(petID string, log domain.MealLog) domain.MealLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	log.ID = newID("meal")
+	log.PetID = petID
+	if log.EatenAt == "" {
+		log.EatenAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	log.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.mealLogs[petID] = append(s.mealLogs[petID], log)
+	return log
+}
+
+func (s *MemoryStore) DeleteMealLog(petID string, logID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	logs := s.mealLogs[petID]
+	for i, m := range logs {
+		if m.ID == logID {
+			s.mealLogs[petID] = slices.Delete(logs, i, i+1)
+			return nil
+		}
+	}
+	return fmt.Errorf("meal log not found")
+}
+
+func (s *MemoryStore) GetDailyMealSummary(petID string, dateISO string) domain.DailyMealSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sum := domain.DailyMealSummary{Date: dateISO}
+	for _, m := range s.mealLogs[petID] {
+		if !strings.HasPrefix(m.EatenAt, dateISO) {
+			continue
+		}
+		sum.TotalKcal += m.Kcal
+		sum.TotalGrams += m.Grams
+		sum.MealCount++
+	}
+	return sum
+}
+
+// ── Weekly Summary ──────────────────────────────────────────────────
+
+func (s *MemoryStore) GetWeeklyHealthSummaryForUser(userID string, weekStartUTC string, weekEndUTC string) domain.WeeklyHealthSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sum := domain.WeeklyHealthSummary{WeekStart: weekStartUTC}
+	myPetIDs := make(map[string]struct{})
+	for _, p := range s.pets {
+		if p.OwnerID == userID {
+			myPetIDs[p.ID] = struct{}{}
+		}
+	}
+	inWindow := func(iso string) bool {
+		if iso == "" {
+			return false
+		}
+		return iso >= weekStartUTC && iso < weekEndUTC
+	}
+	for pid := range myPetIDs {
+		for _, e := range s.weightEntries[pid] {
+			if inWindow(e.Date) {
+				sum.WeightEntries++
+			}
+		}
+		for _, h := range s.healthRecords[pid] {
+			if inWindow(h.CreatedAt) {
+				sum.HealthRecords++
+			}
+		}
+		for _, l := range s.symptomLogs[pid] {
+			if inWindow(l.OccurredAt) {
+				sum.SymptomLogs++
+			}
+		}
+		for _, d := range s.diaryEntries[pid] {
+			if inWindow(d.CreatedAt) {
+				sum.DiaryEntries++
+			}
+		}
+		for _, m := range s.medications[pid] {
+			if inWindow(m.LastGivenAt) {
+				sum.MedicationsGiven++
+			}
+		}
+	}
+	sum.HasActivity = sum.WeightEntries+sum.HealthRecords+sum.SymptomLogs+sum.DiaryEntries+sum.MedicationsGiven > 0
+	return sum
+}
+
+func (s *MemoryStore) ListUsersForWeeklySummary(weekStartUTC string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, 0)
+	for uid := range s.users {
+		if s.weeklySummarySent[uid] == weekStartUTC {
+			continue
+		}
+		if len(s.pushTokens[uid]) == 0 {
+			continue
+		}
+		out = append(out, uid)
+	}
+	return out
+}
+
+func (s *MemoryStore) RecordWeeklySummarySent(userID string, weekStartUTC string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.weeklySummarySent[userID] = weekStartUTC
 }
 
 // ── Weight Entries ──────────────────────────────────────────────────

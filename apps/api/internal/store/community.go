@@ -242,6 +242,32 @@ func (s *MemoryStore) GetVenue(venueID string) (*domain.ExploreVenue, error) {
 	return &copy, nil
 }
 
+// Venue photo management stubs — the memory store is dev-only and doesn't
+// persist admin-curated photos, hide flags, or post photos. Prod uses
+// PostgresStore. ListVenuePhotoUrls returns an empty slice because the
+// public gallery is post-only and the in-memory store has no posts table.
+func (s *MemoryStore) ListVenuePhotoUrls(_ string) []string {
+	return []string{}
+}
+func (s *MemoryStore) ListVenuePhotosManage(venueID string) []VenuePhotoEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.venues[venueID]
+	if !ok || v.ImageURL == nil || *v.ImageURL == "" {
+		return []VenuePhotoEntry{}
+	}
+	return []VenuePhotoEntry{{URL: *v.ImageURL, Kind: "cover"}}
+}
+func (s *MemoryStore) AddVenueAdminPhoto(_ string, _ string) (VenuePhotoEntry, error) {
+	return VenuePhotoEntry{}, fmt.Errorf("venue photo management requires the Postgres store")
+}
+func (s *MemoryStore) DeleteVenueAdminPhoto(_ string, _ string) error {
+	return fmt.Errorf("venue photo management requires the Postgres store")
+}
+func (s *MemoryStore) SetVenuePostPhotoHidden(_ string, _ string, _ bool) error {
+	return fmt.Errorf("venue photo management requires the Postgres store")
+}
+
 func (s *MemoryStore) CheckInVenue(userID string, input VenueCheckInInput) (domain.ExploreVenue, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

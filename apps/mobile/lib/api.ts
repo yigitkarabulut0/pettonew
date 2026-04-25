@@ -17,11 +17,21 @@ import type {
   MatchPreview,
   Message,
   NotificationPreferences,
+  BreedCareLookup,
+  DailyMealSummary,
+  FirstAidTopic,
+  FoodItem,
+  MealLog,
   Pet,
+  PetDocument,
+  PetHealthProfile,
+  PetMedication,
   PetSitter,
   Playdate,
   PlaydateInvite,
   SessionPayload,
+  SymptomLog,
+  WeeklyHealthSummary,
   TaxonomyItem,
   TaxonomyKind,
   TrainingTip,
@@ -1128,6 +1138,221 @@ export async function listHealthRecords(accessToken: string, petId: string): Pro
 }
 export async function createHealthRecord(accessToken: string, petId: string, record: Omit<HealthRecord, "id" | "petId" | "createdAt">): Promise<HealthRecord> {
   return request<HealthRecord>(`/v1/pets/${petId}/health`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(record) });
+}
+export async function deleteHealthRecord(accessToken: string, petId: string, recordId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/health/${recordId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+// Health Profile (allergies + dietary restrictions + emergency notes).
+// Backend returns a placeholder profile (empty arrays) for pets with no row,
+// so callers don't need to handle 404.
+export async function getHealthProfile(accessToken: string, petId: string): Promise<PetHealthProfile> {
+  return request<PetHealthProfile>(`/v1/pets/${petId}/health-profile`, { headers: authHeaders(accessToken) });
+}
+export async function upsertHealthProfile(
+  accessToken: string,
+  petId: string,
+  profile: Pick<PetHealthProfile, "allergies" | "dietaryRestrictions" | "emergencyNotes">
+): Promise<PetHealthProfile> {
+  return request<PetHealthProfile>(`/v1/pets/${petId}/health-profile`, {
+    method: "PUT",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(profile)
+  });
+}
+
+// Symptom Logs
+export async function listSymptomLogs(accessToken: string, petId: string): Promise<SymptomLog[]> {
+  const data = await request<SymptomLog[] | null>(`/v1/pets/${petId}/symptoms`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createSymptomLog(
+  accessToken: string,
+  petId: string,
+  log: Omit<SymptomLog, "id" | "petId" | "createdAt">
+): Promise<SymptomLog> {
+  return request<SymptomLog>(`/v1/pets/${petId}/symptoms`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(log)
+  });
+}
+export async function deleteSymptomLog(accessToken: string, petId: string, logId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/symptoms/${logId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+// Medications
+export type MedicationDraft = {
+  name: string;
+  dosage: string;
+  notes?: string;
+  timeOfDay: string;        // "HH:MM"
+  daysOfWeek: number[];     // 0=Sun..6=Sat; empty = every day
+  timezone: string;         // IANA
+  startDate: string;        // "YYYY-MM-DD"
+  endDate?: string;
+};
+
+export async function listMedications(accessToken: string, petId: string): Promise<PetMedication[]> {
+  const data = await request<PetMedication[] | null>(`/v1/pets/${petId}/medications`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createMedication(
+  accessToken: string,
+  petId: string,
+  med: MedicationDraft
+): Promise<PetMedication> {
+  return request<PetMedication>(`/v1/pets/${petId}/medications`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(med)
+  });
+}
+export async function updateMedication(
+  accessToken: string,
+  petId: string,
+  medId: string,
+  patch: Partial<MedicationDraft> & { active?: boolean }
+): Promise<PetMedication> {
+  return request<PetMedication>(`/v1/pets/${petId}/medications/${medId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+}
+export async function deleteMedication(accessToken: string, petId: string, medId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/medications/${medId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+export async function markMedicationGiven(
+  accessToken: string,
+  petId: string,
+  medId: string
+): Promise<PetMedication> {
+  return request<PetMedication>(`/v1/pets/${petId}/medications/${medId}/mark-given`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
+}
+
+// Weekly health summary
+export async function getWeeklyHealthSummary(accessToken: string): Promise<WeeklyHealthSummary> {
+  return request<WeeklyHealthSummary>("/v1/me/weekly-summary", { headers: authHeaders(accessToken) });
+}
+
+// Pet documents
+export async function listPetDocuments(accessToken: string, petId: string): Promise<PetDocument[]> {
+  const data = await request<PetDocument[] | null>(`/v1/pets/${petId}/documents`, { headers: authHeaders(accessToken) });
+  return data ?? [];
+}
+export async function createPetDocument(
+  accessToken: string,
+  petId: string,
+  doc: {
+    kind: PetDocument["kind"];
+    title: string;
+    fileUrl: string;
+    fileKind?: PetDocument["fileKind"];
+    expiresAt?: string;
+    notes?: string;
+  }
+): Promise<PetDocument> {
+  return request<PetDocument>(`/v1/pets/${petId}/documents`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(doc)
+  });
+}
+export async function deletePetDocument(accessToken: string, petId: string, docId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/documents/${docId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+// Food items + Meal log (calorie counter)
+export async function listFoodItems(
+  accessToken: string,
+  params: { search?: string; species?: string } = {}
+): Promise<FoodItem[]> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.species) qs.set("species", params.species);
+  const q = qs.toString();
+  const data = await request<FoodItem[] | null>(`/v1/food-items${q ? `?${q}` : ""}`, {
+    headers: authHeaders(accessToken)
+  });
+  return data ?? [];
+}
+export async function createFoodItem(
+  accessToken: string,
+  item: { name: string; brand?: string; kind?: FoodItem["kind"]; speciesLabel?: string; kcalPer100g: number }
+): Promise<FoodItem> {
+  return request<FoodItem>("/v1/food-items", {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(item)
+  });
+}
+
+export async function listMealLogs(
+  accessToken: string,
+  petId: string,
+  params: { from?: string; to?: string } = {}
+): Promise<MealLog[]> {
+  const qs = new URLSearchParams();
+  if (params.from) qs.set("from", params.from);
+  if (params.to) qs.set("to", params.to);
+  const q = qs.toString();
+  const data = await request<MealLog[] | null>(
+    `/v1/pets/${petId}/meals${q ? `?${q}` : ""}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+export async function createMealLog(
+  accessToken: string,
+  petId: string,
+  meal: {
+    foodItemId?: string;
+    customName?: string;
+    grams: number;
+    kcal?: number;
+    notes?: string;
+    eatenAt?: string;
+  }
+): Promise<MealLog> {
+  return request<MealLog>(`/v1/pets/${petId}/meals`, {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify(meal)
+  });
+}
+export async function deleteMealLog(accessToken: string, petId: string, mealId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/meals/${mealId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+export async function getDailyMealSummary(
+  accessToken: string,
+  petId: string,
+  date?: string
+): Promise<DailyMealSummary> {
+  const qs = date ? `?date=${date}` : "";
+  return request<DailyMealSummary>(`/v1/pets/${petId}/meals/summary${qs}`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+// Breed care + First-aid (Care v0.14.3)
+export async function getBreedCareForPet(
+  accessToken: string,
+  petId: string
+): Promise<BreedCareLookup> {
+  return request<BreedCareLookup>(`/v1/pets/${petId}/breed-care`, {
+    headers: authHeaders(accessToken)
+  });
+}
+
+export async function listFirstAidTopics(accessToken: string): Promise<FirstAidTopic[]> {
+  const data = await request<FirstAidTopic[] | null>("/v1/first-aid", {
+    headers: authHeaders(accessToken)
+  });
+  return data ?? [];
 }
 
 // Weight

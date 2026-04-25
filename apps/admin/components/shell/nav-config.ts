@@ -2,7 +2,9 @@ import {
   AlertTriangle,
   Award,
   Bell,
+  BookOpen,
   Briefcase,
+  Drumstick,
   Calendar,
   CalendarDays,
   ClipboardCheck,
@@ -109,6 +111,9 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Directory",
     items: [
+      { href: "/breed-care-guides", label: "Breed Care Guides", icon: BookOpen },
+      { href: "/first-aid-topics", label: "First-Aid Topics", icon: Heart },
+      { href: "/food-items", label: "Food Items", icon: Drumstick },
       { href: "/training-tips", label: "Training Tips", icon: GraduationCap },
       { href: "/vet-clinics", label: "Vet Clinics", icon: Stethoscope },
       { href: "/pet-sitters", label: "Pet Sitters", icon: UserCheck },

@@ -47,6 +47,14 @@ func New(cfg config.Config, dataStore store.Store) *Server {
 	// Start the background playdate-reminder scheduler. Sends a "starts in 1
 	// hour" push to each attendee/host exactly once per playdate.
 	go srv.runPlaydateReminderLoop()
+	// v0.14.1 — Care reminders.
+	// Per-minute medication sweeper: walks active medications, computes the
+	// next due time in each medication's stored timezone, and pushes once
+	// per scheduled occurrence.
+	go srv.runMedicationReminderLoop()
+	// Hourly Sunday weekly-summary sender. Idempotent via the
+	// user_weekly_summary_log table — restart-safe.
+	go srv.runWeeklySummaryLoop()
 	return srv
 }
 
@@ -111,6 +119,240 @@ func (s *Server) runPlaydateReminderLoop() {
 			}
 		}()
 	}
+}
+
+// runMedicationReminderLoop fires once a minute. For each active medication
+// it computes the scheduled HH:MM time *in the medication's stored timezone*
+// for today, and pushes a reminder to the owner if:
+//   - today is one of the days_of_week
+//   - now is within [scheduled-1m, scheduled+2m] (small grace window)
+//   - we haven't already pushed for today's date in that timezone
+// Idempotency is enforced by `pet_medications.last_push_date`.
+func (s *Server) runMedicationReminderLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[MED-REMINDER] panic recovered: %v", r)
+		}
+	}()
+	time.Sleep(25 * time.Second)
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[MED-REMINDER] tick panic: %v", r)
+				}
+			}()
+			rows := s.store.ListActiveMedicationsForSweeper()
+			pushed := 0
+			now := time.Now().UTC()
+			for _, row := range rows {
+				loc, err := time.LoadLocation(row.Timezone)
+				if err != nil {
+					continue
+				}
+				localNow := now.In(loc)
+				todayDate := localNow.Format("2006-01-02")
+				if row.LastPushDate == todayDate {
+					continue
+				}
+				// Day-of-week gate. time.Weekday: Sunday=0..Saturday=6.
+				dow := int(localNow.Weekday())
+				match := false
+				for _, d := range row.DaysOfWeek {
+					if d == dow {
+						match = true
+						break
+					}
+				}
+				if !match {
+					continue
+				}
+				// Date-range gate.
+				if row.StartDate != "" && todayDate < row.StartDate {
+					continue
+				}
+				if row.EndDate != "" && todayDate > row.EndDate {
+					continue
+				}
+				// Compute scheduled time today in pet TZ.
+				h, m, ok := parseHHMM(row.TimeOfDay)
+				if !ok {
+					continue
+				}
+				scheduled := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), h, m, 0, 0, loc)
+				delta := localNow.Sub(scheduled)
+				// Grace window — fire from 1 min early to 2 min late so the
+				// per-minute ticker can never miss a slot.
+				if delta < -time.Minute || delta > 2*time.Minute {
+					continue
+				}
+				// Send push.
+				title := "Medication reminder"
+				body := fmt.Sprintf("Time for %s's %s", row.PetName, row.Name)
+				if row.Dosage != "" {
+					body = fmt.Sprintf("%s · %s", body, row.Dosage)
+				}
+				s.store.SaveNotification(domain.Notification{
+					ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+					Title:  title,
+					Body:   body,
+					Target: row.OwnerID,
+					SentAt: time.Now().UTC().Format(time.RFC3339),
+					SentBy: "system",
+				})
+				if s.store.ShouldSendPush(row.OwnerID, "medications") {
+					tokens := s.store.GetUserPushTokens(row.OwnerID)
+					var t []string
+					for _, tk := range tokens {
+						t = append(t, tk.Token)
+					}
+					if len(t) > 0 {
+						_ = service.SendExpoPush(t, title, body, map[string]string{
+							"type":  "medication",
+							"petId": row.PetID,
+							"medId": row.MedID,
+						})
+					}
+				}
+				_ = s.store.MarkMedicationPushed(row.MedID, todayDate)
+				pushed++
+			}
+			if pushed > 0 {
+				log.Printf("[MED-REMINDER] pushed %d medication reminders", pushed)
+			}
+		}()
+	}
+}
+
+// runWeeklySummaryLoop fires once an hour. On Sundays at 18:00 UTC it
+// aggregates each user's last 7 days of Care activity and pushes a summary
+// — but only when something actually happened. Quiet weeks stay quiet.
+//
+// 18:00 UTC lands at: 21:00 Istanbul, 19:00 London, 14:00 New York. It's
+// not perfect for everyone but a reasonable default for v1; per-user TZ is
+// a Faz 3 follow-up.
+func (s *Server) runWeeklySummaryLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[WEEKLY-SUMMARY] panic recovered: %v", r)
+		}
+	}()
+	time.Sleep(40 * time.Second)
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		s.maybeRunWeeklySummary()
+		<-ticker.C
+	}
+}
+
+func (s *Server) maybeRunWeeklySummary() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[WEEKLY-SUMMARY] tick panic: %v", r)
+		}
+	}()
+	now := time.Now().UTC()
+	if now.Weekday() != time.Sunday || now.Hour() != 18 {
+		return
+	}
+	weekStart, weekEnd := lastWeekUTCWindow(now)
+	users := s.store.ListUsersForWeeklySummary(weekStart)
+	if len(users) == 0 {
+		return
+	}
+	pushed := 0
+	for _, uid := range users {
+		sum := s.store.GetWeeklyHealthSummaryForUser(uid, weekStart, weekEnd)
+		if !sum.HasActivity {
+			s.store.RecordWeeklySummarySent(uid, weekStart) // mark anyway so we don't recompute every hour
+			continue
+		}
+		title := "Your week in Care"
+		body := buildWeeklyDigest(sum)
+		s.store.SaveNotification(domain.Notification{
+			ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+			Title:  title,
+			Body:   body,
+			Target: uid,
+			SentAt: time.Now().UTC().Format(time.RFC3339),
+			SentBy: "system",
+		})
+		if s.store.ShouldSendPush(uid, "weekly_summary") {
+			tokens := s.store.GetUserPushTokens(uid)
+			var t []string
+			for _, tk := range tokens {
+				t = append(t, tk.Token)
+			}
+			if len(t) > 0 {
+				_ = service.SendExpoPush(t, title, body, map[string]string{
+					"type": "weekly_summary",
+				})
+			}
+		}
+		s.store.RecordWeeklySummarySent(uid, weekStart)
+		pushed++
+	}
+	if pushed > 0 {
+		log.Printf("[WEEKLY-SUMMARY] sent %d weekly digests for week %s", pushed, weekStart)
+	}
+}
+
+// lastWeekUTCWindow — the just-completed Mon..Sun window. Used by the
+// Sunday push so the digest summarises *this past* week.
+func lastWeekUTCWindow(now time.Time) (string, string) {
+	wd := int(now.Weekday()) - 1
+	if wd < 0 {
+		wd = 6
+	}
+	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
+		AddDate(0, 0, -wd)
+	return monday.Format(time.RFC3339), monday.AddDate(0, 0, 7).Format(time.RFC3339)
+}
+
+func buildWeeklyDigest(sum domain.WeeklyHealthSummary) string {
+	parts := []string{}
+	if sum.WeightEntries > 0 {
+		parts = append(parts, fmt.Sprintf("%d weight log%s", sum.WeightEntries, plural(sum.WeightEntries)))
+	}
+	if sum.HealthRecords > 0 {
+		parts = append(parts, fmt.Sprintf("%d health record%s", sum.HealthRecords, plural(sum.HealthRecords)))
+	}
+	if sum.SymptomLogs > 0 {
+		parts = append(parts, fmt.Sprintf("%d symptom log%s", sum.SymptomLogs, plural(sum.SymptomLogs)))
+	}
+	if sum.MedicationsGiven > 0 {
+		parts = append(parts, fmt.Sprintf("%d medication dose%s", sum.MedicationsGiven, plural(sum.MedicationsGiven)))
+	}
+	if sum.DiaryEntries > 0 {
+		if sum.DiaryEntries == 1 {
+			parts = append(parts, "1 diary entry")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d diary entries", sum.DiaryEntries))
+		}
+	}
+	if len(parts) == 0 {
+		return "Open Fetcht to see this week's activity."
+	}
+	return "This week: " + strings.Join(parts, ", ")
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func parseHHMM(s string) (int, int, bool) {
+	if !validMedicationTime(s) {
+		return 0, 0, false
+	}
+	h, _ := strconv.Atoi(s[0:2])
+	m, _ := strconv.Atoi(s[3:5])
+	return h, m, true
 }
 
 func (s *Server) Routes() http.Handler {
@@ -223,6 +465,36 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/pets/{petID}/health", s.handleListHealth)
 			router.Post("/pets/{petID}/health", s.handleCreateHealth)
 			router.Delete("/pets/{petID}/health/{recordID}", s.handleDeleteHealth)
+			// Health profile (allergies + dietary restrictions + emergency notes)
+			router.Get("/pets/{petID}/health-profile", s.handleGetHealthProfile)
+			router.Put("/pets/{petID}/health-profile", s.handleUpsertHealthProfile)
+			// Symptom log (categorised symptom timeline, vet-export-ready)
+			router.Get("/pets/{petID}/symptoms", s.handleListSymptoms)
+			router.Post("/pets/{petID}/symptoms", s.handleCreateSymptom)
+			router.Delete("/pets/{petID}/symptoms/{logID}", s.handleDeleteSymptom)
+			// Medications (recurring schedule, server-pushed reminders)
+			router.Get("/pets/{petID}/medications", s.handleListMedications)
+			router.Post("/pets/{petID}/medications", s.handleCreateMedication)
+			router.Patch("/pets/{petID}/medications/{medID}", s.handleUpdateMedication)
+			router.Delete("/pets/{petID}/medications/{medID}", s.handleDeleteMedication)
+			router.Post("/pets/{petID}/medications/{medID}/mark-given", s.handleMarkMedicationGiven)
+			// Weekly summary — viewable any time; cron also pushes Sundays.
+			router.Get("/me/weekly-summary", s.handleWeeklySummary)
+			// Pet documents (vaccine cards, microchip papers, insurance, etc.)
+			router.Get("/pets/{petID}/documents", s.handleListPetDocuments)
+			router.Post("/pets/{petID}/documents", s.handleCreatePetDocument)
+			router.Delete("/pets/{petID}/documents/{docID}", s.handleDeletePetDocument)
+			// Calorie counter — food DB + meal log
+			router.Get("/food-items", s.handleListFoodItems)
+			router.Post("/food-items", s.handleCreateFoodItem)
+			router.Get("/pets/{petID}/meals", s.handleListMeals)
+			router.Post("/pets/{petID}/meals", s.handleCreateMeal)
+			router.Delete("/pets/{petID}/meals/{mealID}", s.handleDeleteMeal)
+			router.Get("/pets/{petID}/meals/summary", s.handleDailyMealSummary)
+			// Breed care guides (read; admin manages via /admin)
+			router.Get("/pets/{petID}/breed-care", s.handleGetBreedCareForPet)
+			// First-aid handbook (mobile downloads + caches offline)
+			router.Get("/first-aid", s.handleListFirstAid)
 			// Weight
 			router.Get("/pets/{petID}/weight", s.handleListWeight)
 			router.Post("/pets/{petID}/weight", s.handleCreateWeight)
@@ -355,6 +627,11 @@ func (s *Server) Routes() http.Handler {
 				router.Post("/venues", s.handleAdminVenueUpsert)
 				router.Put("/venues/{venueID}", s.handleAdminVenueUpdate)
 				router.Delete("/venues/{venueID}", s.handleAdminVenueDelete)
+				// v0.13.7 — photo gallery mgmt (admin-curated + post hide).
+				router.Get("/venues/{venueID}/photos", s.handleAdminVenuePhotos)
+				router.Post("/venues/{venueID}/photos", s.handleAdminVenueAddPhoto)
+				router.Delete("/venues/{venueID}/photos/{photoID}", s.handleAdminVenueDeletePhoto)
+				router.Patch("/venues/{venueID}/post-photos/{postID}", s.handleAdminVenueSetPostPhotoHidden)
 				router.Get("/events", s.handleAdminEvents)
 				router.Post("/events", s.handleAdminEventUpsert)
 				router.Delete("/events/{eventID}", s.handleAdminEventDelete)
@@ -379,6 +656,24 @@ func (s *Server) Routes() http.Handler {
 				router.Post("/training-tips", s.handleAdminCreateTrainingTip)
 				router.Put("/training-tips/{tipID}", s.handleAdminUpdateTrainingTip)
 				router.Delete("/training-tips/{tipID}", s.handleAdminDeleteTrainingTip)
+
+				// Breed care guides
+				router.Get("/breed-care-guides", s.handleAdminListBreedCareGuides)
+				router.Post("/breed-care-guides", s.handleAdminUpsertBreedCareGuide)
+				router.Patch("/breed-care-guides/{guideID}", s.handleAdminUpdateBreedCareGuide)
+				router.Delete("/breed-care-guides/{guideID}", s.handleAdminDeleteBreedCareGuide)
+
+				// First-aid topics
+				router.Get("/first-aid-topics", s.handleAdminListFirstAidTopics)
+				router.Post("/first-aid-topics", s.handleAdminUpsertFirstAidTopic)
+				router.Patch("/first-aid-topics/{topicID}", s.handleAdminUpdateFirstAidTopic)
+				router.Delete("/first-aid-topics/{topicID}", s.handleAdminDeleteFirstAidTopic)
+
+				// Food items (calorie counter database)
+				router.Get("/food-items", s.handleAdminListFoodItems)
+				router.Post("/food-items", s.handleAdminUpsertFoodItem)
+				router.Patch("/food-items/{itemID}", s.handleAdminUpdateFoodItem)
+				router.Delete("/food-items/{itemID}", s.handleAdminDeleteFoodItem)
 
 				// Vet clinics
 				router.Get("/vet-clinics", s.handleAdminListVetClinics)
@@ -1978,6 +2273,605 @@ func (s *Server) handleDeleteHealth(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Health Profile (allergies / dietary restrictions / emergency notes) ─
+
+func (s *Server) handleGetHealthProfile(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	profile := s.store.GetHealthProfile(petID)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": profile})
+}
+
+func (s *Server) handleUpsertHealthProfile(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.PetHealthProfile
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	result := s.store.UpsertHealthProfile(petID, payload)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": result})
+}
+
+// ── Symptom Logs ─────────────────────────────────────────────────────
+
+func (s *Server) handleListSymptoms(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	logs := s.store.ListSymptomLogs(petID)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": logs})
+}
+
+func (s *Server) handleCreateSymptom(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.SymptomLog
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Severity < 1 {
+		payload.Severity = 1
+	}
+	if payload.Severity > 5 {
+		payload.Severity = 5
+	}
+	result := s.store.CreateSymptomLog(petID, payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeleteSymptom(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteSymptomLog(petID, chi.URLParam(request, "logID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Medications ──────────────────────────────────────────────────────
+
+func (s *Server) handleListMedications(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListMedications(petID)})
+}
+
+func (s *Server) handleCreateMedication(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.PetMedication
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if strings.TrimSpace(payload.Name) == "" {
+		writeError(writer, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !validMedicationTime(payload.TimeOfDay) {
+		writeError(writer, http.StatusBadRequest, "timeOfDay must be HH:MM (24h)")
+		return
+	}
+	if !validIANATimezone(payload.Timezone) {
+		writeError(writer, http.StatusBadRequest, "timezone must be a valid IANA name (e.g. Europe/Istanbul)")
+		return
+	}
+	payload.DaysOfWeek = sanitiseDaysOfWeek(payload.DaysOfWeek)
+	result := s.store.CreateMedication(petID, payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleUpdateMedication(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.PetMedication
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.TimeOfDay != "" && !validMedicationTime(payload.TimeOfDay) {
+		writeError(writer, http.StatusBadRequest, "timeOfDay must be HH:MM (24h)")
+		return
+	}
+	if payload.Timezone != "" && !validIANATimezone(payload.Timezone) {
+		writeError(writer, http.StatusBadRequest, "timezone must be a valid IANA name")
+		return
+	}
+	payload.DaysOfWeek = sanitiseDaysOfWeek(payload.DaysOfWeek)
+	med, err := s.store.UpdateMedication(petID, chi.URLParam(request, "medID"), payload)
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": med})
+}
+
+func (s *Server) handleDeleteMedication(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteMedication(petID, chi.URLParam(request, "medID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handleMarkMedicationGiven(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	med, err := s.store.MarkMedicationGiven(petID, chi.URLParam(request, "medID"))
+	if err != nil {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": med})
+}
+
+// ── Breed Care Guides (public read) ──────────────────────────────────
+
+func (s *Server) handleGetBreedCareForPet(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	pet, err := s.store.GetPet(petID)
+	if err != nil || pet == nil {
+		writeError(writer, http.StatusNotFound, "pet not found")
+		return
+	}
+	guide, err := s.store.GetBreedCareGuide(pet.SpeciesID, pet.BreedID)
+	if err != nil || guide == nil {
+		// Soft-empty: returning a structured "no guide yet" payload lets the
+		// mobile screen render its own empty state without an extra round-trip.
+		writeJSON(writer, http.StatusOK, map[string]any{
+			"data": map[string]any{
+				"available":    false,
+				"speciesId":    pet.SpeciesID,
+				"speciesLabel": pet.SpeciesLabel,
+				"breedId":      pet.BreedID,
+				"breedLabel":   pet.BreedLabel,
+			},
+		})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"available":    true,
+			"speciesId":    pet.SpeciesID,
+			"speciesLabel": pet.SpeciesLabel,
+			"breedId":      pet.BreedID,
+			"breedLabel":   pet.BreedLabel,
+			"guide":        guide,
+		},
+	})
+}
+
+// ── First-Aid Topics (public read) ──────────────────────────────────
+
+func (s *Server) handleListFirstAid(writer http.ResponseWriter, request *http.Request) {
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListFirstAidTopics()})
+}
+
+// ── Admin: Breed Care Guides ────────────────────────────────────────
+
+func (s *Server) handleAdminListBreedCareGuides(writer http.ResponseWriter, request *http.Request) {
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListBreedCareGuides()})
+}
+
+func (s *Server) handleAdminUpsertBreedCareGuide(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.BreedCareGuide
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.SpeciesID = strings.TrimSpace(payload.SpeciesID)
+	payload.Title = strings.TrimSpace(payload.Title)
+	if payload.SpeciesID == "" {
+		writeError(writer, http.StatusBadRequest, "speciesId is required")
+		return
+	}
+	if payload.Title == "" {
+		writeError(writer, http.StatusBadRequest, "title is required")
+		return
+	}
+	g, err := s.store.UpsertBreedCareGuide(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": g})
+}
+
+func (s *Server) handleAdminUpdateBreedCareGuide(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.BreedCareGuide
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.ID = chi.URLParam(request, "guideID")
+	if payload.ID == "" {
+		writeError(writer, http.StatusBadRequest, "guideID is required")
+		return
+	}
+	g, err := s.store.UpsertBreedCareGuide(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": g})
+}
+
+func (s *Server) handleAdminDeleteBreedCareGuide(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DeleteBreedCareGuide(chi.URLParam(request, "guideID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin: First-Aid Topics ─────────────────────────────────────────
+
+func (s *Server) handleAdminListFirstAidTopics(writer http.ResponseWriter, request *http.Request) {
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListFirstAidTopics()})
+}
+
+func (s *Server) handleAdminUpsertFirstAidTopic(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.FirstAidTopic
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.Title = strings.TrimSpace(payload.Title)
+	if payload.Title == "" {
+		writeError(writer, http.StatusBadRequest, "title is required")
+		return
+	}
+	switch payload.Severity {
+	case "", "info", "urgent", "emergency":
+		// ok
+	default:
+		writeError(writer, http.StatusBadRequest, "severity must be one of: emergency, urgent, info")
+		return
+	}
+	t, err := s.store.UpsertFirstAidTopic(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": t})
+}
+
+func (s *Server) handleAdminUpdateFirstAidTopic(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.FirstAidTopic
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.ID = chi.URLParam(request, "topicID")
+	if payload.ID == "" {
+		writeError(writer, http.StatusBadRequest, "topicID is required")
+		return
+	}
+	t, err := s.store.UpsertFirstAidTopic(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": t})
+}
+
+func (s *Server) handleAdminDeleteFirstAidTopic(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.DeleteFirstAidTopic(chi.URLParam(request, "topicID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Admin: Food Items (Calorie Counter database) ────────────────────
+
+func (s *Server) handleAdminListFoodItems(writer http.ResponseWriter, request *http.Request) {
+	q := request.URL.Query()
+	items := s.store.AdminListFoodItems(q.Get("search"), q.Get("species"), 200)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) handleAdminUpsertFoodItem(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.FoodItem
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.Name = strings.TrimSpace(payload.Name)
+	if payload.Name == "" {
+		writeError(writer, http.StatusBadRequest, "name is required")
+		return
+	}
+	if payload.KcalPer100g <= 0 {
+		writeError(writer, http.StatusBadRequest, "kcalPer100g must be > 0")
+		return
+	}
+	switch payload.Kind {
+	case "", "dry", "wet", "treat", "other":
+		// ok
+	default:
+		writeError(writer, http.StatusBadRequest, "kind must be one of: dry, wet, treat, other")
+		return
+	}
+	item, err := s.store.AdminUpsertFoodItem(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": item})
+}
+
+func (s *Server) handleAdminUpdateFoodItem(writer http.ResponseWriter, request *http.Request) {
+	var payload domain.FoodItem
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.ID = chi.URLParam(request, "itemID")
+	if payload.ID == "" {
+		writeError(writer, http.StatusBadRequest, "itemID is required")
+		return
+	}
+	item, err := s.store.AdminUpsertFoodItem(payload)
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": item})
+}
+
+func (s *Server) handleAdminDeleteFoodItem(writer http.ResponseWriter, request *http.Request) {
+	if err := s.store.AdminDeleteFoodItem(chi.URLParam(request, "itemID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Pet Documents ────────────────────────────────────────────────────
+
+func (s *Server) handleListPetDocuments(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.ListPetDocuments(petID)})
+}
+
+func (s *Server) handleCreatePetDocument(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.PetDocument
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.Title = strings.TrimSpace(payload.Title)
+	if payload.Title == "" {
+		writeError(writer, http.StatusBadRequest, "title is required")
+		return
+	}
+	if payload.FileURL == "" {
+		writeError(writer, http.StatusBadRequest, "fileUrl is required (upload to R2 first)")
+		return
+	}
+	switch payload.Kind {
+	case "", "vaccine", "medical", "insurance", "microchip", "other":
+		// ok
+	default:
+		writeError(writer, http.StatusBadRequest, "kind must be one of: vaccine, medical, insurance, microchip, other")
+		return
+	}
+	if payload.Kind == "" {
+		payload.Kind = "other"
+	}
+	if payload.FileKind == "" {
+		payload.FileKind = "image"
+	}
+	result := s.store.CreatePetDocument(petID, payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeletePetDocument(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeletePetDocument(petID, chi.URLParam(request, "docID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// ── Food Items + Meal Logs (Calorie Counter) ─────────────────────────
+
+func (s *Server) handleListFoodItems(writer http.ResponseWriter, request *http.Request) {
+	uid := currentUserID(request)
+	q := request.URL.Query()
+	items := s.store.ListFoodItems(uid, q.Get("search"), q.Get("species"), 50)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": items})
+}
+
+func (s *Server) handleCreateFoodItem(writer http.ResponseWriter, request *http.Request) {
+	uid := currentUserID(request)
+	var payload domain.FoodItem
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	payload.Name = strings.TrimSpace(payload.Name)
+	if payload.Name == "" {
+		writeError(writer, http.StatusBadRequest, "name is required")
+		return
+	}
+	if payload.KcalPer100g <= 0 {
+		writeError(writer, http.StatusBadRequest, "kcalPer100g must be > 0")
+		return
+	}
+	result := s.store.CreateFoodItem(uid, payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleListMeals(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	q := request.URL.Query()
+	logs := s.store.ListMealLogs(petID, q.Get("from"), q.Get("to"))
+	writeJSON(writer, http.StatusOK, map[string]any{"data": logs})
+}
+
+func (s *Server) handleCreateMeal(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	var payload domain.MealLog
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	if payload.Grams <= 0 {
+		writeError(writer, http.StatusBadRequest, "grams must be > 0")
+		return
+	}
+	if payload.FoodItemID == "" && strings.TrimSpace(payload.CustomName) == "" {
+		writeError(writer, http.StatusBadRequest, "either foodItemId or customName is required")
+		return
+	}
+	// Compute kcal server-side from the food item for consistency. If the
+	// caller passed a foodItemId, that's authoritative — we ignore any
+	// kcal they sent. Custom-name meals trust the caller's kcal.
+	if payload.FoodItemID != "" {
+		item, err := s.store.GetFoodItem(payload.FoodItemID)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "food item not found")
+			return
+		}
+		payload.Kcal = item.KcalPer100g * payload.Grams / 100.0
+		if payload.CustomName == "" {
+			payload.CustomName = item.Brand + " " + item.Name
+		}
+	}
+	result := s.store.CreateMealLog(petID, payload)
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (s *Server) handleDeleteMeal(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteMealLog(petID, chi.URLParam(request, "mealID")); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handleDailyMealSummary(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	date := request.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().UTC().Format("2006-01-02")
+	}
+	if len(date) != 10 || date[4] != '-' || date[7] != '-' {
+		writeError(writer, http.StatusBadRequest, "date must be YYYY-MM-DD")
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": s.store.GetDailyMealSummary(petID, date)})
+}
+
+// ── Weekly Summary (viewable anytime) ────────────────────────────────
+
+func (s *Server) handleWeeklySummary(writer http.ResponseWriter, request *http.Request) {
+	uid := currentUserID(request)
+	weekStart, weekEnd := currentWeekUTCWindow(time.Now().UTC())
+	sum := s.store.GetWeeklyHealthSummaryForUser(uid, weekStart, weekEnd)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": sum})
+}
+
+// ── Care helpers ─────────────────────────────────────────────────────
+
+func validMedicationTime(s string) bool {
+	if len(s) != 5 || s[2] != ':' {
+		return false
+	}
+	h, errH := strconv.Atoi(s[0:2])
+	m, errM := strconv.Atoi(s[3:5])
+	if errH != nil || errM != nil {
+		return false
+	}
+	return h >= 0 && h <= 23 && m >= 0 && m <= 59
+}
+
+func validIANATimezone(name string) bool {
+	if name == "" {
+		return false
+	}
+	_, err := time.LoadLocation(name)
+	return err == nil
+}
+
+// sanitiseDaysOfWeek dedupes + sorts + clamps each value to [0,6]. Empty
+// input means "every day", which we expand here so the sweeper can do a
+// straight membership check.
+func sanitiseDaysOfWeek(days []int) []int {
+	if len(days) == 0 {
+		return []int{0, 1, 2, 3, 4, 5, 6}
+	}
+	seen := make(map[int]struct{}, 7)
+	out := make([]int, 0, 7)
+	for _, d := range days {
+		if d < 0 || d > 6 {
+			continue
+		}
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		out = append(out, d)
+	}
+	sort.Ints(out)
+	return out
+}
+
+// currentWeekUTCWindow returns [weekStartUTC, weekEndUTC) for the
+// Monday-anchored ISO week that contains `now`. Both ends are pure dates
+// (T00:00:00) in UTC so DB comparisons against DATE / TIMESTAMPTZ both
+// behave consistently.
+func currentWeekUTCWindow(now time.Time) (string, string) {
+	wd := int(now.Weekday()) - 1 // Monday = 0
+	if wd < 0 {
+		wd = 6 // Sunday wraps to end-of-week
+	}
+	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
+		AddDate(0, 0, -wd)
+	return monday.Format(time.RFC3339), monday.AddDate(0, 0, 7).Format(time.RFC3339)
 }
 
 // ── Weight ───────────────────────────────────────────────────────────

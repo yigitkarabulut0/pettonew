@@ -305,6 +305,153 @@ type WeightEntry struct {
 	Date   string  `json:"date"`
 }
 
+// PetHealthProfile is the at-a-glance medical card used by the Care tab.
+// Lives on its own row keyed by pet_id so adding more fields later (microchip,
+// insurance, etc.) doesn't require touching every Pet SELECT in pgstore.
+type PetHealthProfile struct {
+	PetID                string   `json:"petId"`
+	Allergies            []string `json:"allergies"`
+	DietaryRestrictions  []string `json:"dietaryRestrictions"`
+	EmergencyNotes       string   `json:"emergencyNotes"`
+	UpdatedAt            string   `json:"updatedAt"`
+}
+
+// PetMedication is a recurring medication schedule. Server pushes a
+// reminder when each scheduled dose comes due in the medication's stored
+// timezone; tapping the push (or "Mark given" in-app) updates LastGivenAt.
+type PetMedication struct {
+	ID          string `json:"id"`
+	PetID       string `json:"petId"`
+	Name        string `json:"name"`
+	Dosage      string `json:"dosage"`
+	Notes       string `json:"notes,omitempty"`
+	TimeOfDay   string `json:"timeOfDay"`             // "HH:MM" 24h
+	DaysOfWeek  []int  `json:"daysOfWeek"`            // 0=Sunday..6=Saturday
+	Timezone    string `json:"timezone"`              // IANA, e.g. "Europe/Istanbul"
+	StartDate   string `json:"startDate"`             // ISO date (YYYY-MM-DD)
+	EndDate     string `json:"endDate,omitempty"`     // ISO date or empty (open-ended)
+	LastGivenAt string `json:"lastGivenAt,omitempty"` // ISO timestamp
+	Active      bool   `json:"active"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// BreedCareGuide is admin-curated, breed-specific (or species-wide) care
+// information surfaced in the mobile Care tab. The mobile app looks up by
+// breed_id first, falls back to the species-wide row (BreedID="") when the
+// breed has no dedicated entry — so admins don't have to write 200 rows for
+// "all dogs".
+type BreedCareGuide struct {
+	ID           string `json:"id"`
+	SpeciesID    string `json:"speciesId"`
+	SpeciesLabel string `json:"speciesLabel"`
+	BreedID      string `json:"breedId,omitempty"`
+	BreedLabel   string `json:"breedLabel,omitempty"`
+	Title        string `json:"title"`
+	Summary      string `json:"summary,omitempty"`
+	Body         string `json:"body"`             // long-form, line breaks preserved
+	HeroImageURL string `json:"heroImageUrl,omitempty"`
+	UpdatedAt    string `json:"updatedAt"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// FirstAidTopic is one section of the offline-readable First Aid handbook
+// (choking, poisoning, heatstroke, etc.). Mobile downloads the full set on
+// first open and caches it in AsyncStorage so it works without network when
+// it matters most.
+type FirstAidTopic struct {
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	Title        string `json:"title"`
+	Severity     string `json:"severity"` // emergency | urgent | info
+	Summary      string `json:"summary,omitempty"`
+	Body         string `json:"body"`
+	DisplayOrder int    `json:"displayOrder"`
+	UpdatedAt    string `json:"updatedAt"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// PetDocument is a saved certificate / record (vaccine card, microchip
+// paperwork, insurance card, etc.) attached to a pet. The actual file
+// lives in R2; this row keeps the metadata + url.
+type PetDocument struct {
+	ID        string `json:"id"`
+	PetID     string `json:"petId"`
+	Kind      string `json:"kind"`            // vaccine | medical | insurance | other
+	Title     string `json:"title"`
+	FileURL   string `json:"fileUrl"`
+	FileKind  string `json:"fileKind"`        // image | pdf
+	ExpiresAt string `json:"expiresAt,omitempty"`
+	Notes     string `json:"notes,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// FoodItem is one entry in the food database used by the Care → Calorie
+// Counter. Public items (IsPublic=true) are visible to every user; private
+// items belong to the creating user only.
+type FoodItem struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Brand         string  `json:"brand,omitempty"`
+	Kind          string  `json:"kind"`              // dry | wet | treat | other
+	SpeciesLabel  string  `json:"speciesLabel,omitempty"` // dog | cat | "" = any
+	KcalPer100g   float64 `json:"kcalPer100g"`
+	IsPublic      bool    `json:"isPublic"`
+	CreatedByUser string  `json:"createdByUser,omitempty"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+// MealLog is one feeding event: which food, how many grams, when.
+// Either FoodItemID or CustomName must be set; Kcal is computed at write
+// time so historical rows stay correct even if a food item later gets edited.
+type MealLog struct {
+	ID         string  `json:"id"`
+	PetID      string  `json:"petId"`
+	FoodItemID string  `json:"foodItemId,omitempty"`
+	CustomName string  `json:"customName,omitempty"`
+	Grams      float64 `json:"grams"`
+	Kcal       float64 `json:"kcal"`
+	Notes      string  `json:"notes,omitempty"`
+	EatenAt    string  `json:"eatenAt"`
+	CreatedAt  string  `json:"createdAt"`
+}
+
+// DailyMealSummary aggregates a calendar day's meals. Returned alongside
+// the meal list so the screen can show "today: 412 kcal" without doing the
+// math client-side.
+type DailyMealSummary struct {
+	Date       string  `json:"date"` // ISO YYYY-MM-DD
+	TotalKcal  float64 `json:"totalKcal"`
+	TotalGrams float64 `json:"totalGrams"`
+	MealCount  int     `json:"mealCount"`
+}
+
+// WeeklyHealthSummary is the aggregate the server sends as a Sunday push.
+// Only delivered if at least one count is non-zero — silent weeks stay silent.
+type WeeklyHealthSummary struct {
+	WeekStart        string `json:"weekStart"` // ISO date for the Monday this summary covers
+	WeightEntries    int    `json:"weightEntries"`
+	HealthRecords    int    `json:"healthRecords"`
+	SymptomLogs      int    `json:"symptomLogs"`
+	DiaryEntries     int    `json:"diaryEntries"`
+	MedicationsGiven int    `json:"medicationsGiven"`
+	HasActivity      bool   `json:"hasActivity"`
+}
+
+// SymptomLog is one observation in the Care → Symptom Log timeline.
+// Distinct from Diary: categorised, severity-graded, photo-attachable —
+// designed to be exported as a vet-ready PDF later.
+type SymptomLog struct {
+	ID           string   `json:"id"`
+	PetID        string   `json:"petId"`
+	Categories   []string `json:"categories"`             // e.g. ["vomiting","lethargy"]
+	Severity     int      `json:"severity"`               // 1-5
+	DurationHours int     `json:"durationHours,omitempty"`
+	Notes        string   `json:"notes"`
+	PhotoURL     string   `json:"photoUrl,omitempty"`
+	OccurredAt   string   `json:"occurredAt"`             // ISO 8601
+	CreatedAt    string   `json:"createdAt"`
+}
+
 type VetContact struct {
 	ID          string `json:"id"`
 	UserID      string `json:"userId"`

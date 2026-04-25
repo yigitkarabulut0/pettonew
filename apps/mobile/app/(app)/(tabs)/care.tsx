@@ -12,12 +12,17 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Activity,
+  AlertTriangle,
   BookOpen,
   Calendar,
+  FileText,
+  Flame,
   GraduationCap,
   Heart as HeartIcon,
   Phone,
+  Pill,
   Scale,
+  ShieldAlert,
   Stethoscope,
   UtensilsCrossed
 } from "lucide-react-native";
@@ -33,15 +38,21 @@ const CARE_SECTIONS = [
   {
     titleKey: "care.healthTracking",
     items: [
+      { labelKey: "care.healthProfile", subtitleKey: "care.healthProfileSubtitle", icon: ShieldAlert, color: "#A14632", routeKey: "health-profile" },
+      { labelKey: "care.documents", subtitleKey: "care.documentsSubtitle", icon: FileText, color: "#21433C", routeKey: "documents" },
+      { labelKey: "care.medications", subtitleKey: "care.medicationsSubtitle", icon: Pill, color: "#6B4EFF", routeKey: "medications" },
       { labelKey: "care.healthRecords", subtitleKey: "care.healthRecordsSubtitle", icon: Activity, color: "#3F7D4E", routeKey: "pet-health" },
+      { labelKey: "care.symptomLog", subtitleKey: "care.symptomLogSubtitle", icon: AlertTriangle, color: "#C48A3F", routeKey: "symptom-log" },
       { labelKey: "care.weightLog", subtitleKey: "care.weightLogSubtitle", icon: Scale, color: "#5B9BD5", routeKey: "pet-weight" },
-      { labelKey: "care.feedingPlan", subtitleKey: "care.feedingPlanSubtitle", icon: UtensilsCrossed, color: "#E6694A", routeKey: "feeding" },
+      { labelKey: "care.calories", subtitleKey: "care.caloriesSubtitle", icon: Flame, color: "#E6694A", routeKey: "calories" },
+      { labelKey: "care.feedingPlan", subtitleKey: "care.feedingPlanSubtitle", icon: UtensilsCrossed, color: "#F7B267", routeKey: "feeding" },
       { labelKey: "care.diary", subtitleKey: "care.diarySubtitle", icon: BookOpen, color: "#8B6F47", routeKey: "diary" }
     ]
   },
   {
     titleKey: "care.resources",
     items: [
+      { labelKey: "care.firstAid", subtitleKey: "care.firstAidSubtitle", icon: HeartIcon, color: "#A14632", route: "/(app)/first-aid" },
       { labelKey: "care.vetContacts", subtitleKey: "care.vetContactsSubtitle", icon: Phone, color: "#A14632", route: "/(app)/vet-contacts" },
       { labelKey: "care.trainingTips", subtitleKey: "care.trainingTipsSubtitle", icon: GraduationCap, color: "#21433C", route: "/(app)/training-tips" },
       { labelKey: "care.petSitters", subtitleKey: "care.petSittersSubtitle", icon: Stethoscope, color: "#C48A3F", route: "/(app)/pet-sitters" }
@@ -152,16 +163,18 @@ export default function CarePage() {
         )}
 
         {selectedPet && (
-          <View
-            style={{
+          <Pressable
+            onPress={() => router.push(`/(app)/breed-care/${selectedPet.id}` as any)}
+            style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
               gap: mobileTheme.spacing.md,
               padding: mobileTheme.spacing.lg,
               borderRadius: mobileTheme.radius.lg,
               backgroundColor: theme.colors.white,
-              ...mobileTheme.shadow.sm
-            }}
+              ...mobileTheme.shadow.sm,
+              opacity: pressed ? 0.9 : 1
+            })}
           >
             <Avatar uri={selectedPet.photos[0]?.url} name={selectedPet.name} size="md" />
             <View style={{ flex: 1 }}>
@@ -183,8 +196,20 @@ export default function CarePage() {
               >
                 {selectedPet.speciesLabel} · {selectedPet.breedLabel}
               </Text>
+              <Text
+                style={{
+                  marginTop: 4,
+                  fontSize: 11,
+                  fontFamily: "Inter_600SemiBold",
+                  color: theme.colors.primary,
+                  letterSpacing: 0.3
+                }}
+              >
+                {t("care.tapForBreedGuide")} ›
+              </Text>
             </View>
-          </View>
+            <BookOpen size={18} color={theme.colors.primary} />
+          </Pressable>
         )}
 
         {CARE_SECTIONS.map((section) => (

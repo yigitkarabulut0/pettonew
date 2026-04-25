@@ -163,6 +163,170 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	// "detail page inanılmaz uzun suruyor" report).
 	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_photos_pet_id_order ON pet_photos(pet_id, display_order)`)
 
+	// ── Care v0.14.0: Health Profile + Symptom Logs ──────────────────
+	// Health profile: at-a-glance "what should an emergency vet know"
+	// card surfaced in Care. Allergies + dietary restrictions + free-form
+	// emergency notes. Single row per pet (PK pet_id).
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_health_profiles (
+		pet_id                TEXT PRIMARY KEY,
+		allergies             TEXT[] NOT NULL DEFAULT '{}',
+		dietary_restrictions  TEXT[] NOT NULL DEFAULT '{}',
+		emergency_notes       TEXT   NOT NULL DEFAULT '',
+		updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	// Symptom logs: timeline of categorised pet symptoms. Distinct from
+	// diary — designed to be vet-export-ready. One row per observation.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_symptom_logs (
+		id              TEXT PRIMARY KEY,
+		pet_id          TEXT NOT NULL,
+		categories      TEXT[] NOT NULL DEFAULT '{}',
+		severity        SMALLINT NOT NULL DEFAULT 1,
+		duration_hours  INT NOT NULL DEFAULT 0,
+		notes           TEXT NOT NULL DEFAULT '',
+		photo_url       TEXT,
+		occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_symptom_logs_pet ON pet_symptom_logs(pet_id, occurred_at DESC)`)
+
+	// ── Care v0.14.1: Medications + Weekly Summary ──────────────────
+	// pet_medications: recurring schedule (HH:MM in stored timezone +
+	// days-of-week mask). last_push_date stores the YYYY-MM-DD in the
+	// medication's TZ that was already pushed for, so the per-minute
+	// sweeper never double-fires for the same dose.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_medications (
+		id              TEXT PRIMARY KEY,
+		pet_id          TEXT NOT NULL,
+		name            TEXT NOT NULL,
+		dosage          TEXT NOT NULL DEFAULT '',
+		notes           TEXT NOT NULL DEFAULT '',
+		time_of_day     TEXT NOT NULL DEFAULT '',
+		days_of_week    SMALLINT[] NOT NULL DEFAULT '{}',
+		timezone        TEXT NOT NULL DEFAULT 'UTC',
+		start_date      TEXT NOT NULL DEFAULT '',
+		end_date        TEXT NOT NULL DEFAULT '',
+		last_given_at   TIMESTAMPTZ,
+		last_push_date  TEXT NOT NULL DEFAULT '',
+		active          BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_medications_pet ON pet_medications(pet_id) WHERE active`)
+
+	// user_weekly_summary_log: idempotency for the Sunday push. One row
+	// per (user, week_start) means "we already sent this week's summary".
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS user_weekly_summary_log (
+		user_id     TEXT NOT NULL,
+		week_start  TEXT NOT NULL,
+		sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (user_id, week_start)
+	)`)
+
+	// ── Care v0.14.2: Documents + Calorie Counter ───────────────────
+	// pet_documents: vaccine cards / microchip papers / insurance / etc.
+	// File lives in R2; this row keeps the metadata. file_kind separates
+	// images from PDFs so the mobile preview can branch.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_documents (
+		id          TEXT PRIMARY KEY,
+		pet_id      TEXT NOT NULL,
+		kind        TEXT NOT NULL DEFAULT 'other',
+		title       TEXT NOT NULL,
+		file_url    TEXT NOT NULL,
+		file_kind   TEXT NOT NULL DEFAULT 'image',
+		expires_at  TEXT NOT NULL DEFAULT '',
+		notes       TEXT NOT NULL DEFAULT '',
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_documents_pet ON pet_documents(pet_id, created_at DESC)`)
+
+	// Food database. Public rows are admin-curated and shared; private
+	// rows are user-scoped. Store kcal at the canonical 100g basis so the
+	// meal log can compute calories from grams without an extra fetch.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS food_items (
+		id              TEXT PRIMARY KEY,
+		name            TEXT NOT NULL,
+		brand           TEXT NOT NULL DEFAULT '',
+		kind            TEXT NOT NULL DEFAULT 'dry',
+		species_label   TEXT NOT NULL DEFAULT '',
+		kcal_per_100g   DOUBLE PRECISION NOT NULL DEFAULT 0,
+		is_public       BOOLEAN NOT NULL DEFAULT FALSE,
+		created_by_user TEXT NOT NULL DEFAULT '',
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_food_items_search ON food_items(is_public, species_label)`)
+
+	// Seed common foods once. Idempotent: ON CONFLICT skips duplicates.
+	pool.Exec(ctx, `
+		INSERT INTO food_items(id, name, brand, kind, species_label, kcal_per_100g, is_public)
+		VALUES
+		  ('food-seed-rc-medium-adult', 'Medium Adult', 'Royal Canin', 'dry', 'dog', 380, TRUE),
+		  ('food-seed-rc-mini-adult', 'Mini Adult', 'Royal Canin', 'dry', 'dog', 395, TRUE),
+		  ('food-seed-rc-puppy', 'Maxi Puppy', 'Royal Canin', 'dry', 'dog', 410, TRUE),
+		  ('food-seed-hill-adult', 'Adult Chicken', 'Hill''s Science Diet', 'dry', 'dog', 360, TRUE),
+		  ('food-seed-purina-pro', 'Pro Plan Adult', 'Purina', 'dry', 'dog', 405, TRUE),
+		  ('food-seed-acana-adult', 'Adult', 'Acana', 'dry', 'dog', 360, TRUE),
+		  ('food-seed-orijen-adult', 'Original', 'Orijen', 'dry', 'dog', 380, TRUE),
+		  ('food-seed-pedigree-wet', 'Adult Beef', 'Pedigree', 'wet', 'dog', 95, TRUE),
+		  ('food-seed-rc-cat-indoor', 'Indoor Adult', 'Royal Canin', 'dry', 'cat', 395, TRUE),
+		  ('food-seed-hill-cat-adult', 'Adult Optimal Care', 'Hill''s Science Diet', 'dry', 'cat', 380, TRUE),
+		  ('food-seed-whiskas-wet', 'Adult Tuna', 'Whiskas', 'wet', 'cat', 70, TRUE),
+		  ('food-seed-iams-cat', 'ProActive Health', 'Iams', 'dry', 'cat', 405, TRUE),
+		  ('food-seed-treat-dental', 'Dental Treat', 'Generic', 'treat', '', 350, TRUE),
+		  ('food-seed-treat-jerky', 'Jerky Treat', 'Generic', 'treat', '', 320, TRUE),
+		  ('food-seed-chicken-cooked', 'Chicken (cooked)', 'Home-cooked', 'wet', '', 165, TRUE),
+		  ('food-seed-rice-cooked', 'White rice (cooked)', 'Home-cooked', 'dry', '', 130, TRUE),
+		  ('food-seed-fish-cooked', 'Fish (cooked)', 'Home-cooked', 'wet', '', 140, TRUE)
+		ON CONFLICT (id) DO NOTHING`)
+
+	// Meal log. We snapshot kcal at write-time (Kcal field) so editing a
+	// food item later doesn't retroactively rewrite history.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_meal_logs (
+		id            TEXT PRIMARY KEY,
+		pet_id        TEXT NOT NULL,
+		food_item_id  TEXT NOT NULL DEFAULT '',
+		custom_name   TEXT NOT NULL DEFAULT '',
+		grams         DOUBLE PRECISION NOT NULL DEFAULT 0,
+		kcal          DOUBLE PRECISION NOT NULL DEFAULT 0,
+		notes         TEXT NOT NULL DEFAULT '',
+		eaten_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_meal_logs_pet ON pet_meal_logs(pet_id, eaten_at DESC)`)
+
+	// ── Care v0.14.3: Breed Care Guides + First-Aid Topics ──────────
+	// Breed care: admin writes one row per (species, breed). breed_id may
+	// be empty for a species-wide entry. Lookup prefers breed-specific.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS breed_care_guides (
+		id              TEXT PRIMARY KEY,
+		species_id      TEXT NOT NULL,
+		species_label   TEXT NOT NULL DEFAULT '',
+		breed_id        TEXT NOT NULL DEFAULT '',
+		breed_label     TEXT NOT NULL DEFAULT '',
+		title           TEXT NOT NULL,
+		summary         TEXT NOT NULL DEFAULT '',
+		body            TEXT NOT NULL DEFAULT '',
+		hero_image_url  TEXT NOT NULL DEFAULT '',
+		created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	// Only one row per (species_id, breed_id) — including the
+	// species-wide row where breed_id = ''. Easy to enforce because
+	// pgcrypto tolerates empty strings as distinct primary-key values.
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_breed_care_guide_unique ON breed_care_guides(species_id, breed_id)`)
+
+	// First-aid topics for the offline handbook.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS first_aid_topics (
+		id             TEXT PRIMARY KEY,
+		slug           TEXT NOT NULL,
+		title          TEXT NOT NULL,
+		severity       TEXT NOT NULL DEFAULT 'info',
+		summary        TEXT NOT NULL DEFAULT '',
+		body           TEXT NOT NULL DEFAULT '',
+		display_order  INT NOT NULL DEFAULT 0,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_first_aid_topics_slug ON first_aid_topics(slug)`)
+
 	// ── Playdates v0.13.0 ───────────────────────────────────────────
 	// Visibility + per-user invites for private playdates.
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`)
@@ -170,6 +334,28 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	// WhatsApp/SMS share link. See migrations/0009_playdate_share_tokens.sql.
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS share_token TEXT NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex')`)
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_playdates_share_token ON playdates(share_token)`)
+
+	// v0.13.7 — per-venue photo management.
+	// venue_admin_photos: admin-curated photos (in addition to cover). These
+	// always show up on /venues/{id}/photos.
+	// venue_post_photo_hides: lets an admin hide a specific user-post photo
+	// from a venue's gallery without deleting the post itself — useful when
+	// a post is fine on the author's feed but doesn't belong on the venue
+	// page (duplicates, low quality, off-topic, etc.).
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS venue_admin_photos (
+		id            TEXT PRIMARY KEY,
+		venue_id      TEXT NOT NULL,
+		url           TEXT NOT NULL,
+		display_order INT  NOT NULL DEFAULT 0,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_venue_admin_photos_venue ON venue_admin_photos(venue_id, display_order, created_at)`)
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS venue_post_photo_hides (
+		venue_id   TEXT NOT NULL,
+		post_id    TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (venue_id, post_id)
+	)`)
 	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS playdate_invites (
 		id               TEXT PRIMARY KEY,
 		playdate_id      TEXT NOT NULL,
@@ -3853,7 +4039,167 @@ func (s *PostgresStore) DeleteVenue(venueID string) error {
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("venue not found")
 	}
+	// Cascade cleanup — keep admin photo tables in sync so a re-created venue
+	// with the same id doesn't inherit stale rows.
+	_, _ = s.pool.Exec(s.ctx(), `DELETE FROM venue_admin_photos WHERE venue_id = $1`, venueID)
+	_, _ = s.pool.Exec(s.ctx(), `DELETE FROM venue_post_photo_hides WHERE venue_id = $1`, venueID)
 	return nil
+}
+
+// ── Venue photo management (v0.13.7) ─────────────────────────────────
+// Three sources of venue-page photos:
+//   1. The venue's own cover image (`venues.image_url`).
+//   2. Admin-curated additions (venue_admin_photos).
+//   3. Photos from home-feed posts tagged with this venue.
+// Admins can add/remove (2), and mark individual post photos as hidden via
+// venue_post_photo_hides so (3) can be pruned without touching the post.
+
+// VenuePhotoEntry is the detailed view used by the admin manager. For the
+// public gallery we only need urls.
+type VenuePhotoEntry struct {
+	URL    string `json:"url"`
+	Kind   string `json:"kind"`             // "cover" | "admin" | "post"
+	ID     string `json:"id,omitempty"`     // admin photo id, when Kind="admin"
+	PostID string `json:"postId,omitempty"` // home-feed post id, when Kind="post"
+	Hidden bool   `json:"hidden,omitempty"` // true when a post photo is hidden
+}
+
+// ListVenuePhotoUrls returns the *public* gallery served by
+// /v1/venues/{id}/photos. Only home-feed post photos that have this venue
+// tagged make it in — the cover image is intentionally excluded because
+// mobile already renders it as the card hero (would double up otherwise),
+// and admin-curated photos are admin-only management surface (visible via
+// ListVenuePhotosManage). Posts marked hidden via venue_post_photo_hides
+// are filtered out so admins can prune off-topic submissions without
+// touching the post itself.
+func (s *PostgresStore) ListVenuePhotoUrls(venueID string) []string {
+	urls := make([]string, 0, 8)
+	rows, err := s.pool.Query(s.ctx(),
+		`SELECT p.image_url
+		 FROM posts p
+		 WHERE p.venue_id = $1
+		   AND p.image_url IS NOT NULL
+		   AND p.image_url <> ''
+		   AND NOT EXISTS (
+		     SELECT 1 FROM venue_post_photo_hides h
+		     WHERE h.venue_id = p.venue_id AND h.post_id = p.id
+		   )
+		 ORDER BY p.created_at DESC`,
+		venueID)
+	if err != nil {
+		return urls
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err == nil && u != "" {
+			urls = append(urls, u)
+		}
+	}
+	return urls
+}
+
+// ListVenuePhotosManage returns the full detail set for the admin manager
+// UI, including hidden post photos (so admins can un-hide them).
+func (s *PostgresStore) ListVenuePhotosManage(venueID string) []VenuePhotoEntry {
+	out := make([]VenuePhotoEntry, 0, 8)
+	if v, err := s.GetVenue(venueID); err == nil && v.ImageURL != nil && *v.ImageURL != "" {
+		out = append(out, VenuePhotoEntry{URL: *v.ImageURL, Kind: "cover"})
+	}
+	if rows, err := s.pool.Query(s.ctx(),
+		`SELECT id, url FROM venue_admin_photos WHERE venue_id = $1 ORDER BY display_order, created_at`,
+		venueID); err == nil {
+		for rows.Next() {
+			var id, url string
+			if err := rows.Scan(&id, &url); err == nil {
+				out = append(out, VenuePhotoEntry{URL: url, Kind: "admin", ID: id})
+			}
+		}
+		rows.Close()
+	}
+	if rows, err := s.pool.Query(s.ctx(),
+		`SELECT p.id, p.image_url,
+		        EXISTS (
+		          SELECT 1 FROM venue_post_photo_hides h
+		          WHERE h.venue_id = p.venue_id AND h.post_id = p.id
+		        ) AS hidden
+		 FROM posts p
+		 WHERE p.venue_id = $1
+		   AND p.image_url IS NOT NULL
+		   AND p.image_url <> ''
+		 ORDER BY p.created_at DESC`,
+		venueID); err == nil {
+		for rows.Next() {
+			var id, url string
+			var hidden bool
+			if err := rows.Scan(&id, &url, &hidden); err == nil {
+				out = append(out, VenuePhotoEntry{
+					URL:    url,
+					Kind:   "post",
+					PostID: id,
+					Hidden: hidden,
+				})
+			}
+		}
+		rows.Close()
+	}
+	return out
+}
+
+// AddVenueAdminPhoto curates a new photo onto the venue. Returns the created
+// entry so the admin UI can render it without a full refetch.
+func (s *PostgresStore) AddVenueAdminPhoto(venueID string, url string) (VenuePhotoEntry, error) {
+	if venueID == "" || url == "" {
+		return VenuePhotoEntry{}, fmt.Errorf("venueId and url required")
+	}
+	id := newID("vph")
+	// display_order defaults to (max+1) so new photos append at the bottom —
+	// admins can re-order later via a dedicated endpoint if that's needed.
+	var nextOrder int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(MAX(display_order),0)+1 FROM venue_admin_photos WHERE venue_id=$1`,
+		venueID).Scan(&nextOrder)
+	_, err := s.pool.Exec(s.ctx(),
+		`INSERT INTO venue_admin_photos (id, venue_id, url, display_order)
+		 VALUES ($1,$2,$3,$4)`,
+		id, venueID, url, nextOrder)
+	if err != nil {
+		return VenuePhotoEntry{}, fmt.Errorf("add venue photo: %w", err)
+	}
+	return VenuePhotoEntry{ID: id, URL: url, Kind: "admin"}, nil
+}
+
+// DeleteVenueAdminPhoto removes a curated photo. Silently no-ops if the
+// photo id doesn't exist (or belongs to a different venue) — the admin UI
+// would refresh anyway.
+func (s *PostgresStore) DeleteVenueAdminPhoto(venueID string, photoID string) error {
+	if venueID == "" || photoID == "" {
+		return fmt.Errorf("venueId and photoId required")
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM venue_admin_photos WHERE venue_id=$1 AND id=$2`,
+		venueID, photoID)
+	return err
+}
+
+// SetVenuePostPhotoHidden toggles the per-venue hide flag for a post photo.
+// Idempotent: setting hidden=true twice leaves one row; false always clears.
+func (s *PostgresStore) SetVenuePostPhotoHidden(venueID string, postID string, hidden bool) error {
+	if venueID == "" || postID == "" {
+		return fmt.Errorf("venueId and postId required")
+	}
+	if hidden {
+		_, err := s.pool.Exec(s.ctx(),
+			`INSERT INTO venue_post_photo_hides (venue_id, post_id)
+			 VALUES ($1,$2)
+			 ON CONFLICT (venue_id, post_id) DO NOTHING`,
+			venueID, postID)
+		return err
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`DELETE FROM venue_post_photo_hides WHERE venue_id=$1 AND post_id=$2`,
+		venueID, postID)
+	return err
 }
 
 func (s *PostgresStore) CheckInVenue(userID string, input VenueCheckInInput) (domain.ExploreVenue, error) {
@@ -4481,18 +4827,26 @@ func (s *PostgresStore) getOwnerInfo(userID string) (string, string) {
 	return name, avatarStr
 }
 
-// findConvIDByUsers finds an existing 1-on-1 conversation between the
-// two users. The `array_length = 2` filter is critical: without it, a
-// 3+ member group chat that contains both users would be returned and
-// CreateSwipe would wire a new match against that GROUP conversation —
-// exactly how prod ended up pointing a Bora↔Milo match at a 3-person
-// "Test Group" chat.
+// findConvIDByUsers finds an existing 1-on-1 **match** conversation between
+// the two users.
+//
+// Filters:
+//   - `array_length = 2` excludes multi-user group chats (earlier bug:
+//     a 3-person "Test Group" would get attached to a new match).
+//   - `COALESCE(match_id,'') <> ''` excludes playdate group conversations
+//     that happen to have exactly two attendees (host + one guest).
+//     Playdate conversations are created with match_id='' — pgstore.go:302.
+//     Match conversations always carry the matchID — pgstore.go:1855-1858.
+//     Without this filter, two users who did a 1-on-1 playdate together and
+//     then later matched would have their brand-new match DM wired to the
+//     OLD playdate chat, so tapping the match opened a stale playdate thread.
 func (s *PostgresStore) findConvIDByUsers(user1ID string, user2ID string) string {
 	var convID string
 	err := s.pool.QueryRow(s.ctx(),
 		`SELECT id FROM conversations
 		 WHERE user_ids @> $1::text[] AND user_ids @> $2::text[]
 		   AND array_length(user_ids, 1) = 2
+		   AND COALESCE(match_id, '') <> ''
 		 LIMIT 1`,
 		[]string{user1ID}, []string{user2ID}).Scan(&convID)
 	if err != nil {
@@ -4802,6 +5156,735 @@ func (s *PostgresStore) CreateHealthRecord(petID string, record domain.HealthRec
 func (s *PostgresStore) DeleteHealthRecord(petID string, recordID string) error {
 	_, err := s.pool.Exec(s.ctx(), `DELETE FROM health_records WHERE id=$1 AND pet_id=$2`, recordID, petID)
 	return err
+}
+
+// ── Health Profile (allergies / dietary restrictions / emergency notes) ──
+// Single row per pet. Created lazily on first PUT — no row means "empty".
+
+func (s *PostgresStore) GetHealthProfile(petID string) domain.PetHealthProfile {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT pet_id, allergies, dietary_restrictions, emergency_notes, to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM pet_health_profiles WHERE pet_id=$1`, petID)
+	var p domain.PetHealthProfile
+	if err := row.Scan(&p.PetID, &p.Allergies, &p.DietaryRestrictions, &p.EmergencyNotes, &p.UpdatedAt); err != nil {
+		// No row yet — return an empty profile so the client can render the
+		// "add your first allergy" empty state without a 404 dance.
+		return domain.PetHealthProfile{
+			PetID:               petID,
+			Allergies:           []string{},
+			DietaryRestrictions: []string{},
+		}
+	}
+	if p.Allergies == nil {
+		p.Allergies = []string{}
+	}
+	if p.DietaryRestrictions == nil {
+		p.DietaryRestrictions = []string{}
+	}
+	return p
+}
+
+func (s *PostgresStore) UpsertHealthProfile(petID string, profile domain.PetHealthProfile) domain.PetHealthProfile {
+	profile.PetID = petID
+	if profile.Allergies == nil {
+		profile.Allergies = []string{}
+	}
+	if profile.DietaryRestrictions == nil {
+		profile.DietaryRestrictions = []string{}
+	}
+	profile.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_health_profiles(pet_id, allergies, dietary_restrictions, emergency_notes, updated_at)
+		 VALUES($1,$2,$3,$4,$5)
+		 ON CONFLICT (pet_id) DO UPDATE SET
+		   allergies = EXCLUDED.allergies,
+		   dietary_restrictions = EXCLUDED.dietary_restrictions,
+		   emergency_notes = EXCLUDED.emergency_notes,
+		   updated_at = EXCLUDED.updated_at`,
+		profile.PetID, profile.Allergies, profile.DietaryRestrictions, profile.EmergencyNotes, profile.UpdatedAt)
+	return profile
+}
+
+// ── Symptom Logs ────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListSymptomLogs(petID string) []domain.SymptomLog {
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, pet_id, categories, severity, duration_hours, notes, photo_url,
+		        to_char((occurred_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM pet_symptom_logs WHERE pet_id=$1 ORDER BY occurred_at DESC`, petID)
+	defer rows.Close()
+	var out []domain.SymptomLog
+	for rows.Next() {
+		var l domain.SymptomLog
+		var photo *string
+		rows.Scan(&l.ID, &l.PetID, &l.Categories, &l.Severity, &l.DurationHours, &l.Notes, &photo, &l.OccurredAt, &l.CreatedAt)
+		if photo != nil {
+			l.PhotoURL = *photo
+		}
+		if l.Categories == nil {
+			l.Categories = []string{}
+		}
+		out = append(out, l)
+	}
+	if out == nil {
+		return []domain.SymptomLog{}
+	}
+	return out
+}
+
+func (s *PostgresStore) CreateSymptomLog(petID string, log domain.SymptomLog) domain.SymptomLog {
+	log.ID = newID("sym")
+	log.PetID = petID
+	if log.Categories == nil {
+		log.Categories = []string{}
+	}
+	if log.OccurredAt == "" {
+		log.OccurredAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	log.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_symptom_logs(id, pet_id, categories, severity, duration_hours, notes, photo_url, occurred_at, created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		log.ID, log.PetID, log.Categories, log.Severity, log.DurationHours, log.Notes,
+		nilIfEmpty(log.PhotoURL), log.OccurredAt, log.CreatedAt)
+	return log
+}
+
+func (s *PostgresStore) DeleteSymptomLog(petID string, logID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM pet_symptom_logs WHERE id=$1 AND pet_id=$2`, logID, petID)
+	return err
+}
+
+// ── Medications ─────────────────────────────────────────────────────
+
+func (s *PostgresStore) ListMedications(petID string) []domain.PetMedication {
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, pet_id, name, dosage, notes, time_of_day, days_of_week,
+		        timezone, start_date, end_date, last_given_at, active, to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM pet_medications WHERE pet_id=$1 ORDER BY created_at DESC`, petID)
+	defer rows.Close()
+	var out []domain.PetMedication
+	for rows.Next() {
+		var m domain.PetMedication
+		var lastGiven *time.Time
+		var dow16 []int16
+		if err := rows.Scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.Notes,
+			&m.TimeOfDay, &dow16, &m.Timezone, &m.StartDate, &m.EndDate,
+			&lastGiven, &m.Active, &m.CreatedAt); err != nil {
+			continue
+		}
+		if lastGiven != nil {
+			m.LastGivenAt = lastGiven.UTC().Format(time.RFC3339)
+		}
+		m.DaysOfWeek = make([]int, len(dow16))
+		for i, v := range dow16 {
+			m.DaysOfWeek[i] = int(v)
+		}
+		out = append(out, m)
+	}
+	if out == nil {
+		return []domain.PetMedication{}
+	}
+	return out
+}
+
+func (s *PostgresStore) CreateMedication(petID string, med domain.PetMedication) domain.PetMedication {
+	med.ID = newID("med")
+	med.PetID = petID
+	med.Active = true
+	if med.DaysOfWeek == nil {
+		med.DaysOfWeek = []int{}
+	}
+	if med.Timezone == "" {
+		med.Timezone = "UTC"
+	}
+	med.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	dow16 := make([]int16, len(med.DaysOfWeek))
+	for i, v := range med.DaysOfWeek {
+		dow16[i] = int16(v)
+	}
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_medications(id, pet_id, name, dosage, notes, time_of_day,
+		   days_of_week, timezone, start_date, end_date, active, created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		med.ID, med.PetID, med.Name, med.Dosage, med.Notes, med.TimeOfDay,
+		dow16, med.Timezone, med.StartDate, med.EndDate, med.Active, med.CreatedAt)
+	return med
+}
+
+func (s *PostgresStore) UpdateMedication(petID string, medID string, patch domain.PetMedication) (domain.PetMedication, error) {
+	if patch.DaysOfWeek == nil {
+		patch.DaysOfWeek = []int{}
+	}
+	dow16 := make([]int16, len(patch.DaysOfWeek))
+	for i, v := range patch.DaysOfWeek {
+		dow16[i] = int16(v)
+	}
+	tag, err := s.pool.Exec(s.ctx(),
+		`UPDATE pet_medications SET
+		   name = COALESCE(NULLIF($3,''), name),
+		   dosage = $4,
+		   notes = $5,
+		   time_of_day = COALESCE(NULLIF($6,''), time_of_day),
+		   days_of_week = $7,
+		   timezone = COALESCE(NULLIF($8,''), timezone),
+		   start_date = COALESCE(NULLIF($9,''), start_date),
+		   end_date = $10,
+		   active = $11
+		 WHERE id=$1 AND pet_id=$2`,
+		medID, petID, patch.Name, patch.Dosage, patch.Notes, patch.TimeOfDay,
+		dow16, patch.Timezone, patch.StartDate, patch.EndDate, patch.Active)
+	if err != nil || tag.RowsAffected() == 0 {
+		return domain.PetMedication{}, fmt.Errorf("medication not found")
+	}
+	// Return the fresh row.
+	for _, m := range s.ListMedications(petID) {
+		if m.ID == medID {
+			return m, nil
+		}
+	}
+	return domain.PetMedication{}, fmt.Errorf("medication not found after update")
+}
+
+func (s *PostgresStore) DeleteMedication(petID string, medID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM pet_medications WHERE id=$1 AND pet_id=$2`, medID, petID)
+	return err
+}
+
+func (s *PostgresStore) MarkMedicationGiven(petID string, medID string) (domain.PetMedication, error) {
+	now := time.Now().UTC()
+	tag, err := s.pool.Exec(s.ctx(),
+		`UPDATE pet_medications SET last_given_at=$3 WHERE id=$1 AND pet_id=$2`,
+		medID, petID, now)
+	if err != nil || tag.RowsAffected() == 0 {
+		return domain.PetMedication{}, fmt.Errorf("medication not found")
+	}
+	for _, m := range s.ListMedications(petID) {
+		if m.ID == medID {
+			return m, nil
+		}
+	}
+	return domain.PetMedication{}, fmt.Errorf("medication not found after mark-given")
+}
+
+func (s *PostgresStore) ListActiveMedicationsForSweeper() []MedicationSweeperRow {
+	rows, _ := s.pool.Query(s.ctx(), `
+		SELECT m.id, m.pet_id, p.owner_id, p.name AS pet_name,
+		       m.name, m.dosage, m.time_of_day, m.days_of_week,
+		       m.timezone, m.start_date, m.end_date, m.last_push_date
+		FROM pet_medications m
+		JOIN pets p ON p.id = m.pet_id
+		WHERE m.active = TRUE
+		  AND m.timezone <> ''
+		  AND m.time_of_day <> ''`)
+	defer rows.Close()
+	out := make([]MedicationSweeperRow, 0)
+	for rows.Next() {
+		var r MedicationSweeperRow
+		var dow16 []int16
+		if err := rows.Scan(&r.MedID, &r.PetID, &r.OwnerID, &r.PetName,
+			&r.Name, &r.Dosage, &r.TimeOfDay, &dow16,
+			&r.Timezone, &r.StartDate, &r.EndDate, &r.LastPushDate); err != nil {
+			continue
+		}
+		r.DaysOfWeek = make([]int, len(dow16))
+		for i, v := range dow16 {
+			r.DaysOfWeek[i] = int(v)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (s *PostgresStore) MarkMedicationPushed(medID string, scheduledDateInTZ string) error {
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE pet_medications SET last_push_date=$2 WHERE id=$1`,
+		medID, scheduledDateInTZ)
+	return err
+}
+
+// ── Breed Care Guides ───────────────────────────────────────────────
+
+func (s *PostgresStore) GetBreedCareGuide(speciesID string, breedID string) (*domain.BreedCareGuide, error) {
+	// pgx v5 won't scan TIMESTAMPTZ into a Go string — cast to TEXT in
+	// the SELECT so the existing string-typed domain fields keep working.
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url,
+		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM breed_care_guides
+		 WHERE (breed_id = $1 AND breed_id <> '')
+		    OR (breed_id = '' AND species_id = $2)
+		 ORDER BY (CASE WHEN breed_id <> '' THEN 0 ELSE 1 END)
+		 LIMIT 1`, breedID, speciesID)
+	var g domain.BreedCareGuide
+	if err := row.Scan(&g.ID, &g.SpeciesID, &g.SpeciesLabel, &g.BreedID, &g.BreedLabel,
+		&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &g.CreatedAt, &g.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (s *PostgresStore) ListBreedCareGuides() []domain.BreedCareGuide {
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url,
+		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM breed_care_guides ORDER BY species_label, breed_label, title`)
+	defer rows.Close()
+	out := make([]domain.BreedCareGuide, 0)
+	for rows.Next() {
+		var g domain.BreedCareGuide
+		if err := rows.Scan(&g.ID, &g.SpeciesID, &g.SpeciesLabel, &g.BreedID, &g.BreedLabel,
+			&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			log.Printf("[BREED-CARE] scan error: %v", err)
+			continue
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+func (s *PostgresStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.BreedCareGuide, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	g.UpdatedAt = now
+	if g.ID == "" {
+		g.ID = newID("bcg")
+		g.CreatedAt = now
+		// Use INSERT … ON CONFLICT to upsert by (species_id, breed_id) so the
+		// admin can't accidentally create a duplicate row for the same pair.
+		_, err := s.pool.Exec(s.ctx(),
+			`INSERT INTO breed_care_guides
+			   (id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url, created_at, updated_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			 ON CONFLICT (species_id, breed_id) DO UPDATE SET
+			   species_label = EXCLUDED.species_label,
+			   breed_label   = EXCLUDED.breed_label,
+			   title         = EXCLUDED.title,
+			   summary       = EXCLUDED.summary,
+			   body          = EXCLUDED.body,
+			   hero_image_url= EXCLUDED.hero_image_url,
+			   updated_at    = EXCLUDED.updated_at
+			 RETURNING id`,
+			g.ID, g.SpeciesID, g.SpeciesLabel, g.BreedID, g.BreedLabel,
+			g.Title, g.Summary, g.Body, g.HeroImageURL, g.CreatedAt, g.UpdatedAt)
+		if err != nil {
+			return domain.BreedCareGuide{}, err
+		}
+		// Re-read because ON CONFLICT may have surfaced an existing id.
+		row := s.pool.QueryRow(s.ctx(),
+			`SELECT id, created_at FROM breed_care_guides WHERE species_id=$1 AND breed_id=$2`,
+			g.SpeciesID, g.BreedID)
+		_ = row.Scan(&g.ID, &g.CreatedAt)
+		return g, nil
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE breed_care_guides SET
+		   species_id=$2, species_label=$3, breed_id=$4, breed_label=$5,
+		   title=$6, summary=$7, body=$8, hero_image_url=$9, updated_at=$10
+		 WHERE id=$1`,
+		g.ID, g.SpeciesID, g.SpeciesLabel, g.BreedID, g.BreedLabel,
+		g.Title, g.Summary, g.Body, g.HeroImageURL, g.UpdatedAt)
+	if err != nil {
+		return domain.BreedCareGuide{}, err
+	}
+	return g, nil
+}
+
+func (s *PostgresStore) DeleteBreedCareGuide(id string) error {
+	tag, err := s.pool.Exec(s.ctx(), `DELETE FROM breed_care_guides WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("breed care guide not found")
+	}
+	return nil
+}
+
+// ── First-Aid Topics ────────────────────────────────────────────────
+
+func (s *PostgresStore) ListFirstAidTopics() []domain.FirstAidTopic {
+	// pgx v5 can't Scan TIMESTAMPTZ into Go string, and Postgres' plain
+	// ::TEXT cast emits "2026-04-25 14:09:35+00" which JS new Date()
+	// parses inconsistently. to_char with explicit RFC3339 formatting
+	// produces "2026-04-25T14:09:35Z" so the mobile + admin clients can
+	// `new Date(value)` it without thinking.
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, slug, title, severity, summary, body, display_order,
+		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM first_aid_topics ORDER BY display_order ASC, title ASC`)
+	defer rows.Close()
+	out := make([]domain.FirstAidTopic, 0)
+	for rows.Next() {
+		var t domain.FirstAidTopic
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Title, &t.Severity, &t.Summary, &t.Body, &t.DisplayOrder, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			log.Printf("[FIRST-AID] scan error: %v", err)
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetFirstAidTopic(id string) (*domain.FirstAidTopic, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT id, slug, title, severity, summary, body, display_order,
+		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM first_aid_topics WHERE id=$1`, id)
+	var t domain.FirstAidTopic
+	if err := row.Scan(&t.ID, &t.Slug, &t.Title, &t.Severity, &t.Summary, &t.Body, &t.DisplayOrder, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *PostgresStore) UpsertFirstAidTopic(t domain.FirstAidTopic) (domain.FirstAidTopic, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	t.UpdatedAt = now
+	if t.Slug == "" {
+		t.Slug = slugify(t.Title)
+		if t.Slug == "" {
+			t.Slug = newID("topic")
+		}
+	}
+	if t.Severity == "" {
+		t.Severity = "info"
+	}
+	if t.ID == "" {
+		t.ID = newID("fa")
+		t.CreatedAt = now
+		_, err := s.pool.Exec(s.ctx(),
+			`INSERT INTO first_aid_topics(id, slug, title, severity, summary, body, display_order, created_at, updated_at)
+			 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			 ON CONFLICT (slug) DO UPDATE SET
+			   title         = EXCLUDED.title,
+			   severity      = EXCLUDED.severity,
+			   summary       = EXCLUDED.summary,
+			   body          = EXCLUDED.body,
+			   display_order = EXCLUDED.display_order,
+			   updated_at    = EXCLUDED.updated_at`,
+			t.ID, t.Slug, t.Title, t.Severity, t.Summary, t.Body, t.DisplayOrder, t.CreatedAt, t.UpdatedAt)
+		if err != nil {
+			return domain.FirstAidTopic{}, err
+		}
+		row := s.pool.QueryRow(s.ctx(), `SELECT id, created_at FROM first_aid_topics WHERE slug=$1`, t.Slug)
+		_ = row.Scan(&t.ID, &t.CreatedAt)
+		return t, nil
+	}
+	_, err := s.pool.Exec(s.ctx(),
+		`UPDATE first_aid_topics SET
+		   slug=$2, title=$3, severity=$4, summary=$5, body=$6, display_order=$7, updated_at=$8
+		 WHERE id=$1`,
+		t.ID, t.Slug, t.Title, t.Severity, t.Summary, t.Body, t.DisplayOrder, t.UpdatedAt)
+	if err != nil {
+		return domain.FirstAidTopic{}, err
+	}
+	return t, nil
+}
+
+func (s *PostgresStore) DeleteFirstAidTopic(id string) error {
+	tag, err := s.pool.Exec(s.ctx(), `DELETE FROM first_aid_topics WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("first aid topic not found")
+	}
+	return nil
+}
+
+// ── Pet Documents ───────────────────────────────────────────────────
+
+func (s *PostgresStore) ListPetDocuments(petID string) []domain.PetDocument {
+	rows, _ := s.pool.Query(s.ctx(),
+		`SELECT id, pet_id, kind, title, file_url, file_kind, expires_at, notes, to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM pet_documents WHERE pet_id=$1 ORDER BY created_at DESC`, petID)
+	defer rows.Close()
+	out := make([]domain.PetDocument, 0)
+	for rows.Next() {
+		var d domain.PetDocument
+		if err := rows.Scan(&d.ID, &d.PetID, &d.Kind, &d.Title, &d.FileURL, &d.FileKind, &d.ExpiresAt, &d.Notes, &d.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+func (s *PostgresStore) CreatePetDocument(petID string, doc domain.PetDocument) domain.PetDocument {
+	doc.ID = newID("doc")
+	doc.PetID = petID
+	if doc.Kind == "" {
+		doc.Kind = "other"
+	}
+	if doc.FileKind == "" {
+		doc.FileKind = "image"
+	}
+	doc.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_documents(id, pet_id, kind, title, file_url, file_kind, expires_at, notes, created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		doc.ID, doc.PetID, doc.Kind, doc.Title, doc.FileURL, doc.FileKind, doc.ExpiresAt, doc.Notes, doc.CreatedAt)
+	return doc
+}
+
+func (s *PostgresStore) DeletePetDocument(petID string, docID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM pet_documents WHERE id=$1 AND pet_id=$2`, docID, petID)
+	return err
+}
+
+// ── Food Items + Meal Logs ──────────────────────────────────────────
+
+func (s *PostgresStore) ListFoodItems(userID string, search string, species string, limit int) []domain.FoodItem {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	args := []any{userID}
+	conditions := []string{"(is_public = TRUE OR created_by_user = $1)"}
+	if species != "" {
+		args = append(args, species)
+		conditions = append(conditions, fmt.Sprintf("(species_label = '' OR LOWER(species_label) = LOWER($%d))", len(args)))
+	}
+	if search != "" {
+		args = append(args, "%"+strings.ToLower(search)+"%")
+		conditions = append(conditions, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(brand) LIKE $%d)", len(args), len(args)))
+	}
+	args = append(args, limit)
+	q := fmt.Sprintf(`
+		SELECT id, name, brand, kind, species_label, kcal_per_100g, is_public, created_by_user, to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM food_items
+		WHERE %s
+		ORDER BY is_public DESC, name ASC
+		LIMIT $%d`, strings.Join(conditions, " AND "), len(args))
+	rows, _ := s.pool.Query(s.ctx(), q, args...)
+	defer rows.Close()
+	out := make([]domain.FoodItem, 0)
+	for rows.Next() {
+		var f domain.FoodItem
+		if err := rows.Scan(&f.ID, &f.Name, &f.Brand, &f.Kind, &f.SpeciesLabel, &f.KcalPer100g, &f.IsPublic, &f.CreatedByUser, &f.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetFoodItem(itemID string) (*domain.FoodItem, error) {
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT id, name, brand, kind, species_label, kcal_per_100g, is_public, created_by_user, to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM food_items WHERE id=$1`, itemID)
+	var f domain.FoodItem
+	if err := row.Scan(&f.ID, &f.Name, &f.Brand, &f.Kind, &f.SpeciesLabel, &f.KcalPer100g, &f.IsPublic, &f.CreatedByUser, &f.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (s *PostgresStore) CreateFoodItem(userID string, item domain.FoodItem) domain.FoodItem {
+	item.ID = newID("food")
+	item.CreatedByUser = userID
+	if item.Kind == "" {
+		item.Kind = "dry"
+	}
+	item.IsPublic = false // user-created items stay private; only admins seed public ones
+	item.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO food_items(id, name, brand, kind, species_label, kcal_per_100g, is_public, created_by_user, created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		item.ID, item.Name, item.Brand, item.Kind, item.SpeciesLabel, item.KcalPer100g, item.IsPublic, item.CreatedByUser, item.CreatedAt)
+	return item
+}
+
+// AdminListFoodItems returns every food row (public + private) so admins
+// can curate the database. The user-facing ListFoodItems still filters by
+// (is_public OR own).
+func (s *PostgresStore) AdminListFoodItems(search string, species string, limit int) []domain.FoodItem {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	args := []any{}
+	conditions := []string{"1=1"}
+	if species != "" {
+		args = append(args, species)
+		conditions = append(conditions, fmt.Sprintf("(species_label = '' OR LOWER(species_label) = LOWER($%d))", len(args)))
+	}
+	if search != "" {
+		args = append(args, "%"+strings.ToLower(search)+"%")
+		conditions = append(conditions, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(brand) LIKE $%d)", len(args), len(args)))
+	}
+	args = append(args, limit)
+	q := fmt.Sprintf(`
+		SELECT id, name, brand, kind, species_label, kcal_per_100g, is_public, created_by_user, to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM food_items
+		WHERE %s
+		ORDER BY is_public DESC, name ASC
+		LIMIT $%d`, strings.Join(conditions, " AND "), len(args))
+	rows, _ := s.pool.Query(s.ctx(), q, args...)
+	defer rows.Close()
+	out := make([]domain.FoodItem, 0)
+	for rows.Next() {
+		var f domain.FoodItem
+		if err := rows.Scan(&f.ID, &f.Name, &f.Brand, &f.Kind, &f.SpeciesLabel, &f.KcalPer100g, &f.IsPublic, &f.CreatedByUser, &f.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// AdminUpsertFoodItem honours the is_public flag (unlike CreateFoodItem).
+// New rows: ID generated; existing rows: CreatedAt + CreatedByUser preserved.
+func (s *PostgresStore) AdminUpsertFoodItem(item domain.FoodItem) (domain.FoodItem, error) {
+	if item.Kind == "" {
+		item.Kind = "dry"
+	}
+	if item.ID == "" {
+		item.ID = newID("food")
+		item.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		_, err := s.pool.Exec(s.ctx(),
+			`INSERT INTO food_items(id, name, brand, kind, species_label, kcal_per_100g, is_public, created_by_user, created_at)
+			 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			item.ID, item.Name, item.Brand, item.Kind, item.SpeciesLabel, item.KcalPer100g, item.IsPublic, item.CreatedByUser, item.CreatedAt)
+		if err != nil {
+			return domain.FoodItem{}, err
+		}
+		return item, nil
+	}
+	tag, err := s.pool.Exec(s.ctx(),
+		`UPDATE food_items SET
+		   name=$2, brand=$3, kind=$4, species_label=$5, kcal_per_100g=$6, is_public=$7
+		 WHERE id=$1`,
+		item.ID, item.Name, item.Brand, item.Kind, item.SpeciesLabel, item.KcalPer100g, item.IsPublic)
+	if err != nil {
+		return domain.FoodItem{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.FoodItem{}, fmt.Errorf("food item not found")
+	}
+	// Re-read to surface the unchanged created_at + created_by_user.
+	got, err := s.GetFoodItem(item.ID)
+	if err != nil || got == nil {
+		return item, nil
+	}
+	return *got, nil
+}
+
+func (s *PostgresStore) AdminDeleteFoodItem(itemID string) error {
+	tag, err := s.pool.Exec(s.ctx(), `DELETE FROM food_items WHERE id=$1`, itemID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("food item not found")
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListMealLogs(petID string, fromDate string, toDate string) []domain.MealLog {
+	args := []any{petID}
+	conditions := []string{"pet_id = $1"}
+	if fromDate != "" {
+		args = append(args, fromDate)
+		conditions = append(conditions, fmt.Sprintf("eaten_at >= $%d::timestamptz", len(args)))
+	}
+	if toDate != "" {
+		args = append(args, toDate)
+		conditions = append(conditions, fmt.Sprintf("eaten_at < $%d::timestamptz", len(args)))
+	}
+	q := fmt.Sprintf(`SELECT id, pet_id, food_item_id, custom_name, grams, kcal, notes, to_char((eaten_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM pet_meal_logs WHERE %s ORDER BY eaten_at DESC`, strings.Join(conditions, " AND "))
+	rows, _ := s.pool.Query(s.ctx(), q, args...)
+	defer rows.Close()
+	out := make([]domain.MealLog, 0)
+	for rows.Next() {
+		var m domain.MealLog
+		if err := rows.Scan(&m.ID, &m.PetID, &m.FoodItemID, &m.CustomName, &m.Grams, &m.Kcal, &m.Notes, &m.EatenAt, &m.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (s *PostgresStore) CreateMealLog(petID string, log domain.MealLog) domain.MealLog {
+	log.ID = newID("meal")
+	log.PetID = petID
+	if log.EatenAt == "" {
+		log.EatenAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	log.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_meal_logs(id, pet_id, food_item_id, custom_name, grams, kcal, notes, eaten_at, created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		log.ID, log.PetID, log.FoodItemID, log.CustomName, log.Grams, log.Kcal, log.Notes, log.EatenAt, log.CreatedAt)
+	return log
+}
+
+func (s *PostgresStore) DeleteMealLog(petID string, logID string) error {
+	_, err := s.pool.Exec(s.ctx(), `DELETE FROM pet_meal_logs WHERE id=$1 AND pet_id=$2`, logID, petID)
+	return err
+}
+
+func (s *PostgresStore) GetDailyMealSummary(petID string, dateISO string) domain.DailyMealSummary {
+	sum := domain.DailyMealSummary{Date: dateISO}
+	row := s.pool.QueryRow(s.ctx(),
+		`SELECT COALESCE(SUM(kcal),0), COALESCE(SUM(grams),0), COUNT(*)
+		 FROM pet_meal_logs
+		 WHERE pet_id=$1 AND eaten_at >= $2::timestamptz AND eaten_at < ($2::timestamptz + INTERVAL '1 day')`,
+		petID, dateISO)
+	_ = row.Scan(&sum.TotalKcal, &sum.TotalGrams, &sum.MealCount)
+	return sum
+}
+
+// ── Weekly Health Summary ───────────────────────────────────────────
+
+func (s *PostgresStore) GetWeeklyHealthSummaryForUser(userID string, weekStartUTC string, weekEndUTC string) domain.WeeklyHealthSummary {
+	sum := domain.WeeklyHealthSummary{WeekStart: weekStartUTC}
+	// Single roundtrip: aggregate via UNION ALL count by category. Each
+	// query is pet-id scoped to this user's pets.
+	row := s.pool.QueryRow(s.ctx(), `
+		WITH pets_owned AS (
+			SELECT id FROM pets WHERE owner_id = $1
+		)
+		SELECT
+		  (SELECT COUNT(*) FROM weight_entries we WHERE we.pet_id IN (SELECT id FROM pets_owned)
+		     AND we.date >= $2 AND we.date < $3),
+		  (SELECT COUNT(*) FROM health_records hr WHERE hr.pet_id IN (SELECT id FROM pets_owned)
+		     AND hr.created_at >= $2 AND hr.created_at < $3),
+		  (SELECT COUNT(*) FROM pet_symptom_logs sl WHERE sl.pet_id IN (SELECT id FROM pets_owned)
+		     AND sl.occurred_at >= $2::timestamptz AND sl.occurred_at < $3::timestamptz),
+		  (SELECT COUNT(*) FROM diary_entries de WHERE de.pet_id IN (SELECT id FROM pets_owned)
+		     AND de.created_at >= $2 AND de.created_at < $3),
+		  (SELECT COUNT(*) FROM pet_medications m WHERE m.pet_id IN (SELECT id FROM pets_owned)
+		     AND m.last_given_at >= $2::timestamptz AND m.last_given_at < $3::timestamptz)
+	`, userID, weekStartUTC, weekEndUTC)
+	_ = row.Scan(&sum.WeightEntries, &sum.HealthRecords, &sum.SymptomLogs, &sum.DiaryEntries, &sum.MedicationsGiven)
+	sum.HasActivity = sum.WeightEntries+sum.HealthRecords+sum.SymptomLogs+sum.DiaryEntries+sum.MedicationsGiven > 0
+	return sum
+}
+
+func (s *PostgresStore) ListUsersForWeeklySummary(weekStartUTC string) []string {
+	rows, _ := s.pool.Query(s.ctx(), `
+		SELECT DISTINCT u.id FROM users u
+		JOIN push_tokens pt ON pt.user_id = u.id
+		LEFT JOIN user_weekly_summary_log w
+		  ON w.user_id = u.id AND w.week_start = $1
+		WHERE w.user_id IS NULL`, weekStartUTC)
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func (s *PostgresStore) RecordWeeklySummarySent(userID string, weekStartUTC string) {
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO user_weekly_summary_log(user_id, week_start) VALUES($1,$2)
+		 ON CONFLICT (user_id, week_start) DO NOTHING`,
+		userID, weekStartUTC)
 }
 
 func (s *PostgresStore) ListWeightEntries(petID string) []domain.WeightEntry {

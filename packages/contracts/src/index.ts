@@ -412,6 +412,155 @@ export interface WeightEntry {
   date: string;
 }
 
+/** At-a-glance medical card surfaced in Care. Single row per pet — used by
+ *  emergency vets, sitters and the lock-screen "if found, please help"
+ *  flow we'll layer on top later. */
+export interface PetHealthProfile {
+  petId: string;
+  allergies: string[];
+  dietaryRestrictions: string[];
+  emergencyNotes: string;
+  updatedAt: string;
+}
+
+/** One observation in the Care → Symptom Log timeline. Categorised &
+ *  severity-graded so the export-to-PDF flow we ship later can produce a
+ *  vet-ready report instead of a wall of free text. */
+export interface SymptomLog {
+  id: string;
+  petId: string;
+  categories: string[];
+  severity: number; // 1-5
+  durationHours?: number;
+  notes: string;
+  photoUrl?: string;
+  occurredAt: string;
+  createdAt: string;
+}
+
+/** Recurring medication schedule. Server cron pushes a reminder at the
+ *  scheduled time in the medication's stored timezone — tapping the push
+ *  (or "Mark given" in-app) updates lastGivenAt. */
+export interface PetMedication {
+  id: string;
+  petId: string;
+  name: string;
+  dosage: string;
+  notes?: string;
+  timeOfDay: string;       // "HH:MM" 24h
+  daysOfWeek: number[];    // 0=Sun..6=Sat; empty = every day
+  timezone: string;        // IANA, e.g. "Europe/Istanbul"
+  startDate: string;       // ISO date "YYYY-MM-DD"
+  endDate?: string;
+  lastGivenAt?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/** Saved certificate (vaccine card, microchip paperwork, insurance, etc.)
+ *  attached to a pet. Files live in R2; this carries the metadata + URL. */
+export interface PetDocument {
+  id: string;
+  petId: string;
+  kind: "vaccine" | "medical" | "insurance" | "microchip" | "other";
+  title: string;
+  fileUrl: string;
+  fileKind: "image" | "pdf";
+  expiresAt?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** One entry in the food database. Public items are admin-curated and
+ *  shared; user-created items are private to the creator. kcalPer100g is
+ *  the canonical density used by the meal log to compute calories. */
+export interface FoodItem {
+  id: string;
+  name: string;
+  brand?: string;
+  kind: "dry" | "wet" | "treat" | "other";
+  speciesLabel?: string;
+  kcalPer100g: number;
+  isPublic: boolean;
+  createdByUser?: string;
+  createdAt: string;
+}
+
+/** A single feeding event. kcal is snapshotted at write-time so editing
+ *  a food item later doesn't retroactively rewrite history. */
+export interface MealLog {
+  id: string;
+  petId: string;
+  foodItemId?: string;
+  customName?: string;
+  grams: number;
+  kcal: number;
+  notes?: string;
+  eatenAt: string;
+  createdAt: string;
+}
+
+/** Aggregated calorie counts for one calendar day. */
+export interface DailyMealSummary {
+  date: string;
+  totalKcal: number;
+  totalGrams: number;
+  mealCount: number;
+}
+
+/** Admin-curated breed-specific (or species-wide) care information. The
+ *  mobile Care tab fetches this when the user taps the active pet's card. */
+export interface BreedCareGuide {
+  id: string;
+  speciesId: string;
+  speciesLabel: string;
+  breedId?: string;
+  breedLabel?: string;
+  title: string;
+  summary?: string;
+  body: string;
+  heroImageUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Wrapper returned by GET /v1/pets/{id}/breed-care so the mobile screen
+ *  can render the same UI for "no guide yet" and "loaded" without an extra
+ *  request. */
+export interface BreedCareLookup {
+  available: boolean;
+  speciesId: string;
+  speciesLabel: string;
+  breedId?: string;
+  breedLabel?: string;
+  guide?: BreedCareGuide;
+}
+
+/** One offline-cached entry in the First-Aid handbook. */
+export interface FirstAidTopic {
+  id: string;
+  slug: string;
+  title: string;
+  severity: "emergency" | "urgent" | "info";
+  summary?: string;
+  body: string;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Aggregated activity counts for the current ISO week. The server pushes
+ *  a Sunday digest only when hasActivity is true. */
+export interface WeeklyHealthSummary {
+  weekStart: string; // ISO Monday
+  weightEntries: number;
+  healthRecords: number;
+  symptomLogs: number;
+  diaryEntries: number;
+  medicationsGiven: number;
+  hasActivity: boolean;
+}
+
 export interface VetContact {
   id: string;
   userId: string;

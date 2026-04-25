@@ -5,7 +5,8 @@
       "name": "admin",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-C", "apps/admin", "dev"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     },
     {
       "name": "shelter-web",

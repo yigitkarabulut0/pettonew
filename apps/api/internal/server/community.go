@@ -167,21 +167,67 @@ func (s *Server) handleExploreEventRSVP(writer http.ResponseWriter, request *htt
 
 func (s *Server) handleVenuePhotos(w http.ResponseWriter, r *http.Request) {
 	venueID := chi.URLParam(r, "venueID")
-	posts := s.store.ListPostsAdmin()
-	var photos []string
-	for _, p := range posts {
-		if p.VenueID != nil && *p.VenueID == venueID && p.ImageURL != nil {
-			photos = append(photos, *p.ImageURL)
-		}
-	}
-	// Also include venue's own imageUrl
-	if v, err := s.store.GetVenue(venueID); err == nil && v.ImageURL != nil {
-		photos = append([]string{*v.ImageURL}, photos...)
-	}
+	// v0.13.7 — gallery respects admin curation (extra photos) and the
+	// per-venue hide flag on tagged-post photos. The store orders results:
+	// cover → admin-curated → post photos (newest first).
+	photos := s.store.ListVenuePhotoUrls(venueID)
 	if photos == nil {
 		photos = []string{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": photos})
+}
+
+// handleAdminVenuePhotos returns the full photo manifest for the admin
+// venue detail page, including hidden post photos so the curator can
+// un-hide them.
+func (s *Server) handleAdminVenuePhotos(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListVenuePhotosManage(venueID)})
+}
+
+// handleAdminVenueAddPhoto curates a new photo onto the venue. The image is
+// already uploaded to R2 via the shared /media/presign flow; the body just
+// carries the public URL.
+func (s *Server) handleAdminVenueAddPhoto(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	var payload struct {
+		URL string `json:"url"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	entry, err := s.store.AddVenueAdminPhoto(venueID, payload.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": entry})
+}
+
+func (s *Server) handleAdminVenueDeletePhoto(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	photoID := chi.URLParam(r, "photoID")
+	if err := s.store.DeleteVenueAdminPhoto(venueID, photoID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+func (s *Server) handleAdminVenueSetPostPhotoHidden(w http.ResponseWriter, r *http.Request) {
+	venueID := chi.URLParam(r, "venueID")
+	postID := chi.URLParam(r, "postID")
+	var payload struct {
+		Hidden bool `json:"hidden"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if err := s.store.SetVenuePostPhotoHidden(venueID, postID, payload.Hidden); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"hidden": payload.Hidden}})
 }
 
 // handleVenueDetail returns a venue augmented with aggregate stats and
