@@ -22,16 +22,6 @@ import "@/lib/i18n";
 // before React mounts so the OS can locate the task when it fires in the
 // background. Do NOT convert this to a lazy / dynamic import.
 import "@/lib/notification-background";
-// Debug panel registry: populates the hidden QA panel's routes and scenarios.
-import "@/lib/debug-registry";
-import Constants from "expo-constants";
-import {
-  DebugOverrideBanner,
-  DebugPanel,
-  DebugProvider,
-  installDebugFetch,
-  type EnvironmentInfo
-} from "@petto/debug-panel";
 import { AnimatedSplash } from "@/components/animated-splash";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NetworkBanner } from "@/components/network-banner";
@@ -50,10 +40,6 @@ import { setupLiveActivityListeners } from "@/lib/live-activities";
 import { useSessionStore } from "@/store/session";
 
 SplashScreen.preventAutoHideAsync();
-
-// Install the debug-aware fetch wrapper once, before any screen renders.
-// Passes through when no overrides are set.
-installDebugFetch();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -286,24 +272,6 @@ export default function RootLayout() {
     );
   }
 
-  const debugEnv: EnvironmentInfo = {
-    appName: "Fetcht",
-    appSlug: Constants.expoConfig?.slug ?? "fetcht",
-    version: Constants.expoConfig?.version ?? "0.0.0",
-    buildNumber:
-      (Constants.expoConfig?.ios?.buildNumber as string | undefined) ??
-      (Constants.expoConfig?.android?.versionCode != null
-        ? String(Constants.expoConfig.android.versionCode)
-        : undefined),
-    apiBaseUrl: API_BASE,
-    platform: Platform.OS as EnvironmentInfo["platform"],
-    isDev: __DEV__,
-    sessionSummary:
-      session?.user?.firstName ??
-      session?.user?.email ??
-      "none"
-  };
-
   // Main app
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -312,13 +280,9 @@ export default function RootLayout() {
           client={queryClient}
           persistOptions={PERSIST_OPTIONS}
         >
-          <DebugProvider env={debugEnv}>
-            <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-            <NetworkBanner />
-            <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />
-            <DebugOverrideBanner />
-            <DebugPanel />
-          </DebugProvider>
+          <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+          <NetworkBanner />
+          <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />
         </PersistQueryClientProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>

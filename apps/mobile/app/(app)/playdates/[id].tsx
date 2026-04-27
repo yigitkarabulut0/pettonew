@@ -129,6 +129,30 @@ export default function PlaydateDetailPage() {
     }, [])
   );
 
+  // iOS Live Activity — kullanıcı bu playdate'in detayına girdiğinde, eğer
+  // 6 saat içinde başlıyor / katılıyorsa Dynamic Island + Lock Screen
+  // banner'ı tetikle. ensurePlaydateLiveActivity idempotent: çoklu çağrı
+  // mevcut activity'yi günceller, yenisini başlatmaz. Cancel olunca
+  // banner'ı sonlandırır.
+  useEffect(() => {
+    if (!playdate) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { ensurePlaydateLiveActivity } = await import(
+          "@/lib/live-activities"
+        );
+        if (cancelled) return;
+        await ensurePlaydateLiveActivity(playdate);
+      } catch {
+        // Best-effort: failure shouldn't break the detail screen.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [playdate]);
+
   const [imgError, setImgError] = useState(false);
   const [attendeeSheetOpen, setAttendeeSheetOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);

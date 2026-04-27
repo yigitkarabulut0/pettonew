@@ -39,8 +39,6 @@ import {
 
 import { useTranslation } from "react-i18next";
 
-import { DebugTapTrigger } from "@petto/debug-panel";
-
 import { Avatar } from "@/components/avatar";
 import { PetDetailModal } from "@/components/pet-card";
 import { ReportModal } from "@/components/report-modal";
@@ -259,13 +257,11 @@ export default function HomePage() {
           paddingHorizontal: mobileTheme.spacing.xl
         }}
       >
-        <DebugTapTrigger>
-          <Avatar
-            uri={session?.user.avatarUrl}
-            name={session?.user.firstName}
-            size="md"
-          />
-        </DebugTapTrigger>
+        <Avatar
+          uri={session?.user.avatarUrl}
+          name={session?.user.firstName}
+          size="md"
+        />
         <Text
           style={{
             fontSize: mobileTheme.typography.heading.fontSize,

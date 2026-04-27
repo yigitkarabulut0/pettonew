@@ -183,9 +183,6 @@ importers:
       '@petto/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@petto/debug-panel':
-        specifier: workspace:*
-        version: link:../../packages/debug-panel
       '@petto/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
@@ -8996,7 +8993,9 @@ snapshots:
       metro-runtime: 0.83.5
     transitivePeerDependencies:
       - '@babel/core'
+      - bufferutil
       - supports-color
+      - utf-8-validate
     optional: true
 
   '@react-native/normalize-colors@0.79.7': {}

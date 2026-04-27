@@ -240,23 +240,42 @@ struct DIExpandedTrailing: View {
 
     var body: some View {
         let labels = context.attributes.labels
+        let state = context.state
+
         Group {
-            switch context.state.status {
+            switch state.status {
             case "cancelled":
                 StatusPill(label: labels.cancelled, color: PettoTheme.statusCancelled)
             case "ended":
                 StatusPill(label: labels.ended, color: PettoTheme.statusCancelled)
+            case "in_progress":
+                // Tek satır CANLI pill — trailing region dar, alt label
+                // koymak farklı dillerde ("Em andamento" vs "Canlı")
+                // taşıyordu. Pill içinde dar ve sabit görünür.
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(PettoTheme.statusActive)
+                        .frame(width: 6, height: 6)
+                    Text(labels.live.uppercased())
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .tracking(0.4)
+                        .foregroundColor(PettoTheme.statusActive)
+                        .lineLimit(1)
+                }
             default:
-                PlaydateCountdown(
-                    startsAt: context.state.startsAt,
-                    endsAt: context.state.endsAt,
-                    status: context.state.status,
-                    labels: labels,
-                    scheme: scheme,
-                    alignment: .trailing,
-                    largeFontSize: 22,
-                    widthCap: 70
-                )
+                // Sadece sayı — alt label yok. Lock screen'de "KALA"
+                // yazısı vardı; expanded trailing region dar olduğu için
+                // sayı + label stack'i her dilde aynı düzgün durmuyordu.
+                Text(timerInterval: Date()...state.startsAt,
+                     pauseTime: nil,
+                     countsDown: true,
+                     showsHours: false)
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(PettoTheme.accent(for: scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .fixedSize()
             }
         }
         .padding(.trailing, 4)
