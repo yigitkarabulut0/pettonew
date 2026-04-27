@@ -187,10 +187,11 @@ type DashboardMetric struct {
 }
 
 type DashboardPoint struct {
-	Label   string `json:"label"`
-	Users   int    `json:"users"`
-	Pets    int    `json:"pets"`
-	Matches int    `json:"matches"`
+	Label       string `json:"label"`
+	Users       int    `json:"users"`
+	Pets        int    `json:"pets"`
+	Matches     int    `json:"matches"`
+	ActiveUsers int    `json:"activeUsers"`
 }
 
 type ReportSummary struct {
@@ -316,6 +317,16 @@ type PetHealthProfile struct {
 	UpdatedAt            string   `json:"updatedAt"`
 }
 
+// MedicationDose is one "the pet got their medication" event. Each tap
+// of "Mark given" inserts a new row, so the timeline survives even if
+// the user re-marks the same medication multiple times in a day. Powers
+// the per-medication History view in the mobile UI.
+type MedicationDose struct {
+	ID           string `json:"id"`
+	MedicationID string `json:"medicationId"`
+	GivenAt      string `json:"givenAt"`
+}
+
 // PetMedication is a recurring medication schedule. Server pushes a
 // reminder when each scheduled dose comes due in the medication's stored
 // timezone; tapping the push (or "Mark given" in-app) updates LastGivenAt.
@@ -340,6 +351,16 @@ type PetMedication struct {
 // breed_id first, falls back to the species-wide row (BreedID="") when the
 // breed has no dedicated entry — so admins don't have to write 200 rows for
 // "all dogs".
+// BreedCareGuideTranslation captures the editorial fields a non-English
+// locale wants to override. Empty string on any field means "fall back to
+// the base English value" — partial translations are explicitly allowed
+// so a translator can ship `title` first and finish `body` later.
+type BreedCareGuideTranslation struct {
+	Title   string `json:"title,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Body    string `json:"body,omitempty"`
+}
+
 type BreedCareGuide struct {
 	ID           string `json:"id"`
 	SpeciesID    string `json:"speciesId"`
@@ -350,6 +371,11 @@ type BreedCareGuide struct {
 	Summary      string `json:"summary,omitempty"`
 	Body         string `json:"body"`             // long-form, line breaks preserved
 	HeroImageURL string `json:"heroImageUrl,omitempty"`
+	// Translations keyed by BCP-47 locale (e.g. "tr", "pt-BR"). The base
+	// English copy lives in Title/Summary/Body above. Public reads collapse
+	// this map down to the caller's locale before sending; admin reads
+	// keep the whole map so editors can manage all locales in one screen.
+	Translations map[string]BreedCareGuideTranslation `json:"translations,omitempty"`
 	UpdatedAt    string `json:"updatedAt"`
 	CreatedAt    string `json:"createdAt"`
 }
@@ -484,6 +510,19 @@ type FeedingSchedule struct {
 	Amount    string `json:"amount"`
 	Notes     string `json:"notes"`
 	CreatedAt string `json:"createdAt"`
+	// v0.14.2 — link to the calorie counter food DB. When FoodItemID is
+	// set, Grams + Kcal are populated and the schedule can be one-tap
+	// logged into pet_meal_logs (the "Log it" button). When empty, the
+	// schedule is a legacy free-text plan (FoodType + Amount strings).
+	FoodItemID   string  `json:"foodItemId,omitempty"`
+	Grams        float64 `json:"grams,omitempty"`
+	Kcal         float64 `json:"kcal,omitempty"`
+	LastLoggedAt string  `json:"lastLoggedAt,omitempty"`
+	// FoodItemBrand + FoodItemName: server-resolved at list time so the
+	// mobile UI can show "Royal Canin · Adult Chicken" without an extra
+	// fetch per schedule.
+	FoodItemBrand string `json:"foodItemBrand,omitempty"`
+	FoodItemName  string `json:"foodItemName,omitempty"`
 }
 
 type VenueReview struct {
@@ -570,6 +609,12 @@ type Playdate struct {
 	// to the host in the API response — non-host callers see "" to avoid
 	// leaking the token through the detail payload.
 	ShareToken      string             `json:"shareToken,omitempty"`
+	// JoinCode is the human-friendly "PD-XXXXXX" code paired with the share
+	// token. Same audience rules as ShareToken: only the host sees it.
+	// Different storage column from community_groups.code so the two code
+	// systems can't collide; format prefix "PD-" makes accidental cross-paste
+	// from a group code structurally impossible.
+	JoinCode        string             `json:"joinCode,omitempty"`
 	CreatorPetIds   []string           `json:"creatorPetIds,omitempty"` // input-only: pets the host brings when creating
 	MyInviteStatus   string             `json:"myInviteStatus,omitempty"` // "pending" | "accepted" | "declined"
 	MyInviteID       string             `json:"myInviteId,omitempty"`

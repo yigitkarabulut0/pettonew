@@ -22,7 +22,6 @@ export default function AppLayout() {
       <Stack.Screen name="pet-health/[petId]" options={{ headerShown: false }} />
       <Stack.Screen name="pet-weight/[petId]" options={{ headerShown: false }} />
       <Stack.Screen name="vet-contacts" options={{ headerShown: false }} />
-      <Stack.Screen name="feeding/[petId]" options={{ headerShown: false }} />
       {/* Care v0.14 — new screens. Each renders its own header so we hide
           the native Stack header to avoid the "(tabs)" auto-back label
           that shows up when a screen isn't registered here. */}

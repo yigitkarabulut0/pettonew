@@ -154,7 +154,7 @@ export default function GroupDetailPage() {
       await refetch();
     } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-      Alert.alert("Action failed", err?.message || "");
+      Alert.alert(t("common.actionFailed") as string, err?.message || "");
     }
   };
 
@@ -163,7 +163,7 @@ export default function GroupDetailPage() {
     targetUserID: string,
     targetName?: string
   ) => {
-    const name = targetName || "this member";
+    const name = targetName || (t("groups.thisMember") as string);
     const confirmed = (onConfirm: () => void, title: string, body: string, destructiveLabel: string) => {
       Alert.alert(title, body, [
         { text: t("common.cancel") as string, style: "cancel" },
@@ -231,7 +231,7 @@ export default function GroupDetailPage() {
       router.replace("/(app)/groups" as any);
     },
     onError: (err: any) => {
-      Alert.alert(t("groups.leaveGroup") as string, err?.message || "Failed");
+      Alert.alert(t("groups.leaveGroup") as string, err?.message || (t("common.error") as string));
     }
   });
 
@@ -630,7 +630,7 @@ export default function GroupDetailPage() {
                       })
                     });
                   } catch (err: any) {
-                    Alert.alert("Share failed", err?.message || "");
+                    Alert.alert(t("common.shareFailed") as string, err?.message || "");
                   }
                 }}
                 style={{

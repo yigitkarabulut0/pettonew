@@ -291,6 +291,7 @@ export interface DashboardSeriesPoint {
   users: number;
   pets: number;
   matches: number;
+  activeUsers: number;
 }
 
 export interface DashboardSnapshot {
@@ -438,6 +439,14 @@ export interface SymptomLog {
   createdAt: string;
 }
 
+/** v0.14.3 — one "Mark given" tap. Append-only timeline used by the
+ *  History sheet on the medications screen. */
+export interface MedicationDose {
+  id: string;
+  medicationId: string;
+  givenAt: string;
+}
+
 /** Recurring medication schedule. Server cron pushes a reminder at the
  *  scheduled time in the medication's stored timezone — tapping the push
  *  (or "Mark given" in-app) updates lastGivenAt. */
@@ -579,6 +588,17 @@ export interface FeedingSchedule {
   amount: string;
   notes: string;
   createdAt?: string;
+  /** v0.14.2 — link to the food DB. When set, grams + kcal are populated
+   *  and a one-tap "Log it" can pour the plan straight into the calorie
+   *  counter for today. When empty, the row is a legacy free-text plan. */
+  foodItemId?: string;
+  grams?: number;
+  kcal?: number;
+  lastLoggedAt?: string;
+  /** Server-resolved at list time so the UI can render the food without
+   *  a per-row fetch. */
+  foodItemBrand?: string;
+  foodItemName?: string;
 }
 
 export interface PlaydateHost {
@@ -630,6 +650,12 @@ export interface Playdate {
   /** v0.13.5 — share token for private-playdate WhatsApp/SMS links. Only
    *  populated in responses where the caller is the host. */
   shareToken?: string;
+  /** v0.14.1 — short human-friendly join code (PD-XXXXXX) for private
+   *  playdates. Same audience rules as shareToken: only the host sees it.
+   *  Stored on a separate column from community_groups.code so the two
+   *  code systems can't collide; the "PD-" prefix also makes accidental
+   *  cross-paste structurally impossible. */
+  joinCode?: string;
   creatorPetIds?: string[];
   myInviteStatus?: "pending" | "accepted" | "declined";
   myInviteId?: string;

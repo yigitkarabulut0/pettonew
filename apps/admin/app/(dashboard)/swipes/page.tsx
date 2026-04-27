@@ -2,7 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Tag } from "lucide-react";
+import { PawPrint, Tag } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 
 import { PageHeader } from "@/components/common/PageHeader";
@@ -25,8 +26,20 @@ export default function SwipesPage() {
 
   const columns = React.useMemo<ColumnDef<AdminSwipe, unknown>[]>(
     () => [
-      { accessorKey: "actorPetId", header: "Actor pet" },
-      { accessorKey: "targetPetId", header: "Target pet" },
+      {
+        accessorKey: "actorPetId",
+        header: "Actor pet",
+        cell: ({ row }) => (
+          <PetCell id={row.original.actorPetId} name={row.original.actorName} />
+        )
+      },
+      {
+        accessorKey: "targetPetId",
+        header: "Target pet",
+        cell: ({ row }) => (
+          <PetCell id={row.original.targetPetId} name={row.original.targetName} />
+        )
+      },
       {
         accessorKey: "direction",
         header: "Direction",
@@ -62,7 +75,7 @@ export default function SwipesPage() {
       <DataTableToolbar
         searchValue={state.search}
         onSearchChange={(value) => setState({ search: value, page: 1 })}
-        searchPlaceholder="Search by pet id"
+        searchPlaceholder="Search by pet name or id"
       >
         <FacetFilter
           label="Direction"
@@ -92,5 +105,27 @@ export default function SwipesPage() {
         }
       />
     </div>
+  );
+}
+
+// Renders a pet name (with the petId hovering as a quiet hint) and links to
+// the admin pet moderation page. Falls back to a "deleted pet" placeholder
+// when the join missed the pet row — that's a real signal: the pet was
+// removed but the swipe row stuck around.
+function PetCell({ id, name }: { id: string; name?: string }) {
+  if (!id) {
+    return <span className="text-xs text-[var(--muted-foreground)]">—</span>;
+  }
+  const display = name && name.trim() ? name : "deleted pet";
+  return (
+    <Link
+      href={`/pets/${encodeURIComponent(id)}`}
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex max-w-[220px] items-center gap-1.5 truncate text-sm font-medium text-[var(--foreground)] hover:underline"
+      title={id}
+    >
+      <PawPrint className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" />
+      <span className="truncate">{display}</span>
+    </Link>
   );
 }

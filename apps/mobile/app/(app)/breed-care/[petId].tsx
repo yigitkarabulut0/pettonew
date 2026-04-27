@@ -20,17 +20,21 @@ import { useSessionStore } from "@/store/session";
 import { useCallback } from "react";
 
 export default function BreedCarePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { petId } = useLocalSearchParams<{ petId: string }>();
   const session = useSessionStore((s) => s.session);
   const token = session?.tokens.accessToken ?? "";
+  // Pass the active language so the server can swap in the localized
+  // editorial copy when one's been authored — falls back to base English
+  // per-field if the requested locale (or any of its fields) is missing.
+  const locale = i18n.language;
 
   const lookupQuery = useQuery({
-    queryKey: ["breed-care", petId],
-    queryFn: () => getBreedCareForPet(token, petId!),
+    queryKey: ["breed-care", petId, locale],
+    queryFn: () => getBreedCareForPet(token, petId!, locale),
     enabled: Boolean(token && petId)
   });
 

@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,27 +15,34 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   ArrowLeft,
   Check,
+  Clock,
   Drumstick,
   Flame,
   Plus,
   Search,
   Send,
   Trash2,
+  UtensilsCrossed,
   X
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 
 import { LottieLoading } from "@/components/lottie-loading";
+import { FoodPickerModal } from "@/components/care/food-picker-modal";
 import {
+  createFeedingSchedule,
   createMealLog,
+  deleteFeedingSchedule,
   deleteMealLog,
   getDailyMealSummary,
-  listFoodItems,
+  listFeedingSchedules,
   listMealLogs,
-  listMyPets
+  listMyPets,
+  logFeedingScheduleNow
 } from "@/lib/api";
 import type { FoodItem } from "@petto/contracts";
 import { mobileTheme, useTheme } from "@/lib/theme";
@@ -64,9 +70,23 @@ export default function CaloriesPage() {
   const queryClient = useQueryClient();
   const token = session?.tokens.accessToken ?? "";
 
+  const [tab, setTab] = useState<"today" | "schedule">("today");
+
+  // Today tab — log a meal NOW.
   const [foodPickerOpen, setFoodPickerOpen] = useState(false);
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
   const [grams, setGrams] = useState("");
+
+  // Schedule tab — recurring feeding plan composer.
+  const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
+  const [scheduleFood, setScheduleFood] = useState<FoodItem | null>(null);
+  const [scheduleMealName, setScheduleMealName] = useState("");
+  const [scheduleTime, setScheduleTime] = useState(new Date());
+  const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
+  const [scheduleGrams, setScheduleGrams] = useState("");
+  const [scheduleFoodTypeText, setScheduleFoodTypeText] = useState("");
+  const [scheduleAmountText, setScheduleAmountText] = useState("");
+
   const date = todayISO();
   // [from, to) — local-day window, ISO instants for the URL.
   const fromISO = `${date}T00:00:00Z`;
@@ -91,6 +111,66 @@ export default function CaloriesPage() {
     queryFn: () => getDailyMealSummary(token, petId!, date),
     enabled: Boolean(token && petId)
   });
+
+  // v0.14.2 — feeding plan integration. We pull the recurring schedule for
+  // this pet so the "Today's Plan" section can show what's lined up + a
+  // one-tap "Log it" button per row.
+  const feedingQuery = useQuery({
+    queryKey: ["feeding-schedules", petId],
+    queryFn: () => listFeedingSchedules(token, petId!),
+    enabled: Boolean(token && petId)
+  });
+
+  const logScheduleMutation = useMutation({
+    mutationFn: (scheduleId: string) => logFeedingScheduleNow(token, petId!, scheduleId),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["meals", petId] });
+      queryClient.invalidateQueries({ queryKey: ["meals-summary", petId] });
+      queryClient.invalidateQueries({ queryKey: ["feeding-schedules", petId] });
+    }
+  });
+
+  const formatTimeShort = (d: Date) =>
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const createScheduleMutation = useMutation({
+    mutationFn: () => {
+      const g = parseFloat(scheduleGrams);
+      const hasFood = scheduleFood && Number.isFinite(g) && g > 0;
+      return createFeedingSchedule(token, petId!, {
+        mealName: scheduleMealName.trim(),
+        time: formatTimeShort(scheduleTime),
+        foodType: scheduleFoodTypeText.trim(),
+        amount: scheduleAmountText.trim(),
+        notes: "",
+        foodItemId: hasFood ? scheduleFood!.id : undefined,
+        grams: hasFood ? g : undefined
+      });
+    },
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["feeding-schedules", petId] });
+      setScheduleMealName("");
+      setScheduleTime(new Date());
+      setScheduleFood(null);
+      setScheduleGrams("");
+      setScheduleFoodTypeText("");
+      setScheduleAmountText("");
+    }
+  });
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: (scheduleId: string) => deleteFeedingSchedule(token, petId!, scheduleId),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["feeding-schedules", petId] })
+  });
+
+  const schedulePreviewKcal = useMemo(() => {
+    const g = parseFloat(scheduleGrams);
+    if (!scheduleFood || !Number.isFinite(g) || g <= 0) return 0;
+    return Math.round((scheduleFood.kcalPer100g * g) / 100);
+  }, [scheduleFood, scheduleGrams]);
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -121,8 +201,12 @@ export default function CaloriesPage() {
 
   const { refreshing, handleRefresh } = useLocalRefresh(
     useCallback(async () => {
-      await Promise.all([mealsQuery.refetch(), summaryQuery.refetch()]);
-    }, [mealsQuery, summaryQuery])
+      await Promise.all([
+        mealsQuery.refetch(),
+        summaryQuery.refetch(),
+        feedingQuery.refetch()
+      ]);
+    }, [mealsQuery, summaryQuery, feedingQuery])
   );
 
   const previewKcal = useMemo(() => {
@@ -222,6 +306,58 @@ export default function CaloriesPage() {
         }
         keyboardShouldPersistTaps="handled"
       >
+        {/* Tab switcher — Today (log + actuals) vs Schedule (recurring plan).
+            Single screen owns both — feeding plan was merged in here so the
+            user has a unified nutrition surface. */}
+        <View
+          style={{
+            flexDirection: "row",
+            backgroundColor: theme.colors.white,
+            borderRadius: mobileTheme.radius.pill,
+            padding: 3,
+            marginBottom: mobileTheme.spacing.xl,
+            ...mobileTheme.shadow.sm
+          }}
+        >
+          {(
+            [
+              { key: "today" as const, label: t("calories.tabToday") },
+              { key: "schedule" as const, label: t("calories.tabSchedule") }
+            ]
+          ).map((it) => {
+            const active = tab === it.key;
+            return (
+              <Pressable
+                key={it.key}
+                onPress={() => setTab(it.key)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: mobileTheme.radius.pill,
+                  backgroundColor: active
+                    ? theme.colors.primary
+                    : "transparent",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.caption.fontSize,
+                    fontWeight: "700",
+                    color: active ? "#FFFFFF" : theme.colors.muted,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {it.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {tab === "today" ? (
+          <>
         {/* Hero — today's calories */}
         <View
           style={{
@@ -447,6 +583,192 @@ export default function CaloriesPage() {
           </Pressable>
         </View>
 
+        {/* v0.14.2 — Today's Plan (recurring feeding schedule). Shown above
+            today's actual meals so the user can one-tap log a planned meal.
+            Hidden when there's no schedule on this pet. */}
+        {(feedingQuery.data ?? []).length > 0 ? (
+          <View style={{ marginBottom: mobileTheme.spacing.xl }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: mobileTheme.spacing.md
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                  fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_600SemiBold"
+                }}
+              >
+                {t("calories.todayPlan")}
+              </Text>
+              <Pressable onPress={() => setTab("schedule")} hitSlop={6}>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.colors.primary,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {t("calories.editPlan")}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={{ gap: mobileTheme.spacing.sm }}>
+              {(feedingQuery.data ?? []).map((sch) => {
+                const todayDate = todayISO();
+                const loggedToday = sch.lastLoggedAt
+                  ? sch.lastLoggedAt.startsWith(todayDate)
+                  : false;
+                const foodLabel = sch.foodItemName
+                  ? `${sch.foodItemBrand ? `${sch.foodItemBrand} · ` : ""}${sch.foodItemName}`
+                  : sch.foodType || sch.amount || sch.mealName;
+                return (
+                  <View
+                    key={sch.id}
+                    style={{
+                      backgroundColor: theme.colors.white,
+                      borderRadius: mobileTheme.radius.lg,
+                      padding: mobileTheme.spacing.lg,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: mobileTheme.spacing.md,
+                      ...mobileTheme.shadow.sm,
+                      opacity: loggedToday ? 0.65 : 1
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: theme.colors.primaryBg,
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      <UtensilsCrossed size={20} color={theme.colors.primary} />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: mobileTheme.typography.body.fontSize,
+                          fontWeight: "700",
+                          color: theme.colors.ink,
+                          fontFamily: "Inter_700Bold"
+                        }}
+                      >
+                        {sch.mealName || t("calories.meal")}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                        {sch.time ? (
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 3
+                            }}
+                          >
+                            <Clock size={11} color={theme.colors.muted} />
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: theme.colors.muted,
+                                fontFamily: "Inter_500Medium"
+                              }}
+                            >
+                              {sch.time}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {foodLabel ? (
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontSize: 11,
+                              color: theme.colors.muted,
+                              fontFamily: "Inter_500Medium",
+                              flexShrink: 1
+                            }}
+                          >
+                            · {foodLabel}
+                          </Text>
+                        ) : null}
+                        {sch.kcal && sch.kcal > 0 ? (
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: theme.colors.primary,
+                              fontFamily: "Inter_700Bold"
+                            }}
+                          >
+                            · {Math.round(sch.kcal)} kcal
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    {loggedToday ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: mobileTheme.radius.pill,
+                          backgroundColor: theme.colors.successBg
+                        }}
+                      >
+                        <Check size={12} color={theme.colors.success} />
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: theme.colors.success,
+                            fontFamily: "Inter_700Bold"
+                          }}
+                        >
+                          {t("calories.loggedToday")}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => logScheduleMutation.mutate(sch.id)}
+                        disabled={logScheduleMutation.isPending}
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: mobileTheme.radius.md,
+                          backgroundColor: theme.colors.primary,
+                          opacity: logScheduleMutation.isPending
+                            ? 0.6
+                            : pressed
+                            ? 0.85
+                            : 1
+                        })}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            color: "#FFFFFF",
+                            fontFamily: "Inter_700Bold"
+                          }}
+                        >
+                          {t("calories.logIt")}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
         {/* Today's meals */}
         <Text
           style={{
@@ -545,9 +867,442 @@ export default function CaloriesPage() {
             ))}
           </View>
         )}
+          </>
+        ) : (
+          <>
+            {/* ── Schedule view: recurring feeding plan ───────────────── */}
+            <View
+              style={{
+                backgroundColor: theme.colors.white,
+                borderRadius: mobileTheme.radius.lg,
+                padding: mobileTheme.spacing.xl,
+                marginBottom: mobileTheme.spacing.xl,
+                gap: mobileTheme.spacing.lg,
+                ...mobileTheme.shadow.sm
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                  fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_600SemiBold"
+                }}
+              >
+                {t("calories.scheduleNew")}
+              </Text>
+
+              <TextInput
+                value={scheduleMealName}
+                onChangeText={setScheduleMealName}
+                placeholder={t("calories.mealNamePlaceholder") as string}
+                placeholderTextColor={theme.colors.muted}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  fontSize: mobileTheme.typography.body.fontSize,
+                  color: theme.colors.ink,
+                  fontFamily: "Inter_400Regular"
+                }}
+              />
+
+              <Pressable
+                onPress={() => setShowScheduleTimePicker(true)}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  padding: mobileTheme.spacing.lg,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8
+                }}
+              >
+                <Clock size={16} color={theme.colors.primary} />
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    color: theme.colors.ink,
+                    fontFamily: "Inter_500Medium"
+                  }}
+                >
+                  {formatTimeShort(scheduleTime)}
+                </Text>
+              </Pressable>
+              {showScheduleTimePicker && (
+                <DateTimePicker
+                  value={scheduleTime}
+                  mode="time"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={(_, d) => {
+                    setShowScheduleTimePicker(Platform.OS === "ios");
+                    if (d) setScheduleTime(d);
+                  }}
+                />
+              )}
+
+              {/* Food picker for the schedule */}
+              <Pressable
+                onPress={() => setSchedulePickerOpen(true)}
+                style={{
+                  backgroundColor: theme.colors.background,
+                  borderRadius: mobileTheme.radius.md,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  paddingHorizontal: mobileTheme.spacing.lg,
+                  paddingVertical: 14,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8
+                }}
+              >
+                <Search size={16} color={theme.colors.primary} />
+                {scheduleFood ? (
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontSize: mobileTheme.typography.body.fontSize,
+                        color: theme.colors.ink,
+                        fontFamily: "Inter_700Bold"
+                      }}
+                    >
+                      {scheduleFood.brand ? `${scheduleFood.brand} ` : ""}
+                      {scheduleFood.name}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: theme.colors.muted,
+                        fontFamily: "Inter_500Medium"
+                      }}
+                    >
+                      {scheduleFood.kcalPer100g} kcal / 100g
+                    </Text>
+                  </View>
+                ) : (
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontSize: mobileTheme.typography.body.fontSize,
+                      color: theme.colors.muted,
+                      fontFamily: "Inter_400Regular"
+                    }}
+                  >
+                    {t("calories.pickFoodOptional")}
+                  </Text>
+                )}
+                {scheduleFood ? (
+                  <Pressable
+                    onPress={() => setScheduleFood(null)}
+                    hitSlop={8}
+                  >
+                    <X size={14} color={theme.colors.muted} />
+                  </Pressable>
+                ) : null}
+              </Pressable>
+
+              {scheduleFood ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: mobileTheme.spacing.sm
+                  }}
+                >
+                  <TextInput
+                    value={scheduleGrams}
+                    onChangeText={(v) =>
+                      setScheduleGrams(v.replace(/[^0-9.]/g, ""))
+                    }
+                    placeholder="0"
+                    placeholderTextColor={theme.colors.muted}
+                    keyboardType="decimal-pad"
+                    style={{
+                      width: 100,
+                      backgroundColor: theme.colors.background,
+                      borderRadius: mobileTheme.radius.md,
+                      paddingHorizontal: mobileTheme.spacing.lg,
+                      paddingVertical: 12,
+                      fontSize: mobileTheme.typography.subheading.fontSize,
+                      color: theme.colors.ink,
+                      fontFamily: "Inter_700Bold",
+                      textAlign: "center"
+                    }}
+                  />
+                  <Text
+                    style={{
+                      color: theme.colors.muted,
+                      fontFamily: "Inter_500Medium"
+                    }}
+                  >
+                    g
+                  </Text>
+                  <View style={{ flex: 1 }} />
+                  {schedulePreviewKcal > 0 ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor: theme.colors.primaryBg
+                      }}
+                    >
+                      <Flame size={12} color={theme.colors.primary} />
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: theme.colors.primary,
+                          fontFamily: "Inter_700Bold"
+                        }}
+                      >
+                        ≈ {schedulePreviewKcal} kcal
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                // Free-text fallback when no food is picked
+                <>
+                  <TextInput
+                    value={scheduleFoodTypeText}
+                    onChangeText={setScheduleFoodTypeText}
+                    placeholder={t("calories.foodTypePlaceholder") as string}
+                    placeholderTextColor={theme.colors.muted}
+                    style={{
+                      backgroundColor: theme.colors.background,
+                      borderRadius: mobileTheme.radius.md,
+                      padding: mobileTheme.spacing.lg,
+                      fontSize: mobileTheme.typography.body.fontSize,
+                      color: theme.colors.ink,
+                      fontFamily: "Inter_400Regular"
+                    }}
+                  />
+                  <TextInput
+                    value={scheduleAmountText}
+                    onChangeText={setScheduleAmountText}
+                    placeholder={t("calories.amountPlaceholder") as string}
+                    placeholderTextColor={theme.colors.muted}
+                    style={{
+                      backgroundColor: theme.colors.background,
+                      borderRadius: mobileTheme.radius.md,
+                      padding: mobileTheme.spacing.lg,
+                      fontSize: mobileTheme.typography.body.fontSize,
+                      color: theme.colors.ink,
+                      fontFamily: "Inter_400Regular"
+                    }}
+                  />
+                </>
+              )}
+
+              <Pressable
+                onPress={() => createScheduleMutation.mutate()}
+                disabled={
+                  !scheduleMealName.trim() || createScheduleMutation.isPending
+                }
+                style={({ pressed }) => ({
+                  backgroundColor: scheduleMealName.trim()
+                    ? theme.colors.primary
+                    : theme.colors.border,
+                  borderRadius: mobileTheme.radius.md,
+                  paddingVertical: mobileTheme.spacing.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: mobileTheme.spacing.sm,
+                  opacity: createScheduleMutation.isPending
+                    ? 0.6
+                    : pressed
+                    ? 0.85
+                    : 1
+                })}
+              >
+                {createScheduleMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Plus size={16} color="#FFFFFF" />
+                    <Text
+                      style={{
+                        color: "#FFFFFF",
+                        fontWeight: "700",
+                        fontSize: mobileTheme.typography.body.fontSize,
+                        fontFamily: "Inter_700Bold"
+                      }}
+                    >
+                      {t("calories.scheduleSave")}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+
+            {/* Existing schedule list with delete */}
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
+                color: theme.colors.ink,
+                fontFamily: "Inter_600SemiBold",
+                marginBottom: mobileTheme.spacing.md
+              }}
+            >
+              {t("calories.scheduleList")}
+            </Text>
+            {(feedingQuery.data ?? []).length === 0 ? (
+              <View
+                style={{
+                  paddingVertical: mobileTheme.spacing["3xl"],
+                  alignItems: "center",
+                  gap: mobileTheme.spacing.md
+                }}
+              >
+                <UtensilsCrossed size={36} color={theme.colors.muted} />
+                <Text
+                  style={{
+                    fontSize: mobileTheme.typography.body.fontSize,
+                    color: theme.colors.muted,
+                    fontFamily: "Inter_400Regular",
+                    textAlign: "center",
+                    paddingHorizontal: mobileTheme.spacing["3xl"]
+                  }}
+                >
+                  {t("calories.scheduleEmpty")}
+                </Text>
+              </View>
+            ) : (
+              <View style={{ gap: mobileTheme.spacing.sm }}>
+                {(feedingQuery.data ?? []).map((sch) => {
+                  const foodLabel = sch.foodItemName
+                    ? `${sch.foodItemBrand ? `${sch.foodItemBrand} · ` : ""}${sch.foodItemName}`
+                    : sch.foodType
+                      ? `${sch.foodType}${sch.amount ? ` · ${sch.amount}` : ""}`
+                      : null;
+                  return (
+                    <View
+                      key={sch.id}
+                      style={{
+                        backgroundColor: theme.colors.white,
+                        borderRadius: mobileTheme.radius.lg,
+                        padding: mobileTheme.spacing.lg,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: mobileTheme.spacing.md,
+                        ...mobileTheme.shadow.sm
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: theme.colors.primaryBg,
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                      >
+                        <UtensilsCrossed size={20} color={theme.colors.primary} />
+                      </View>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text
+                          style={{
+                            fontSize: mobileTheme.typography.body.fontSize,
+                            fontWeight: "700",
+                            color: theme.colors.ink,
+                            fontFamily: "Inter_700Bold"
+                          }}
+                        >
+                          {sch.mealName || t("calories.meal")}
+                        </Text>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            flexWrap: "wrap"
+                          }}
+                        >
+                          {sch.time ? (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 3
+                              }}
+                            >
+                              <Clock size={11} color={theme.colors.muted} />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: theme.colors.muted,
+                                  fontFamily: "Inter_500Medium"
+                                }}
+                              >
+                                {sch.time}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {foodLabel ? (
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                fontSize: 11,
+                                color: theme.colors.muted,
+                                fontFamily: "Inter_500Medium"
+                              }}
+                            >
+                              · {foodLabel}
+                            </Text>
+                          ) : null}
+                          {sch.kcal && sch.kcal > 0 ? (
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: theme.colors.primary,
+                                fontFamily: "Inter_700Bold"
+                              }}
+                            >
+                              · {Math.round(sch.kcal)} kcal
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                      <Pressable
+                        onPress={() =>
+                          Alert.alert(
+                            t("calories.scheduleDeleteTitle") as string,
+                            t("calories.scheduleDeleteBody") as string,
+                            [
+                              {
+                                text: t("common.cancel") as string,
+                                style: "cancel"
+                              },
+                              {
+                                text: t("common.delete") as string,
+                                style: "destructive",
+                                onPress: () =>
+                                  deleteScheduleMutation.mutate(sch.id)
+                              }
+                            ]
+                          )
+                        }
+                        hitSlop={8}
+                      >
+                        <Trash2 size={16} color={theme.colors.muted} />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
       </ScrollView>
 
-      {/* Food picker modal */}
+      {/* Food picker modals — separate state for today's meal log vs schedule */}
       <FoodPickerModal
         visible={foodPickerOpen}
         onClose={() => setFoodPickerOpen(false)}
@@ -559,181 +1314,18 @@ export default function CaloriesPage() {
         species={speciesFilter}
         token={token}
       />
+      <FoodPickerModal
+        visible={schedulePickerOpen}
+        onClose={() => setSchedulePickerOpen(false)}
+        onPick={(item) => {
+          setScheduleFood(item);
+          setSchedulePickerOpen(false);
+          Haptics.selectionAsync();
+        }}
+        species={speciesFilter}
+        token={token}
+      />
     </KeyboardAvoidingView>
   );
 }
 
-function FoodPickerModal({
-  visible,
-  onClose,
-  onPick,
-  species,
-  token
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onPick: (item: FoodItem) => void;
-  species: string;
-  token: string;
-}) {
-  const { t } = useTranslation();
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const [search, setSearch] = useState("");
-
-  const itemsQuery = useQuery({
-    queryKey: ["food-items", species, search],
-    queryFn: () => listFoodItems(token, { search: search.trim() || undefined, species: species || undefined }),
-    enabled: visible && Boolean(token)
-  });
-
-  const items = itemsQuery.data ?? [];
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + mobileTheme.spacing.md,
-            paddingHorizontal: mobileTheme.spacing.xl,
-            paddingBottom: mobileTheme.spacing.lg,
-            backgroundColor: theme.colors.white,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.border,
-            gap: mobileTheme.spacing.md
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}
-          >
-            <Text
-              style={{
-                fontSize: mobileTheme.typography.subheading.fontSize,
-                fontWeight: mobileTheme.typography.subheading.fontWeight,
-                color: theme.colors.ink,
-                fontFamily: "Inter_700Bold"
-              }}
-            >
-              {t("calories.selectFood")}
-            </Text>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <X size={22} color={theme.colors.ink} />
-            </Pressable>
-          </View>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              backgroundColor: theme.colors.background,
-              borderRadius: mobileTheme.radius.md,
-              paddingHorizontal: mobileTheme.spacing.lg,
-              paddingVertical: 10
-            }}
-          >
-            <Search size={16} color={theme.colors.muted} />
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder={t("calories.searchFood")}
-              placeholderTextColor={theme.colors.muted}
-              autoFocus
-              style={{
-                flex: 1,
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.ink,
-                fontFamily: "Inter_400Regular"
-              }}
-            />
-          </View>
-        </View>
-
-        <ScrollView
-          contentContainerStyle={{
-            paddingHorizontal: mobileTheme.spacing.xl,
-            paddingTop: mobileTheme.spacing.xl,
-            paddingBottom: insets.bottom + 24
-          }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {itemsQuery.isLoading ? (
-            <View style={{ paddingVertical: mobileTheme.spacing["3xl"], alignItems: "center" }}>
-              <LottieLoading size={50} />
-            </View>
-          ) : items.length === 0 ? (
-            <Text
-              style={{
-                paddingTop: mobileTheme.spacing["3xl"],
-                fontSize: mobileTheme.typography.body.fontSize,
-                color: theme.colors.muted,
-                fontFamily: "Inter_400Regular",
-                textAlign: "center"
-              }}
-            >
-              {t("calories.noFoodResults")}
-            </Text>
-          ) : (
-            <View style={{ gap: mobileTheme.spacing.sm }}>
-              {items.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => onPick(item)}
-                  style={({ pressed }) => ({
-                    backgroundColor: pressed ? theme.colors.primaryBg : theme.colors.white,
-                    borderRadius: mobileTheme.radius.lg,
-                    padding: mobileTheme.spacing.lg,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: mobileTheme.spacing.md,
-                    ...mobileTheme.shadow.sm
-                  })}
-                >
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: theme.colors.primaryBg,
-                      alignItems: "center",
-                      justifyContent: "center"
-                    }}
-                  >
-                    <Drumstick size={18} color={theme.colors.primary} />
-                  </View>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        fontSize: mobileTheme.typography.body.fontSize,
-                        fontWeight: "700",
-                        color: theme.colors.ink,
-                        fontFamily: "Inter_700Bold"
-                      }}
-                    >
-                      {item.brand ? `${item.brand} · ` : ""}{item.name}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: theme.colors.muted,
-                        fontFamily: "Inter_500Medium"
-                      }}
-                    >
-                      {item.kcalPer100g} kcal / 100g · {item.kind}
-                      {item.speciesLabel ? ` · ${item.speciesLabel}` : ""}
-                    </Text>
-                  </View>
-                  <Check size={16} color={theme.colors.primary} />
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}

@@ -25,6 +25,7 @@ import { useRouter } from "expo-router";
 import * as Localization from "expo-localization";
 import {
   AlertTriangle,
+  ArrowLeft,
   BadgeCheck,
   Clock,
   Heart,
@@ -306,6 +307,12 @@ export default function DiscoveryHomeScreen() {
     >
       <Header
         theme={theme}
+        onBack={() => {
+          // Adopt is reachable from the home tab; if there's no stack to
+          // pop (e.g. cold-launched via deep link) fall back to home.
+          if (router.canGoBack()) router.back();
+          else router.replace("/(app)/(tabs)/home" as any);
+        }}
         onOpenFavorites={() => router.push("/(app)/favorites" as any)}
         onOpenMyApps={() => router.push("/(app)/my-applications" as any)}
       />
@@ -479,10 +486,12 @@ export default function DiscoveryHomeScreen() {
 
 function Header({
   theme,
+  onBack,
   onOpenFavorites,
   onOpenMyApps
 }: {
   theme: ReturnType<typeof useTheme>;
+  onBack: () => void;
   onOpenFavorites: () => void;
   onOpenMyApps: () => void;
 }) {
@@ -499,6 +508,22 @@ function Header({
         backgroundColor: theme.colors.surface
       }}
     >
+      <Pressable
+        onPress={onBack}
+        hitSlop={8}
+        style={({ pressed }) => ({
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.colors.background,
+          opacity: pressed ? 0.7 : 1
+        })}
+        accessibilityLabel="Back"
+      >
+        <ArrowLeft size={18} color={theme.colors.ink} />
+      </Pressable>
       <View style={{ flex: 1 }}>
         <Text
           style={{

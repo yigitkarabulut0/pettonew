@@ -1,11 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
+  TextInput,
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,12 +20,14 @@ import {
   ArrowLeft,
   CalendarCheck,
   CalendarDays,
+  Key,
   Navigation,
-  Plus
+  Plus,
+  X
 } from "lucide-react-native";
 import type { Playdate } from "@petto/contracts";
 
-import { listPlaydates } from "@/lib/api";
+import { joinPlaydateByCode, listPlaydates } from "@/lib/api";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
@@ -69,6 +77,30 @@ export default function PlaydatesHubPage() {
   const [sort, setSort] = useState<SortMode>("distance");
   const [location, setLocation] = useState<CachedLocation | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
+
+  // Join-by-code modal — a "PD-XXXXXX" code typed in here resolves to a
+  // private playdate via /v1/playdates/join-by-code.
+  const [codeModalVisible, setCodeModalVisible] = useState(false);
+  const [codeValue, setCodeValue] = useState("");
+  const codeMutation = useMutation({
+    mutationFn: (code: string) => joinPlaydateByCode(token, code),
+    onSuccess: (playdate) => {
+      setCodeModalVisible(false);
+      setCodeValue("");
+      // Invalidate playdate lists so the new pending invite shows up next
+      // time the user opens "My Playdates".
+      queryClient.invalidateQueries({ queryKey: ["playdates"] });
+      queryClient.invalidateQueries({ queryKey: ["my-playdates"] });
+      router.push(`/(app)/playdates/${playdate.id}` as any);
+    },
+    onError: (err) => {
+      Alert.alert(
+        t("common.error") as string,
+        (err instanceof Error ? err.message : null) ||
+          (t("playdates.invalidCode") as string)
+      );
+    }
+  });
 
   // Seed the location from cache on mount so the first render has a
   // distance sort — then kick off a fresh fix in the background.
@@ -209,6 +241,24 @@ export default function PlaydatesHubPage() {
             }}
           >
             <CalendarCheck size={18} color={theme.colors.ink} />
+          </Pressable>
+          {/* v0.14.1 — paste a PD-XXXXXX code shared by a friend who hosted
+              a private playdate. Mirrors the same Key button placement on
+              the groups screen so muscle memory carries between hubs. */}
+          <Pressable
+            onPress={() => setCodeModalVisible(true)}
+            hitSlop={10}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: theme.colors.background,
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+            accessibilityLabel={t("playdates.joinByCode") as string}
+          >
+            <Key size={18} color={theme.colors.ink} />
           </Pressable>
           <Pressable
             onPress={() =>
@@ -354,6 +404,142 @@ export default function PlaydatesHubPage() {
         )}
       </ScrollView>
 
+      {/* Join-by-code modal — same UX as the groups Key icon flow */}
+      <Modal
+        visible={codeModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCodeModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24
+          }}
+        >
+          <Pressable
+            onPress={() => setCodeModalVisible(false)}
+            style={{
+              position: "absolute",
+              top: insets.top + 16,
+              right: 20,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(255,255,255,0.18)",
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+            hitSlop={8}
+          >
+            <X size={18} color="#FFFFFF" />
+          </Pressable>
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 380,
+              backgroundColor: theme.colors.surface,
+              borderRadius: mobileTheme.radius.lg,
+              padding: mobileTheme.spacing.xl,
+              gap: mobileTheme.spacing.lg
+            }}
+          >
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                backgroundColor: theme.colors.primaryBg,
+                alignItems: "center",
+                justifyContent: "center",
+                alignSelf: "center"
+              }}
+            >
+              <Key size={24} color={theme.colors.primary} />
+            </View>
+            <View style={{ gap: 6 }}>
+              <Text
+                style={{
+                  fontSize: 19,
+                  textAlign: "center",
+                  fontFamily: "Inter_700Bold",
+                  color: theme.colors.ink
+                }}
+              >
+                {t("playdates.joinByCode")}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  textAlign: "center",
+                  color: theme.colors.muted,
+                  fontFamily: "Inter_500Medium",
+                  lineHeight: 18
+                }}
+              >
+                {t("playdates.joinByCodeHint")}
+              </Text>
+            </View>
+            <TextInput
+              value={codeValue}
+              onChangeText={(v) => setCodeValue(v.toUpperCase())}
+              placeholder={t("playdates.joinCodePlaceholder") as string}
+              placeholderTextColor={theme.colors.muted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              spellCheck={false}
+              maxLength={9}
+              style={{
+                fontSize: 20,
+                fontFamily: "Inter_700Bold",
+                letterSpacing: 4,
+                color: theme.colors.ink,
+                textAlign: "center",
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                borderRadius: mobileTheme.radius.md,
+                backgroundColor: theme.colors.background,
+                borderWidth: 1.5,
+                borderColor: codeValue.trim().length >= 4
+                  ? theme.colors.primary
+                  : theme.colors.border
+              }}
+            />
+            <Pressable
+              onPress={() => codeMutation.mutate(codeValue.trim())}
+              disabled={!codeValue.trim() || codeMutation.isPending}
+              style={({ pressed }) => ({
+                paddingVertical: 14,
+                borderRadius: mobileTheme.radius.md,
+                backgroundColor: codeValue.trim()
+                  ? theme.colors.primary
+                  : theme.colors.border,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: codeMutation.isPending ? 0.6 : pressed ? 0.85 : 1
+              })}
+            >
+              {codeMutation.isPending ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text
+                  style={{
+                    color: "#FFFFFF",
+                    fontSize: 15,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {t("playdates.joinByCodeSubmit")}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

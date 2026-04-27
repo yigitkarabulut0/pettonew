@@ -286,7 +286,7 @@ export default function PlaydateDetailPage() {
   const handleDirections = () => {
     if (!hasCoords || !playdate) return;
     const { latitude, longitude } = playdate;
-    const label = encodeURIComponent(playdate.title || "Playdate");
+    const label = encodeURIComponent(playdate.title || (t("playdates.singularLabel") as string));
     const url = Platform.select({
       ios: `maps://?daddr=${latitude},${longitude}&q=${label}`,
       android: `google.navigation:q=${latitude},${longitude}`,
@@ -705,6 +705,83 @@ export default function PlaydateDetailPage() {
                 </View>
                 <ChevronRight size={18} color={theme.colors.muted} />
               </Pressable>
+            </View>
+          ) : null}
+
+          {/* Host-only join code panel for private playdates. The server
+              masks joinCode for non-hosts, so the existence check is enough. */}
+          {playdate?.isOrganizer &&
+          playdate?.visibility === "private" &&
+          playdate?.joinCode ? (
+            <View>
+              <SectionLabel theme={theme} text={t("playdates.joinCodeTitle") as string} />
+              <View
+                style={{
+                  backgroundColor: theme.colors.primaryBg,
+                  borderRadius: mobileTheme.radius.lg,
+                  borderWidth: 2,
+                  borderColor: theme.colors.primary,
+                  borderStyle: "dashed",
+                  padding: mobileTheme.spacing.lg,
+                  gap: mobileTheme.spacing.md
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 26,
+                    fontWeight: "800",
+                    color: theme.colors.primary,
+                    fontFamily: "Inter_700Bold",
+                    letterSpacing: 4,
+                    textAlign: "center"
+                  }}
+                  selectable
+                >
+                  {playdate.joinCode}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.colors.muted,
+                    fontFamily: "Inter_500Medium",
+                    textAlign: "center"
+                  }}
+                >
+                  {t("playdates.privateJoinCodeHint")}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    if (!playdate?.joinCode) return;
+                    Share.share({
+                      message: t("playdates.shareCodeMessage", {
+                        title: playdate.title,
+                        code: playdate.joinCode
+                      }) as string
+                    });
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    paddingVertical: 12,
+                    borderRadius: mobileTheme.radius.md,
+                    backgroundColor: theme.colors.primary,
+                    opacity: pressed ? 0.85 : 1
+                  })}
+                >
+                  <Share2 size={15} color="#FFFFFF" />
+                  <Text
+                    style={{
+                      color: "#FFFFFF",
+                      fontFamily: "Inter_700Bold",
+                      fontSize: mobileTheme.typography.body.fontSize
+                    }}
+                  >
+                    {t("playdates.shareJoinCode")}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
 

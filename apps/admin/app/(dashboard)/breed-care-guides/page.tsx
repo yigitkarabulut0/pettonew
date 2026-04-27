@@ -30,6 +30,7 @@ import { RowActions } from "@/components/data-table/columns";
 import { useDataTable } from "@/components/data-table/useDataTable";
 import {
   AdminBreedCareGuide,
+  BreedCareGuideTranslation,
   createAdminBreedCareGuide,
   deleteAdminBreedCareGuide,
   getAdminBreedCareGuides,
@@ -38,6 +39,18 @@ import {
 } from "@/lib/admin-api";
 
 const SPECIES_WIDE_VALUE = "__species_wide__";
+
+// Locales the admin can author overrides for. Base English (the top-level
+// title/summary/body fields) is always the fallback, so we don't list it
+// here — it's authored via the main form. Add a new locale by extending
+// this array; matching mobile users get the localized copy automatically.
+const SUPPORTED_LOCALES: Array<{ code: string; label: string }> = [
+  { code: "tr", label: "Türkçe" },
+  { code: "pt-BR", label: "Português (Brasil)" },
+  { code: "es", label: "Español" },
+  { code: "de", label: "Deutsch" },
+  { code: "fr", label: "Français" }
+];
 
 type FormState = {
   id: string;
@@ -49,6 +62,7 @@ type FormState = {
   summary: string;
   body: string;
   heroImageUrl: string;
+  translations: Record<string, BreedCareGuideTranslation>;
 };
 
 const EMPTY_FORM: FormState = {
@@ -60,7 +74,8 @@ const EMPTY_FORM: FormState = {
   title: "",
   summary: "",
   body: "",
-  heroImageUrl: ""
+  heroImageUrl: "",
+  translations: {}
 };
 
 const SELECT_CLASS =
@@ -99,6 +114,29 @@ export default function BreedCareGuidesPage() {
   }, [breedsQuery.data, form.speciesId]);
 
   const all = guidesQuery.data ?? [];
+
+  // Build a set of (speciesId, breedId) pairs that already have a guide.
+  // Species-wide guides slot in with breedId="". The breed picker disables
+  // any option already covered, so an admin can't accidentally create a
+  // duplicate guide for "Dog · Afghan Hound" and instead has to use Edit
+  // on the existing row. In edit mode we exclude the row being edited so
+  // the current selection stays choosable.
+  const takenBreedKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    for (const g of all) {
+      if (form.id && g.id === form.id) continue;
+      keys.add(`${g.speciesId}:${g.breedId ?? ""}`);
+    }
+    return keys;
+  }, [all, form.id]);
+  const hasAnyAvailableBreed =
+    !form.speciesId
+      ? true
+      : !takenBreedKeys.has(`${form.speciesId}:`) ||
+        breedsForSpecies.some(
+          (b) => !takenBreedKeys.has(`${form.speciesId}:${b.id}`)
+        );
+
   const filtered = React.useMemo(() => {
     const q = state.search.trim().toLowerCase();
     if (!q) return all;
@@ -116,6 +154,21 @@ export default function BreedCareGuidesPage() {
 
   const upsertMutation = useMutation({
     mutationFn: () => {
+      // Normalise translations: drop locales whose every field is blank
+      // so the JSONB on the server doesn't collect dead keys, and trim
+      // the surviving values per-field.
+      const cleanedTranslations: Record<string, BreedCareGuideTranslation> = {};
+      for (const [code, tr] of Object.entries(form.translations)) {
+        const t = (tr.title ?? "").trim();
+        const s = (tr.summary ?? "").trim();
+        const b = (tr.body ?? "").trim();
+        if (!t && !s && !b) continue;
+        cleanedTranslations[code] = {
+          ...(t ? { title: t } : {}),
+          ...(s ? { summary: s } : {}),
+          ...(b ? { body: b } : {})
+        };
+      }
       const payload = {
         speciesId: form.speciesId,
         speciesLabel: form.speciesLabel,
@@ -124,7 +177,8 @@ export default function BreedCareGuidesPage() {
         title: form.title.trim(),
         summary: form.summary.trim() || undefined,
         body: form.body,
-        heroImageUrl: form.heroImageUrl.trim() || undefined
+        heroImageUrl: form.heroImageUrl.trim() || undefined,
+        translations: cleanedTranslations
       };
       return form.id
         ? updateAdminBreedCareGuide(form.id, payload)
@@ -163,7 +217,8 @@ export default function BreedCareGuidesPage() {
       title: g.title,
       summary: g.summary ?? "",
       body: g.body,
-      heroImageUrl: g.heroImageUrl ?? ""
+      heroImageUrl: g.heroImageUrl ?? "",
+      translations: g.translations ?? {}
     });
     setSheetOpen(true);
   };
@@ -295,10 +350,19 @@ export default function BreedCareGuidesPage() {
     []
   );
 
+  // Defensive backstop for the disabled <option>s above — even if the DOM
+  // is manipulated, the form can't submit when the picked pair is already
+  // covered by another guide in create mode.
+  const duplicatePair =
+    !form.id &&
+    form.speciesId.length > 0 &&
+    takenBreedKeys.has(`${form.speciesId}:${form.breedId ?? ""}`);
+
   const canSubmit =
     form.speciesId.length > 0 &&
     form.title.trim().length > 0 &&
-    form.body.trim().length > 0;
+    form.body.trim().length > 0 &&
+    !duplicatePair;
 
   return (
     <div className="flex flex-col gap-4">
@@ -378,11 +442,30 @@ export default function BreedCareGuidesPage() {
                   disabled={speciesQuery.isLoading}
                 >
                   <option value="">Select species…</option>
-                  {(speciesQuery.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
+                  {(speciesQuery.data ?? []).map((s) => {
+                    // Tally remaining slots for this species: species-wide
+                    // (1 row) + one row per breed. Used as a hint, not a
+                    // hard block — the admin might still want to edit.
+                    const breedsForS = (breedsQuery.data ?? []).filter(
+                      (b) => b.speciesId === s.id
+                    );
+                    const totalSlots = 1 + breedsForS.length;
+                    let used = takenBreedKeys.has(`${s.id}:`) ? 1 : 0;
+                    for (const b of breedsForS) {
+                      if (takenBreedKeys.has(`${s.id}:${b.id}`)) used++;
+                    }
+                    const remaining = totalSlots - used;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                        {!form.id && totalSlots > 0
+                          ? remaining === 0
+                            ? " — all covered"
+                            : ` — ${remaining} open`
+                          : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <div className="grid gap-1.5">
@@ -394,15 +477,41 @@ export default function BreedCareGuidesPage() {
                   onChange={(e) => onBreedChange(e.target.value)}
                   disabled={!form.speciesId}
                 >
-                  <option value={SPECIES_WIDE_VALUE}>
-                    Species-wide (every breed)
-                  </option>
-                  {breedsForSpecies.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.label}
-                    </option>
-                  ))}
+                  {(() => {
+                    const speciesWideTaken =
+                      form.speciesId && takenBreedKeys.has(`${form.speciesId}:`);
+                    return (
+                      <option
+                        value={SPECIES_WIDE_VALUE}
+                        disabled={!!speciesWideTaken}
+                      >
+                        Species-wide (every breed)
+                        {speciesWideTaken ? " — guide exists" : ""}
+                      </option>
+                    );
+                  })()}
+                  {breedsForSpecies.map((b) => {
+                    const taken = takenBreedKeys.has(`${form.speciesId}:${b.id}`);
+                    return (
+                      <option key={b.id} value={b.id} disabled={taken}>
+                        {b.label}
+                        {taken ? " — guide exists" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+                {form.speciesId && !form.id && !hasAnyAvailableBreed ? (
+                  <p className="text-[11px] text-[var(--warning)]">
+                    Every breed in this species already has a guide. Use the
+                    list to edit an existing one instead.
+                  </p>
+                ) : null}
+                {form.speciesId && !form.id && hasAnyAvailableBreed ? (
+                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                    Greyed-out breeds already have a guide — pick those from the
+                    table to edit.
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -509,6 +618,11 @@ export default function BreedCareGuidesPage() {
               )}
             </div>
 
+            <TranslationsEditor
+              translations={form.translations}
+              onChange={(next) => setForm((prev) => ({ ...prev, translations: next }))}
+            />
+
             </div>
 
             <SheetFooter className="shrink-0 border-t border-[var(--border)] bg-[var(--petto-surface)] px-6 py-3">
@@ -535,6 +649,116 @@ export default function BreedCareGuidesPage() {
       </Sheet>
 
       {confirmNode}
+    </div>
+  );
+}
+
+// Per-locale editor wrapped in collapsible cards. Empty fields fall back
+// to the base English copy at read time, so a translator can ship just
+// the title for now and finish the body later. Removing every field for
+// a locale removes that locale from the JSONB on save (handled in the
+// upsertMutation normaliser).
+function TranslationsEditor({
+  translations,
+  onChange
+}: {
+  translations: Record<string, BreedCareGuideTranslation>;
+  onChange: (next: Record<string, BreedCareGuideTranslation>) => void;
+}) {
+  function patch(code: string, field: keyof BreedCareGuideTranslation, value: string) {
+    const prev = translations[code] ?? {};
+    onChange({ ...translations, [code]: { ...prev, [field]: value } });
+  }
+  function clearLocale(code: string) {
+    const next = { ...translations };
+    delete next[code];
+    onChange(next);
+  }
+  function localeFilled(code: string) {
+    const t = translations[code];
+    if (!t) return false;
+    return Boolean(t.title?.trim() || t.summary?.trim() || t.body?.trim());
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <Label>Translations</Label>
+      <p className="-mt-1 text-[11px] text-[var(--muted-foreground)]">
+        Empty fields fall back to the English version. A locale with every field empty is
+        not stored. Mobile users see the base English copy until you author their language.
+      </p>
+      <div className="flex flex-col gap-2">
+        {SUPPORTED_LOCALES.map(({ code, label }) => {
+          const tr = translations[code] ?? {};
+          const filled = localeFilled(code);
+          return (
+            <details
+              key={code}
+              className="overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)]"
+              open={filled}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                    {code}
+                  </span>
+                  <span className="font-medium text-[var(--foreground)]">{label}</span>
+                  {filled ? (
+                    <span className="rounded-sm bg-[var(--success-soft)] px-1.5 py-px text-[10px] font-semibold text-[var(--success)]">
+                      authored
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[var(--muted-foreground)]">
+                      uses English
+                    </span>
+                  )}
+                </div>
+                {filled ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      clearLocale(code);
+                    }}
+                  >
+                    <X className="mr-1 h-3 w-3" /> Clear
+                  </Button>
+                ) : null}
+              </summary>
+              <div className="flex flex-col gap-2 border-t border-[var(--border)] px-3 py-3">
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Title</Label>
+                  <Input
+                    value={tr.title ?? ""}
+                    onChange={(e) => patch(code, "title", e.target.value)}
+                    placeholder="Localized title"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Summary</Label>
+                  <Input
+                    value={tr.summary ?? ""}
+                    onChange={(e) => patch(code, "summary", e.target.value)}
+                    placeholder="One-line summary in this language"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px]">Body</Label>
+                  <Textarea
+                    rows={10}
+                    value={tr.body ?? ""}
+                    onChange={(e) => patch(code, "body", e.target.value)}
+                    placeholder="Full body in this language. Same paragraph rules as English."
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+            </details>
+          );
+        })}
+      </div>
     </div>
   );
 }

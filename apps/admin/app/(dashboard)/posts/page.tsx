@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Heart, Image as ImageIcon } from "lucide-react";
+import { ExternalLink, Heart } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import { DataTableToolbar } from "@/components/data-table/DataTableToolbar";
 import { RowActions } from "@/components/data-table/columns";
 import { useDataTable } from "@/components/data-table/useDataTable";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { HomePost } from "@petto/contracts";
 import { deletePost, getPosts } from "@/lib/admin-api";
 
@@ -80,9 +81,7 @@ export default function PostsPage() {
         header: "Media",
         cell: ({ row }) =>
           row.original.imageUrl ? (
-            <Badge tone="neutral">
-              <ImageIcon className="h-3 w-3" /> image
-            </Badge>
+            <PostThumbnail src={row.original.imageUrl} alt={row.original.body || "post image"} />
           ) : (
             <span className="text-[11px] text-[var(--muted-foreground)]">—</span>
           )
@@ -160,5 +159,50 @@ export default function PostsPage() {
       />
       {confirmNode}
     </div>
+  );
+}
+
+// Inline post-image thumbnail with a click-to-zoom lightbox. Lets the
+// admin eyeball flagged content without leaving the table — important
+// for fast moderation triage.
+function PostThumbnail({ src, alt }: { src: string; alt: string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(true);
+        }}
+        className="block h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--muted)] transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        aria-label="Preview image"
+        title="Preview image"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className="h-full w-full object-cover" loading="lazy" />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogTitle className="sr-only">Post image</DialogTitle>
+          <div className="flex flex-col gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={alt}
+              className="max-h-[78vh] w-full rounded-md object-contain"
+            />
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-fit items-center gap-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Open original
+            </a>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

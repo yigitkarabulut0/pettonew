@@ -64,10 +64,19 @@ export function DataTable<TData>({
   onRowClick,
   className
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = React.useState<SortingState>(() =>
-    state.sort
-      ? [{ id: state.sort.replace(/^-/, ""), desc: state.sort.startsWith("-") }]
-      : []
+  // Sorting is fully controlled by `state.sort`. Keeping it derived (instead
+  // of a local useState mirrored to the URL) avoids the "Cannot update Router
+  // while rendering DataTable" warning — tanstack-table can fire
+  // onSortingChange during its initial settle pass, and a router.replace
+  // dispatched from inside that pass updates the Router from within our
+  // render. Deriving the value means the only writer to the URL is the
+  // user-driven click handler below, which runs outside render.
+  const sorting = React.useMemo<SortingState>(
+    () =>
+      state.sort
+        ? [{ id: state.sort.replace(/^-/, ""), desc: state.sort.startsWith("-") }]
+        : [],
+    [state.sort]
   );
 
   const rowSelection: RowSelectionState = React.useMemo(() => {
@@ -121,12 +130,10 @@ export function DataTable<TData>({
     manualPagination: true,
     manualSorting: true,
     onSortingChange: (updater) => {
-      setSorting((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        const first = next[0];
-        onStateChange({ sort: first ? `${first.desc ? "-" : ""}${first.id}` : "" });
-        return next;
-      });
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      const first = next[0];
+      const newSort = first ? `${first.desc ? "-" : ""}${first.id}` : "";
+      if (newSort !== state.sort) onStateChange({ sort: newSort });
     },
     onRowSelectionChange: (updater) => {
       if (!onSelectionChange) return;

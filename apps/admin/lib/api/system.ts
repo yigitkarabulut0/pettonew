@@ -132,13 +132,21 @@ export async function deleteAdminBadge(id: string) {
   return apiRequest(`/badges/${id}`, { method: "DELETE" });
 }
 
+export type BroadcastSegment =
+  | { audience: "all" }
+  | { audience: "pet_type"; petTypes: string[] }
+  | { audience: "users"; userIds: string[] };
+
 export async function sendBroadcast(input: {
   title: string;
   body: string;
-  segment?: Record<string, unknown>;
+  segment: BroadcastSegment;
   deepLink?: string;
 }) {
-  return apiRequest<{ deliveredCount: number }>("/broadcast", { method: "POST", body: input });
+  return apiRequest<{ recipientCount: number; deliveredCount: number }>(
+    "/broadcast",
+    { method: "POST", body: input }
+  );
 }
 
 export async function getDashboardMetrics() {

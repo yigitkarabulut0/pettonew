@@ -212,6 +212,16 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	)`)
 	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_medications_pet ON pet_medications(pet_id) WHERE active`)
 
+	// v0.14.3 — pet_medication_doses logs each "Mark given" tap as its own
+	// row so the mobile UI can show a per-medication history (today /
+	// yesterday / earlier this week / …). Append-only; we never UPDATE.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS pet_medication_doses (
+		id             TEXT PRIMARY KEY,
+		medication_id  TEXT NOT NULL,
+		given_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_medication_doses_med ON pet_medication_doses(medication_id, given_at DESC)`)
+
 	// user_weekly_summary_log: idempotency for the Sunday push. One row
 	// per (user, week_start) means "we already sent this week's summary".
 	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS user_weekly_summary_log (
@@ -220,6 +230,37 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 		sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (user_id, week_start)
 	)`)
+
+	// scheduled_pushes: admin-defined recurring broadcasts. Cron is overkill
+	// for the simple "fire on these weekdays at HH:MM" workflow the admin
+	// surface needs, so we store the schedule as a (days_of_week + time +
+	// timezone) tuple and let the per-minute scheduler loop compute the next
+	// fire. days_of_week uses Go's time.Weekday() integers (0=Sun … 6=Sat).
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS scheduled_pushes (
+		id            TEXT PRIMARY KEY,
+		title         TEXT NOT NULL,
+		body          TEXT NOT NULL,
+		deep_link     TEXT NOT NULL DEFAULT '',
+		audience      TEXT NOT NULL DEFAULT 'all',
+		pet_types     TEXT[] NOT NULL DEFAULT '{}',
+		user_ids      TEXT[] NOT NULL DEFAULT '{}',
+		city_filter   TEXT NOT NULL DEFAULT '',
+		days_of_week  INT[] NOT NULL DEFAULT '{}',
+		time_of_day   TEXT NOT NULL DEFAULT '09:00',
+		timezone      TEXT NOT NULL DEFAULT 'UTC',
+		enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+		last_run_at   TIMESTAMPTZ,
+		next_run_at   TIMESTAMPTZ NOT NULL,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_by    TEXT NOT NULL DEFAULT ''
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_scheduled_pushes_next_run
+		ON scheduled_pushes (next_run_at) WHERE enabled = TRUE`)
+	// country_filter — added v0.18.x. Stored as the country code from the
+	// curated `LOCATIONS` map; the scheduler resolves it to a list of city
+	// names at fire time. Optional and orthogonal to city_filter (which is
+	// a single-city contains match).
+	pool.Exec(ctx, `ALTER TABLE scheduled_pushes ADD COLUMN IF NOT EXISTS country_filter TEXT NOT NULL DEFAULT ''`)
 
 	// ── Care v0.14.2: Documents + Calorie Counter ───────────────────
 	// pet_documents: vaccine cards / microchip papers / insurance / etc.
@@ -292,6 +333,9 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	)`)
 	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_pet_meal_logs_pet ON pet_meal_logs(pet_id, eaten_at DESC)`)
 
+	// v0.14.2 — link feeding_schedules to the calorie counter food DB.
+	ensureFeedingScheduleColumns(ctx, pool)
+
 	// ── Care v0.14.3: Breed Care Guides + First-Aid Topics ──────────
 	// Breed care: admin writes one row per (species, breed). breed_id may
 	// be empty for a species-wide entry. Lookup prefers breed-specific.
@@ -312,6 +356,11 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	// species-wide row where breed_id = ''. Easy to enforce because
 	// pgcrypto tolerates empty strings as distinct primary-key values.
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_breed_care_guide_unique ON breed_care_guides(species_id, breed_id)`)
+	// Per-locale overrides for the editorial fields. Shape:
+	//   { "tr": {"title":"…","summary":"…","body":"…"}, "pt-BR": {…} }
+	// English (base) lives in the top-level columns and is the fallback
+	// when a requested locale (or any of its fields) is missing.
+	pool.Exec(ctx, `ALTER TABLE breed_care_guides ADD COLUMN IF NOT EXISTS translations JSONB NOT NULL DEFAULT '{}'::jsonb`)
 
 	// First-aid topics for the offline handbook.
 	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS first_aid_topics (
@@ -334,6 +383,38 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	// WhatsApp/SMS share link. See migrations/0009_playdate_share_tokens.sql.
 	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS share_token TEXT NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex')`)
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_playdates_share_token ON playdates(share_token)`)
+	// v0.14.1 — short, human-friendly join code (PD-XXXXXX). Stored
+	// separately from community_groups.code so the two code spaces can't
+	// collide; the "PD-" prefix also makes accidental cross-paste between
+	// the group and playdate code inputs structurally impossible.
+	pool.Exec(ctx, `ALTER TABLE playdates ADD COLUMN IF NOT EXISTS join_code TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_playdates_join_code ON playdates(join_code) WHERE join_code <> ''`)
+	// One-time backfill: every existing private playdate gets a code so
+	// hosts who already created private events can share them by code
+	// without re-creating. New rows fill the column at creation time.
+	{
+		rows, err := pool.Query(ctx, `SELECT id FROM playdates WHERE visibility = 'private' AND join_code = ''`)
+		if err == nil {
+			var ids []string
+			for rows.Next() {
+				var id string
+				if scanErr := rows.Scan(&id); scanErr == nil {
+					ids = append(ids, id)
+				}
+			}
+			rows.Close()
+			for _, id := range ids {
+				// Up to 5 retries against the unique index; collision in 32^6
+				// space is astronomically unlikely but the DB is the source of truth.
+				for attempt := 0; attempt < 5; attempt++ {
+					code := generatePlaydateJoinCode()
+					if _, execErr := pool.Exec(ctx, `UPDATE playdates SET join_code = $1 WHERE id = $2 AND join_code = ''`, code, id); execErr == nil {
+						break
+					}
+				}
+			}
+		}
+	}
 
 	// v0.13.7 — per-venue photo management.
 	// venue_admin_photos: admin-curated photos (in addition to cover). These
@@ -1339,11 +1420,23 @@ func (s *PostgresStore) Dashboard() domain.DashboardSnapshot {
 	for offset := 6; offset >= 0; offset-- {
 		dayStart := startOfDay(now.AddDate(0, 0, -offset))
 		dayEnd := dayStart.Add(24 * time.Hour)
+		// DAU = distinct message senders that day. Same definition as the
+		// dashboard KPI card so the chart and the headline counter stay
+		// consistent. NULL/empty senders (e.g. system messages) collapse out.
+		var activeUsers int
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COUNT(DISTINCT sender_profile_id)
+			 FROM messages
+			 WHERE sender_profile_id IS NOT NULL
+			   AND sender_profile_id <> ''
+			   AND created_at >= $1 AND created_at < $2`,
+			dayStart, dayEnd).Scan(&activeUsers)
 		growth = append(growth, domain.DashboardPoint{
-			Label:   dayStart.Format("Mon"),
-			Users:   s.countRowsBetween("app_users", "created_at", dayStart, dayEnd),
-			Pets:    s.countRowsBetween("pets", "created_at", dayStart, dayEnd),
-			Matches: s.countRowsBetween("matches", "created_at", dayStart, dayEnd),
+			Label:       dayStart.Format("Mon"),
+			Users:       s.countRowsBetween("app_users", "created_at", dayStart, dayEnd),
+			Pets:        s.countRowsBetween("pets", "created_at", dayStart, dayEnd),
+			Matches:     s.countRowsBetween("matches", "created_at", dayStart, dayEnd),
+			ActiveUsers: activeUsers,
 		})
 	}
 
@@ -5359,12 +5452,93 @@ func (s *PostgresStore) MarkMedicationGiven(petID string, medID string) (domain.
 	if err != nil || tag.RowsAffected() == 0 {
 		return domain.PetMedication{}, fmt.Errorf("medication not found")
 	}
+	// v0.14.3 — append a dose row so the per-medication history view can
+	// show every "given" event the user logged (across days). The
+	// last_given_at column above is a denormalized "newest" cache used by
+	// the sweeper + the at-a-glance card; the doses table is the source
+	// of truth for the timeline.
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO pet_medication_doses (id, medication_id, given_at)
+		 VALUES ($1, $2, $3)`,
+		newID("dose"), medID, now)
 	for _, m := range s.ListMedications(petID) {
 		if m.ID == medID {
 			return m, nil
 		}
 	}
 	return domain.PetMedication{}, fmt.Errorf("medication not found after mark-given")
+}
+
+// ListMedicationDosesByPet returns every "given" event across the pet's
+// medications in [fromISO, toISO). Powers the Apple-style horizontal
+// date strip on mobile: with one round-trip the client knows, for each
+// (medication, day) pair in the visible window, whether and when the
+// dose was administered.
+//
+// Both bounds are inclusive on the lower side, exclusive on the upper —
+// the client sends `from = startOfDay - 14d`, `to = startOfDay + 8d`
+// (so the last full day of the strip is covered). The JOIN to
+// pet_medications enforces ownership: even if the medID column is
+// guessable, you can't read another pet's doses without owning the pet.
+func (s *PostgresStore) ListMedicationDosesByPet(petID string, fromISO string, toISO string) []domain.MedicationDose {
+	rows, _ := s.pool.Query(s.ctx(), `
+		SELECT d.id, d.medication_id,
+		       to_char((d.given_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM pet_medication_doses d
+		JOIN pet_medications m ON m.id = d.medication_id
+		WHERE m.pet_id = $1
+		  AND d.given_at >= $2::timestamptz
+		  AND d.given_at <  $3::timestamptz
+		ORDER BY d.given_at DESC`, petID, fromISO, toISO)
+	defer rows.Close()
+	out := make([]domain.MedicationDose, 0)
+	for rows.Next() {
+		var d domain.MedicationDose
+		if err := rows.Scan(&d.ID, &d.MedicationID, &d.GivenAt); err != nil {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// ListMedicationDoses returns the per-medication "given" event timeline,
+// newest first. The petID arg is verified by the handler upstream so we
+// don't need to re-check ownership here — the WHERE clause is keyed on
+// medication_id which is unique per pet.
+func (s *PostgresStore) ListMedicationDoses(petID string, medID string, limit int) []domain.MedicationDose {
+	if limit <= 0 || limit > 365 {
+		limit = 90
+	}
+	// Belt-and-braces: confirm the medication actually belongs to the pet
+	// (in case the handler calls with mismatched IDs). The dose rows
+	// themselves don't carry pet_id, so this prevents leaking another
+	// owner's history if the route was ever wired without the pet check.
+	var ownsCount int
+	_ = s.pool.QueryRow(s.ctx(),
+		`SELECT COUNT(*) FROM pet_medications WHERE id=$1 AND pet_id=$2`,
+		medID, petID,
+	).Scan(&ownsCount)
+	if ownsCount == 0 {
+		return []domain.MedicationDose{}
+	}
+	rows, _ := s.pool.Query(s.ctx(), `
+		SELECT id, medication_id,
+		       to_char((given_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM pet_medication_doses
+		WHERE medication_id = $1
+		ORDER BY given_at DESC
+		LIMIT $2`, medID, limit)
+	defer rows.Close()
+	out := make([]domain.MedicationDose, 0)
+	for rows.Next() {
+		var d domain.MedicationDose
+		if err := rows.Scan(&d.ID, &d.MedicationID, &d.GivenAt); err != nil {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 func (s *PostgresStore) ListActiveMedicationsForSweeper() []MedicationSweeperRow {
@@ -5410,6 +5584,7 @@ func (s *PostgresStore) GetBreedCareGuide(speciesID string, breedID string) (*do
 	// the SELECT so the existing string-typed domain fields keep working.
 	row := s.pool.QueryRow(s.ctx(),
 		`SELECT id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url,
+		        COALESCE(translations::text, '{}'),
 		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM breed_care_guides
 		 WHERE (breed_id = $1 AND breed_id <> '')
@@ -5417,27 +5592,51 @@ func (s *PostgresStore) GetBreedCareGuide(speciesID string, breedID string) (*do
 		 ORDER BY (CASE WHEN breed_id <> '' THEN 0 ELSE 1 END)
 		 LIMIT 1`, breedID, speciesID)
 	var g domain.BreedCareGuide
+	var translationsJSON string
 	if err := row.Scan(&g.ID, &g.SpeciesID, &g.SpeciesLabel, &g.BreedID, &g.BreedLabel,
-		&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &g.CreatedAt, &g.UpdatedAt); err != nil {
+		&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &translationsJSON,
+		&g.CreatedAt, &g.UpdatedAt); err != nil {
 		return nil, err
 	}
+	g.Translations = decodeBreedCareTranslations(translationsJSON)
 	return &g, nil
+}
+
+// decodeBreedCareTranslations parses the JSONB column into the typed map.
+// Returns nil (not an empty map) when the column is empty so callers can
+// distinguish "no translations stored" from "empty map deliberately set".
+func decodeBreedCareTranslations(raw string) map[string]domain.BreedCareGuideTranslation {
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var out map[string]domain.BreedCareGuideTranslation
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *PostgresStore) ListBreedCareGuides() []domain.BreedCareGuide {
 	rows, _ := s.pool.Query(s.ctx(),
 		`SELECT id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url,
+		        COALESCE(translations::text, '{}'),
 		        to_char((created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char((updated_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM breed_care_guides ORDER BY species_label, breed_label, title`)
 	defer rows.Close()
 	out := make([]domain.BreedCareGuide, 0)
 	for rows.Next() {
 		var g domain.BreedCareGuide
+		var translationsJSON string
 		if err := rows.Scan(&g.ID, &g.SpeciesID, &g.SpeciesLabel, &g.BreedID, &g.BreedLabel,
-			&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			&g.Title, &g.Summary, &g.Body, &g.HeroImageURL, &translationsJSON,
+			&g.CreatedAt, &g.UpdatedAt); err != nil {
 			log.Printf("[BREED-CARE] scan error: %v", err)
 			continue
 		}
+		g.Translations = decodeBreedCareTranslations(translationsJSON)
 		out = append(out, g)
 	}
 	return out
@@ -5446,6 +5645,13 @@ func (s *PostgresStore) ListBreedCareGuides() []domain.BreedCareGuide {
 func (s *PostgresStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.BreedCareGuide, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	g.UpdatedAt = now
+	// Marshal translations once. Empty map serialises to "{}" — preserving the
+	// "no translations" state without needing a separate code path.
+	translationsBytes, err := json.Marshal(g.Translations)
+	if err != nil || len(translationsBytes) == 0 {
+		translationsBytes = []byte("{}")
+	}
+	translationsJSON := string(translationsBytes)
 	if g.ID == "" {
 		g.ID = newID("bcg")
 		g.CreatedAt = now
@@ -5453,8 +5659,8 @@ func (s *PostgresStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.Br
 		// admin can't accidentally create a duplicate row for the same pair.
 		_, err := s.pool.Exec(s.ctx(),
 			`INSERT INTO breed_care_guides
-			   (id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url, created_at, updated_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			   (id, species_id, species_label, breed_id, breed_label, title, summary, body, hero_image_url, translations, created_at, updated_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
 			 ON CONFLICT (species_id, breed_id) DO UPDATE SET
 			   species_label = EXCLUDED.species_label,
 			   breed_label   = EXCLUDED.breed_label,
@@ -5462,10 +5668,11 @@ func (s *PostgresStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.Br
 			   summary       = EXCLUDED.summary,
 			   body          = EXCLUDED.body,
 			   hero_image_url= EXCLUDED.hero_image_url,
+			   translations  = EXCLUDED.translations,
 			   updated_at    = EXCLUDED.updated_at
 			 RETURNING id`,
 			g.ID, g.SpeciesID, g.SpeciesLabel, g.BreedID, g.BreedLabel,
-			g.Title, g.Summary, g.Body, g.HeroImageURL, g.CreatedAt, g.UpdatedAt)
+			g.Title, g.Summary, g.Body, g.HeroImageURL, translationsJSON, g.CreatedAt, g.UpdatedAt)
 		if err != nil {
 			return domain.BreedCareGuide{}, err
 		}
@@ -5476,13 +5683,13 @@ func (s *PostgresStore) UpsertBreedCareGuide(g domain.BreedCareGuide) (domain.Br
 		_ = row.Scan(&g.ID, &g.CreatedAt)
 		return g, nil
 	}
-	_, err := s.pool.Exec(s.ctx(),
+	_, err = s.pool.Exec(s.ctx(),
 		`UPDATE breed_care_guides SET
 		   species_id=$2, species_label=$3, breed_id=$4, breed_label=$5,
-		   title=$6, summary=$7, body=$8, hero_image_url=$9, updated_at=$10
+		   title=$6, summary=$7, body=$8, hero_image_url=$9, translations=$10::jsonb, updated_at=$11
 		 WHERE id=$1`,
 		g.ID, g.SpeciesID, g.SpeciesLabel, g.BreedID, g.BreedLabel,
-		g.Title, g.Summary, g.Body, g.HeroImageURL, g.UpdatedAt)
+		g.Title, g.Summary, g.Body, g.HeroImageURL, translationsJSON, g.UpdatedAt)
 	if err != nil {
 		return domain.BreedCareGuide{}, err
 	}
@@ -5934,16 +6141,43 @@ func (s *PostgresStore) DeleteVetContact(userID string, contactID string) error 
 	return err
 }
 
+// ensureFeedingScheduleColumns adds the v0.14.2 fields that link a schedule
+// to the calorie counter food DB. Called from NewPostgresStore so existing
+// rows don't break when the new code starts running.
+func ensureFeedingScheduleColumns(ctx context.Context, pool *pgxpool.Pool) {
+	pool.Exec(ctx, `ALTER TABLE feeding_schedules ADD COLUMN IF NOT EXISTS food_item_id TEXT NOT NULL DEFAULT ''`)
+	pool.Exec(ctx, `ALTER TABLE feeding_schedules ADD COLUMN IF NOT EXISTS grams DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE feeding_schedules ADD COLUMN IF NOT EXISTS kcal DOUBLE PRECISION NOT NULL DEFAULT 0`)
+	pool.Exec(ctx, `ALTER TABLE feeding_schedules ADD COLUMN IF NOT EXISTS last_logged_at TIMESTAMPTZ`)
+}
+
 func (s *PostgresStore) ListFeedingSchedules(petID string) []domain.FeedingSchedule {
-	rows, _ := s.pool.Query(s.ctx(), `SELECT id, pet_id, meal_name, time, food_type, amount, notes FROM feeding_schedules WHERE pet_id=$1`, petID)
+	// LEFT JOIN food_items so the mobile UI can show "Royal Canin · Adult"
+	// without a per-row fetch. last_logged_at is TIMESTAMPTZ -> RFC3339.
+	rows, _ := s.pool.Query(s.ctx(), `
+		SELECT fs.id, fs.pet_id, fs.meal_name, fs.time, fs.food_type, fs.amount, fs.notes,
+		       fs.food_item_id, fs.grams, fs.kcal,
+		       to_char((fs.last_logged_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       COALESCE(fi.brand, ''), COALESCE(fi.name, '')
+		FROM feeding_schedules fs
+		LEFT JOIN food_items fi ON fi.id = fs.food_item_id AND fs.food_item_id <> ''
+		WHERE fs.pet_id = $1
+		ORDER BY fs.time ASC, fs.id ASC`, petID)
 	defer rows.Close()
-	var out []domain.FeedingSchedule
+	out := make([]domain.FeedingSchedule, 0)
 	for rows.Next() {
 		var f domain.FeedingSchedule
-		rows.Scan(&f.ID, &f.PetID, &f.MealName, &f.Time, &f.FoodType, &f.Amount, &f.Notes)
+		var lastLogged *string
+		err := rows.Scan(&f.ID, &f.PetID, &f.MealName, &f.Time, &f.FoodType, &f.Amount, &f.Notes,
+			&f.FoodItemID, &f.Grams, &f.Kcal, &lastLogged, &f.FoodItemBrand, &f.FoodItemName)
+		if err != nil {
+			continue
+		}
+		if lastLogged != nil {
+			f.LastLoggedAt = *lastLogged
+		}
 		out = append(out, f)
 	}
-	if out == nil { return []domain.FeedingSchedule{} }
 	return out
 }
 
@@ -5951,14 +6185,102 @@ func (s *PostgresStore) CreateFeedingSchedule(petID string, schedule domain.Feed
 	schedule.ID = newID("fs")
 	schedule.PetID = petID
 	schedule.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	s.pool.Exec(s.ctx(), `INSERT INTO feeding_schedules(id,pet_id,meal_name,time,food_type,amount,notes) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-		schedule.ID, schedule.PetID, schedule.MealName, schedule.Time, schedule.FoodType, schedule.Amount, schedule.Notes)
+	// If a food item is linked, recompute kcal from the canonical
+	// kcal_per_100g x grams / 100. The client's grams is trusted; the
+	// client's kcal is overridden so a stale/edited form never lies.
+	if schedule.FoodItemID != "" && schedule.Grams > 0 {
+		var kcalPer100 float64
+		err := s.pool.QueryRow(s.ctx(),
+			`SELECT kcal_per_100g FROM food_items WHERE id = $1`,
+			schedule.FoodItemID,
+		).Scan(&kcalPer100)
+		if err == nil {
+			schedule.Kcal = kcalPer100 * schedule.Grams / 100.0
+		}
+	}
+	s.pool.Exec(s.ctx(),
+		`INSERT INTO feeding_schedules
+		   (id, pet_id, meal_name, time, food_type, amount, notes,
+		    food_item_id, grams, kcal)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		schedule.ID, schedule.PetID, schedule.MealName, schedule.Time,
+		schedule.FoodType, schedule.Amount, schedule.Notes,
+		schedule.FoodItemID, schedule.Grams, schedule.Kcal)
+	// Backfill display fields from food DB so the just-created row in the
+	// API response renders the same as it will after the next list fetch.
+	if schedule.FoodItemID != "" {
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COALESCE(brand, ''), COALESCE(name, '') FROM food_items WHERE id = $1`,
+			schedule.FoodItemID,
+		).Scan(&schedule.FoodItemBrand, &schedule.FoodItemName)
+	}
 	return schedule
 }
 
 func (s *PostgresStore) DeleteFeedingSchedule(petID string, scheduleID string) error {
 	_, err := s.pool.Exec(s.ctx(), `DELETE FROM feeding_schedules WHERE id=$1 AND pet_id=$2`, scheduleID, petID)
 	return err
+}
+
+// LogFeedingScheduleNow turns a recurring schedule into a one-off
+// pet_meal_logs row "as eaten now", then bumps last_logged_at on the
+// schedule. The schedule itself is untouched (it remains a recurring
+// plan) — what changes is that today's calorie counter now reflects it.
+func (s *PostgresStore) LogFeedingScheduleNow(petID string, scheduleID string) (domain.MealLog, error) {
+	var (
+		foodItemID string
+		grams      float64
+		kcal       float64
+		mealName   string
+		amount     string
+		foodType   string
+	)
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT food_item_id, grams, kcal, meal_name, COALESCE(amount,''), COALESCE(food_type,'')
+		 FROM feeding_schedules WHERE id = $1 AND pet_id = $2`,
+		scheduleID, petID,
+	).Scan(&foodItemID, &grams, &kcal, &mealName, &amount, &foodType)
+	if err != nil {
+		return domain.MealLog{}, fmt.Errorf("feeding schedule not found")
+	}
+	// Compose a sensible custom_name when the schedule isn't linked to a
+	// food item — gives the meal log row some text instead of a blank.
+	customName := mealName
+	if foodItemID != "" {
+		// Server fills custom_name from the food brand+name in the calorie
+		// counter create path; mirror that here for consistency.
+		var brand, name string
+		_ = s.pool.QueryRow(s.ctx(),
+			`SELECT COALESCE(brand,''), COALESCE(name,'') FROM food_items WHERE id = $1`,
+			foodItemID,
+		).Scan(&brand, &name)
+		joined := name
+		if brand != "" {
+			joined = brand + " " + name
+		}
+		if joined != "" {
+			customName = joined
+		}
+	} else if foodType != "" {
+		customName = foodType
+		if amount != "" {
+			customName = foodType + " · " + amount
+		}
+	}
+	log := domain.MealLog{
+		FoodItemID: foodItemID,
+		CustomName: customName,
+		Grams:      grams,
+		Kcal:       kcal,
+		EatenAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	log = s.CreateMealLog(petID, log)
+	// Mark the schedule so the UI can show "Logged today ✓" / hide the
+	// "Log it" button until tomorrow.
+	_, _ = s.pool.Exec(s.ctx(),
+		`UPDATE feeding_schedules SET last_logged_at = NOW() WHERE id = $1 AND pet_id = $2`,
+		scheduleID, petID)
+	return log, nil
 }
 
 // ================================================================
@@ -6014,23 +6336,29 @@ func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playd
 	// discovery — v0.15.1 moves "events I missed" into My Playdates → Past and
 	// keeps the discovery feed forward-looking only. Callers who already have
 	// a relationship to the playdate still see it via `GetPlaydateForUser`.
+	//
+	// Admin (IncludeAll=true) bypasses all of these — it sees the full table.
 	nowISO := time.Now().UTC().Format(time.RFC3339)
-	if params.UserID != "" {
-		query += fmt.Sprintf(` AND (status = 'active' OR $%d = ANY(attendees) OR organizer_id = $%d)`, idx, idx)
-		query += fmt.Sprintf(` AND (
-			visibility = 'public'
-			OR organizer_id = $%d
-			OR $%d = ANY(attendees)
-			OR EXISTS (SELECT 1 FROM playdate_invites WHERE playdate_id = playdates.id AND invited_user_id = $%d)
-		)`, idx, idx, idx)
-		args = append(args, params.UserID)
-		idx++
-	} else {
-		query += " AND status = 'active' AND visibility = 'public'"
+	if !params.IncludeAll {
+		if params.UserID != "" {
+			query += fmt.Sprintf(` AND (status = 'active' OR $%d = ANY(attendees) OR organizer_id = $%d)`, idx, idx)
+			query += fmt.Sprintf(` AND (
+				visibility = 'public'
+				OR organizer_id = $%d
+				OR $%d = ANY(attendees)
+				OR EXISTS (SELECT 1 FROM playdate_invites WHERE playdate_id = playdates.id AND invited_user_id = $%d)
+			)`, idx, idx, idx)
+			args = append(args, params.UserID)
+			idx++
+		} else {
+			query += " AND status = 'active' AND visibility = 'public'"
+		}
 	}
-	query += fmt.Sprintf(` AND date >= $%d`, idx)
-	args = append(args, nowISO)
-	idx++
+	if !params.IncludePast {
+		query += fmt.Sprintf(` AND date >= $%d`, idx)
+		args = append(args, nowISO)
+		idx++
+	}
 
 	if params.Search != "" {
 		query += fmt.Sprintf(" AND (title ILIKE '%%' || $%d || '%%' OR description ILIKE '%%' || $%d || '%%')", idx, idx)
@@ -6047,7 +6375,14 @@ func (s *PostgresStore) ListPlaydates(params ListPlaydatesParams) []domain.Playd
 		args = append(args, params.To)
 		idx++
 	}
-	query += " ORDER BY date"
+	// Public/discovery feed sorts ASC (next playdate first). Admin
+	// (IncludeAll/IncludePast) gets DESC so the most recent rows are at
+	// the top of the table.
+	if params.IncludePast || params.IncludeAll {
+		query += " ORDER BY date DESC"
+	} else {
+		query += " ORDER BY date"
+	}
 
 	rows, err := s.pool.Query(s.ctx(), query, args...)
 	if err != nil {
@@ -6177,13 +6512,13 @@ func (s *PostgresStore) getPlaydateRow(playdateID string) (*domain.Playdate, err
 		        COALESCE(rules, '{}'), COALESCE(status, 'active'),
 		        cancelled_at, COALESCE(conversation_id, ''), COALESCE(waitlist, '{}'),
 		        COALESCE(visibility, 'public'), COALESCE(locked, FALSE),
-		        COALESCE(venue_id, ''), COALESCE(share_token, '')
+		        COALESCE(venue_id, ''), COALESCE(share_token, ''), COALESCE(join_code, '')
 		 FROM playdates WHERE id = $1`, playdateID).
 		Scan(&p.ID, &p.OrganizerID, &p.Title, &p.Description, &p.Date, &p.Location,
 			&p.MaxPets, &p.Attendees, &createdAt,
 			&p.Latitude, &p.Longitude, &p.CityLabel, &img,
 			&p.Rules, &p.Status, &cancelledAt, &p.ConversationID, &p.Waitlist,
-			&p.Visibility, &p.Locked, &p.VenueID, &p.ShareToken)
+			&p.Visibility, &p.Locked, &p.VenueID, &p.ShareToken, &p.JoinCode)
 	if err != nil {
 		return nil, fmt.Errorf("playdate not found")
 	}
@@ -6380,10 +6715,12 @@ func (s *PostgresStore) GetPlaydateForUser(playdateID string, userID string) (*d
 		return nil, fmt.Errorf("playdate not found")
 	}
 
-	// share_token is host-only data. Leaking it on the non-host detail response
-	// would let attendees forward the link beyond the host's intent.
+	// share_token + join_code are host-only data. Leaking them on the
+	// non-host detail response would let attendees forward access beyond
+	// the host's intent (and re-share the WhatsApp link / kod with anyone).
 	if !p.IsOrganizer {
 		p.ShareToken = ""
+		p.JoinCode = ""
 	}
 
 	// Attendee visibility: pending invitees of a private playdate can see the
@@ -6426,6 +6763,12 @@ func (s *PostgresStore) CreatePlaydate(userID string, playdate domain.Playdate) 
 	if playdate.Visibility != "private" {
 		playdate.Visibility = "public"
 	}
+	// Private playdates get a join code at create time. Public ones leave it
+	// empty — the conditional unique index won't index empty strings, so
+	// many public rows can co-exist without a uniqueness conflict.
+	if playdate.Visibility == "private" && playdate.JoinCode == "" {
+		playdate.JoinCode = generatePlaydateJoinCode()
+	}
 
 	// Create the dedicated conversation thread for this playdate, seeded with the
 	// organizer. Attendees get added to conversations.user_ids on join.
@@ -6443,13 +6786,13 @@ func (s *PostgresStore) CreatePlaydate(userID string, playdate domain.Playdate) 
 	}
 
 	s.pool.Exec(s.ctx(),
-		`INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at,latitude,longitude,city_label,cover_image_url,rules,status,conversation_id,waitlist,visibility,venue_id)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+		`INSERT INTO playdates(id,organizer_id,title,description,date,location,max_pets,attendees,created_at,latitude,longitude,city_label,cover_image_url,rules,status,conversation_id,waitlist,visibility,venue_id,join_code)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		playdate.ID, playdate.OrganizerID, playdate.Title, playdate.Description,
 		playdate.Date, playdate.Location, playdate.MaxPets, playdate.Attendees, playdate.CreatedAt,
 		playdate.Latitude, playdate.Longitude, playdate.CityLabel, nilIfEmpty(playdate.CoverImageURL),
 		playdate.Rules, playdate.Status, playdate.ConversationID, playdate.Waitlist,
-		playdate.Visibility, nilIfEmpty(playdate.VenueID))
+		playdate.Visibility, nilIfEmpty(playdate.VenueID), playdate.JoinCode)
 
 	// Auto-join the host with their selected pets so the creator immediately
 	// occupies their own playdate. We ignore waitlist logic here — the creator
@@ -7440,6 +7783,56 @@ func (s *PostgresStore) ClaimPlaydateShareToken(userID string, playdateID string
 		 ON CONFLICT (playdate_id, invited_user_id) DO NOTHING`,
 		inviteID, playdateID, organizerID, userID)
 	return err
+}
+
+// generatePlaydateJoinCode produces a 9-character "PD-XXXXXX" code. Uses
+// the same charset as generateGroupCode (A-Z + 2-9 with ambiguous chars
+// I/O/1/L/0 removed), but the "PD-" prefix is what guarantees there's no
+// way for a group code to be mistaken for a playdate code (or vice versa)
+// when the user pastes one into the wrong input.
+func generatePlaydateJoinCode() string {
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 6)
+	for i := range b {
+		buf := make([]byte, 1)
+		_, _ = cryptorand.Read(buf)
+		b[i] = charset[int(buf[0])%len(charset)]
+	}
+	return "PD-" + string(b)
+}
+
+// JoinPlaydateByCode looks up a playdate by its short join code, then
+// upserts a pending playdate_invites row for the caller — the same
+// downstream effect as ClaimPlaydateShareToken, just reached via a
+// human-friendly code instead of a 32-char token URL. Returns the
+// playdate as the host would see it (visibility-gated by the caller's
+// new invite status), so the mobile screen can route straight to the
+// detail page on success.
+func (s *PostgresStore) JoinPlaydateByCode(userID string, code string) (*domain.Playdate, error) {
+	if userID == "" || code == "" {
+		return nil, fmt.Errorf("invalid playdate code")
+	}
+	var (
+		playdateID  string
+		organizerID string
+	)
+	err := s.pool.QueryRow(s.ctx(),
+		`SELECT id, organizer_id FROM playdates WHERE join_code = $1 AND join_code <> ''`, code,
+	).Scan(&playdateID, &organizerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid playdate code")
+	}
+	// Host using their own code: don't insert an invite, just hand back the
+	// playdate so the UI can navigate without a no-op error.
+	if organizerID != userID {
+		inviteID := newID("inv")
+		_, _ = s.pool.Exec(s.ctx(),
+			`INSERT INTO playdate_invites (id, playdate_id, host_user_id, invited_user_id, status)
+			 VALUES ($1, $2, $3, $4, 'pending')
+			 ON CONFLICT (playdate_id, invited_user_id) DO NOTHING`,
+			inviteID, playdateID, organizerID, userID)
+	}
+	return s.GetPlaydateForUser(playdateID, userID)
 }
 
 func (s *PostgresStore) ListGroups(params ListGroupsParams) []domain.CommunityGroup {

@@ -55,6 +55,10 @@ func New(cfg config.Config, dataStore store.Store) *Server {
 	// Hourly Sunday weekly-summary sender. Idempotent via the
 	// user_weekly_summary_log table — restart-safe.
 	go srv.runWeeklySummaryLoop()
+	// Per-minute scheduled-push loop — fires every admin-defined recurring
+	// broadcast whose next_run_at has passed, then rolls next_run_at
+	// forward. State lives in `scheduled_pushes`; restart-safe.
+	go srv.runScheduledPushLoop()
 	return srv
 }
 
@@ -478,6 +482,12 @@ func (s *Server) Routes() http.Handler {
 			router.Patch("/pets/{petID}/medications/{medID}", s.handleUpdateMedication)
 			router.Delete("/pets/{petID}/medications/{medID}", s.handleDeleteMedication)
 			router.Post("/pets/{petID}/medications/{medID}/mark-given", s.handleMarkMedicationGiven)
+			// v0.14.3 — per-medication dose history (timeline of "given" taps).
+			router.Get("/pets/{petID}/medications/{medID}/doses", s.handleListMedicationDoses)
+			// v0.14.4 — aggregated doses across all the pet's medications,
+			// filtered by an arbitrary [from, to) ISO range. Powers the
+			// Apple-style date strip on mobile.
+			router.Get("/pets/{petID}/medication-doses", s.handleListMedicationDosesByPet)
 			// Weekly summary — viewable any time; cron also pushes Sundays.
 			router.Get("/me/weekly-summary", s.handleWeeklySummary)
 			// Pet documents (vaccine cards, microchip papers, insurance, etc.)
@@ -506,6 +516,9 @@ func (s *Server) Routes() http.Handler {
 			router.Get("/pets/{petID}/feeding", s.handleListFeeding)
 			router.Post("/pets/{petID}/feeding", s.handleCreateFeeding)
 			router.Delete("/pets/{petID}/feeding/{scheduleID}", s.handleDeleteFeeding)
+			// v0.14.2 — bridge feeding plan -> calorie counter. Tapping
+			// "Log it" on a schedule creates a meal_log row "as eaten now".
+			router.Post("/pets/{petID}/feeding/{scheduleID}/log-now", s.handleLogFeedingNow)
 			// Playdates
 			router.Get("/playdates", s.handleListPlaydates)
 			router.Get("/playdates/{playdateID}", s.handleGetPlaydate)
@@ -522,6 +535,7 @@ func (s *Server) Routes() http.Handler {
 			// URL the host sent out; any authenticated user who opens the URL
 			// can swap it for a pending playdate_invites row.
 			router.Post("/playdates/{playdateID}/claim-share/{token}", s.handleClaimPlaydateShare)
+			router.Post("/playdates/join-by-code", s.handleJoinPlaydateByCode)
 			router.Get("/me/playdates", s.handleListMyPlaydates)
 			router.Get("/me/playdate-invites", s.handleListMyPlaydateInvites)
 			router.Post("/playdate-invites/{inviteID}/accept", s.handleAcceptPlaydateInvite)
@@ -694,10 +708,17 @@ func (s *Server) Routes() http.Handler {
 
 				// Playdates
 				router.Get("/playdates", s.handleAdminPlaydates)
+				router.Get("/playdates/{playdateID}", s.handleAdminPlaydateDetail)
 				router.Delete("/playdates/{playdateID}", s.handleAdminDeletePlaydate)
+				// Live chat ticket — short-lived HMAC ticket the admin browser
+				// trades for a read-only WebSocket subscription. The WS upgrade
+				// itself is registered outside adminAuth (see below) because
+				// browsers can't attach a Bearer header to `new WebSocket()`.
+				router.Get("/conversations/{conversationID}/ws-ticket", s.handleAdminConversationWsTicket)
 
 				// Groups
 				router.Get("/groups", s.handleAdminGroups)
+				router.Get("/groups/{groupID}", s.handleAdminGroupDetail)
 				router.Post("/groups", s.handleAdminCreateGroup)
 				router.Delete("/groups/{groupID}", s.handleAdminDeleteGroup)
 
@@ -814,12 +835,28 @@ func (s *Server) Routes() http.Handler {
 				router.Get("/feature-flags", s.handleAdminFeatureFlags)
 				router.Put("/feature-flags/{key}", s.handleAdminUpdateFeatureFlag)
 				router.Post("/broadcast", s.handleAdminBroadcast)
+				// Scheduled / recurring push manager — separate from one-shot
+				// `/broadcast`. The per-minute scheduler in Server.New fires
+				// each row whose next_run_at has passed.
+				router.Get("/scheduled-pushes", s.handleAdminListScheduledPushes)
+				router.Post("/scheduled-pushes", s.handleAdminCreateScheduledPush)
+				router.Patch("/scheduled-pushes/{id}", s.handleAdminUpdateScheduledPush)
+				router.Delete("/scheduled-pushes/{id}", s.handleAdminDeleteScheduledPush)
+				// Curated country / city / timezone catalogue. Drives the
+				// scheduling page's dropdowns so admins can't typo a city.
+				router.Get("/locations", s.handleAdminLocations)
 				router.Get("/dashboard/metrics", s.handleAdminDashboardMetrics)
 				router.Get("/badges", s.handleAdminListBadgesAll)
 				router.Post("/badges", s.handleAdminCreateBadge)
 				router.Put("/badges/{id}", s.handleAdminUpdateBadge)
 				router.Delete("/badges/{id}", s.handleAdminDeleteBadge)
 			})
+
+			// Read-only admin WebSocket — authenticates via HMAC ticket
+			// (issued by /admin/conversations/{id}/ws-ticket inside the
+			// admin auth group). Sits outside adminAuth because browsers
+			// cannot attach an Authorization header to `new WebSocket()`.
+			router.Get("/ws-stream", s.handleAdminWsStream)
 		})
 
 		// ── Shelter panel API (v0.13) ────────────────────────────
@@ -2062,12 +2099,74 @@ func (s *Server) handleAdminResolveReport(writer http.ResponseWriter, request *h
 	}
 	_ = decodeJSON(writer, request, &payload)
 
-	if err := s.store.ResolveReport(chi.URLParam(request, "reportID"), payload.Notes); err != nil {
+	reportID := chi.URLParam(request, "reportID")
+
+	// Snapshot the reporter + target before we mutate so we can compose a
+	// meaningful push body once the resolve succeeds. Best-effort — a miss
+	// here only weakens the push wording, never blocks the resolve.
+	var (
+		reporterID  string
+		targetType  string
+		targetLabel string
+		reason      string
+	)
+	if detail, err := s.store.GetReportDetail(reportID); err == nil && detail != nil {
+		reporterID = detail.ReporterID
+		targetType = detail.TargetType
+		targetLabel = detail.TargetLabel
+		reason = detail.Reason
+	}
+
+	if err := s.store.ResolveReport(reportID, payload.Notes); err != nil {
 		writeError(writer, http.StatusNotFound, err.Error())
 		return
 	}
 
+	// Notify the reporter their flag was reviewed. Fire-and-forget so a
+	// missing token / network blip never blocks the admin response.
+	go s.sendReportResolvedPush(reporterID, reportID, targetType, targetLabel, reason, payload.Notes)
+
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"resolved": true}})
+}
+
+// sendReportResolvedPush delivers a single Expo push to the reporter saying
+// their report has been reviewed. Best-effort; missing tokens silently no-op.
+func (s *Server) sendReportResolvedPush(reporterID, reportID, targetType, targetLabel, reason, notes string) {
+	if reporterID == "" {
+		return
+	}
+	userTokens := s.store.GetUserPushTokens(reporterID)
+	if len(userTokens) == 0 {
+		return
+	}
+	tokens := make([]string, 0, len(userTokens))
+	for _, t := range userTokens {
+		if t.Token != "" {
+			tokens = append(tokens, t.Token)
+		}
+	}
+	if len(tokens) == 0 {
+		return
+	}
+
+	title := "Report reviewed"
+	body := "Thanks for flagging — our moderators have reviewed your report."
+	if targetLabel != "" {
+		body = fmt.Sprintf("Your report on %s has been reviewed. Thanks for keeping Petto safe.", targetLabel)
+	} else if reason != "" {
+		body = fmt.Sprintf("Your report (%q) has been reviewed. Thanks for keeping Petto safe.", reason)
+	}
+	data := map[string]string{
+		"type":       "report_resolved",
+		"reportId":   reportID,
+		"targetType": targetType,
+	}
+	if notes != "" {
+		data["notes"] = notes
+	}
+	if err := service.SendExpoPush(tokens, title, body, data); err != nil {
+		log.Printf("[REPORT] resolve push failed report=%s reporter=%s: %v", reportID, reporterID, err)
+	}
 }
 
 func (s *Server) handleAdminListNotifications(w http.ResponseWriter, r *http.Request) {
@@ -2186,7 +2285,14 @@ func (s *Server) handleAdminDeletePetSitter(w http.ResponseWriter, r *http.Reque
 // ── Admin Playdates ─────────────────────────────────────────────────
 
 func (s *Server) handleAdminPlaydates(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListPlaydates(store.ListPlaydatesParams{})})
+	// Admin sees the full table — past + cancelled + private. The public
+	// /v1/playdates discovery feed still hides those rows.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": s.store.ListPlaydates(store.ListPlaydatesParams{
+			IncludePast: true,
+			IncludeAll:  true,
+		}),
+	})
 }
 
 func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Request) {
@@ -2197,6 +2303,37 @@ func (s *Server) handleAdminDeletePlaydate(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleAdminGroups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListGroups(store.ListGroupsParams{})})
+}
+
+// handleAdminGroupDetail returns a fully-enriched group view for the admin
+// moderation surface — bypasses the public `is_private` visibility gate and
+// includes members + per-member mute state + admin user IDs (same shape as
+// the user-facing detail call).
+func (s *Server) handleAdminGroupDetail(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "groupID")
+	if groupID == "" {
+		writeError(w, http.StatusBadRequest, "groupID is required")
+		return
+	}
+	pool := s.pg()
+	if pool == nil {
+		writeError(w, http.StatusServiceUnavailable, "database not configured")
+		return
+	}
+	var convID string
+	err := pool.QueryRow(adminCtx(),
+		`SELECT COALESCE(conversation_id,'') FROM community_groups WHERE id = $1`,
+		groupID).Scan(&convID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "group not found")
+		return
+	}
+	group := s.store.GetGroupByConversation(convID)
+	if group == nil {
+		writeError(w, http.StatusNotFound, "group not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": group})
 }
 
 func (s *Server) handleAdminCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -2428,6 +2565,50 @@ func (s *Server) handleMarkMedicationGiven(writer http.ResponseWriter, request *
 	writeJSON(writer, http.StatusOK, map[string]any{"data": med})
 }
 
+// handleListMedicationDoses returns the per-medication "given" event
+// timeline. v0.14.3: powers the History sheet on the mobile medications
+// screen so users can see which days/times they actually administered
+// each medication.
+func (s *Server) handleListMedicationDoses(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	doses := s.store.ListMedicationDoses(petID, chi.URLParam(request, "medID"), 90)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": doses})
+}
+
+// handleListMedicationDosesByPet powers the Apple-style date strip:
+// returns every dose row across the pet's active medications inside the
+// requested window. Defaults to "last 30 days" if the caller omits the
+// range, capped to 90 days max.
+func (s *Server) handleListMedicationDosesByPet(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	q := request.URL.Query()
+	from := q.Get("from")
+	to := q.Get("to")
+	now := time.Now().UTC()
+	if from == "" {
+		// 30 days back, midnight UTC.
+		from = now.AddDate(0, 0, -30).Format("2006-01-02") + "T00:00:00Z"
+	}
+	if to == "" {
+		// One day past today so today is fully included.
+		to = now.AddDate(0, 0, 1).Format("2006-01-02") + "T00:00:00Z"
+	}
+	// Hard cap the range so a misbehaving client can't ask for 10 years.
+	fromT, errF := time.Parse(time.RFC3339, from)
+	toT, errT := time.Parse(time.RFC3339, to)
+	if errF == nil && errT == nil && toT.Sub(fromT) > 92*24*time.Hour {
+		from = toT.AddDate(0, 0, -90).Format(time.RFC3339)
+	}
+	doses := s.store.ListMedicationDosesByPet(petID, from, to)
+	writeJSON(writer, http.StatusOK, map[string]any{"data": doses})
+}
+
 // ── Breed Care Guides (public read) ──────────────────────────────────
 
 func (s *Server) handleGetBreedCareForPet(writer http.ResponseWriter, request *http.Request) {
@@ -2455,6 +2636,11 @@ func (s *Server) handleGetBreedCareForPet(writer http.ResponseWriter, request *h
 		})
 		return
 	}
+	// Resolve the caller's locale (?locale=… wins; Accept-Language second).
+	// Translation lookup is per-field, so a partial translation with only
+	// `title` filled in still falls back to base English for summary/body.
+	locale := pickLocale(request)
+	localized := applyBreedCareLocale(*guide, locale)
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"available":    true,
@@ -2462,9 +2648,59 @@ func (s *Server) handleGetBreedCareForPet(writer http.ResponseWriter, request *h
 			"speciesLabel": pet.SpeciesLabel,
 			"breedId":      pet.BreedID,
 			"breedLabel":   pet.BreedLabel,
-			"guide":        guide,
+			"guide":        localized,
+			"locale":       locale,
 		},
 	})
+}
+
+// pickLocale extracts the caller's preferred locale from the request — the
+// `?locale=` query param wins so clients can override per-call, then the
+// first language in Accept-Language. Empty when neither is set.
+func pickLocale(r *http.Request) string {
+	if q := strings.TrimSpace(r.URL.Query().Get("locale")); q != "" {
+		return q
+	}
+	if h := r.Header.Get("Accept-Language"); h != "" {
+		// "tr,en-US;q=0.9,en;q=0.8" → "tr"
+		first := strings.SplitN(h, ",", 2)[0]
+		first = strings.SplitN(first, ";", 2)[0]
+		return strings.TrimSpace(first)
+	}
+	return ""
+}
+
+// applyBreedCareLocale returns a copy of `g` with Title/Summary/Body
+// overridden by the matching translation when it exists. Empty translation
+// fields keep the base English value — partial translations are valid.
+// Strips the Translations map from the returned guide so mobile doesn't
+// download every locale on every read.
+func applyBreedCareLocale(g domain.BreedCareGuide, locale string) domain.BreedCareGuide {
+	if locale == "" || len(g.Translations) == 0 {
+		g.Translations = nil
+		return g
+	}
+	tr, ok := g.Translations[locale]
+	if !ok {
+		// Fall back to the language family (e.g. "pt-BR" → "pt") before
+		// giving up — keeps regional codes from silently dropping.
+		if dash := strings.IndexByte(locale, '-'); dash > 0 {
+			tr, ok = g.Translations[locale[:dash]]
+		}
+	}
+	if ok {
+		if tr.Title != "" {
+			g.Title = tr.Title
+		}
+		if tr.Summary != "" {
+			g.Summary = tr.Summary
+		}
+		if tr.Body != "" {
+			g.Body = tr.Body
+		}
+	}
+	g.Translations = nil
+	return g
 }
 
 // ── First-Aid Topics (public read) ──────────────────────────────────
@@ -2956,6 +3192,25 @@ func (s *Server) handleDeleteFeeding(writer http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": map[string]bool{"deleted": true}})
+}
+
+// handleLogFeedingNow turns one feeding-plan row into a meal-log row "as
+// eaten now", then bumps the schedule's last_logged_at. Bridges the
+// recurring-plan view (Feeding Plan) and the daily-actuals view (Calorie
+// Counter): tapping "Log it" makes the planned meal show up as eaten in
+// today's calorie summary.
+func (s *Server) handleLogFeedingNow(writer http.ResponseWriter, request *http.Request) {
+	petID, ok := s.verifyPetOwnership(writer, request)
+	if !ok {
+		return
+	}
+	scheduleID := chi.URLParam(request, "scheduleID")
+	mealLog, err := s.store.LogFeedingScheduleNow(petID, scheduleID)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusCreated, map[string]any{"data": mealLog})
 }
 
 // ── Playdates ────────────────────────────────────────────────────────
@@ -3743,6 +3998,32 @@ func (s *Server) handleJoinGroupByCode(writer http.ResponseWriter, request *http
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"data": group})
+}
+
+// handleJoinPlaydateByCode mirrors handleJoinGroupByCode but for playdates.
+// The "PD-" prefix on join_code means a group code pasted here can never
+// match (and vice-versa) — the two code spaces are structurally disjoint.
+func (s *Server) handleJoinPlaydateByCode(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(writer, request, &payload) {
+		return
+	}
+	// Normalize: trim whitespace, force the PD prefix to uppercase, force the
+	// 6 character body to uppercase. Defensive: a user may paste "pd-k7m2np"
+	// from a casually-shared message and the lookup column is uppercase.
+	code := strings.ToUpper(strings.TrimSpace(payload.Code))
+	if code == "" {
+		writeError(writer, http.StatusBadRequest, "code is required")
+		return
+	}
+	playdate, err := s.store.JoinPlaydateByCode(currentUserID(request), code)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"data": playdate})
 }
 
 func (s *Server) handleGetGroupByConversation(writer http.ResponseWriter, request *http.Request) {

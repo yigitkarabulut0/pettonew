@@ -2,7 +2,7 @@ export default {
   name: "Fetcht",
   slug: "petto-mobile",
   scheme: "petto",
-  version: "0.14.0",
+  version: "0.14.6",
   orientation: "portrait",
   userInterfaceStyle: "light",
   // react-native-reanimated 4.x requires the new architecture, so this must

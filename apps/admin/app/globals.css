@@ -110,3 +110,11 @@ a { color: inherit; text-decoration: none; }
     box-shadow: 0 0 0 10px rgba(34, 197, 94, 0.35), 0 0 0 20px rgba(34, 197, 94, 0.0);
   }
 }
+
+/* Highlights "today" on the growth chart so the live polling feels alive
+   without redrawing the chart on every tick. */
+@keyframes growth-pulse {
+  0%, 100% { r: 4; opacity: 1; }
+  50%      { r: 7; opacity: 0.55; }
+}
+.growth-pulse-dot { animation: growth-pulse 1.6s ease-in-out infinite; }

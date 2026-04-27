@@ -43,7 +43,7 @@ type DashboardMetrics = {
   reportsOpen: number;
   reportsOverdue: number;
   byKey?: Record<string, string>;
-  growth?: Array<{ label: string; users: number; pets: number; matches: number }>;
+  growth?: Array<{ label: string; users: number; pets: number; matches: number; activeUsers: number }>;
 };
 
 type ActiveUser = {
@@ -58,7 +58,8 @@ type ActiveUser = {
 export default function DashboardPage() {
   const dashboardQuery = useQuery({
     queryKey: ["admin-dashboard"],
-    queryFn: getDashboard
+    queryFn: getDashboard,
+    refetchInterval: 30_000
   });
   const metricsQuery = useQuery<DashboardMetrics>({
     queryKey: ["admin-dashboard-metrics"],
@@ -176,14 +177,16 @@ export default function DashboardPage() {
       {/* Charts */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
         <Card>
-          <CardHeader>
-            <CardTitle>Growth</CardTitle>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              Daily signups, pets added, and matches across the last week.
-            </p>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Growth</CardTitle>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                New signups vs. daily active users — last 7 days · live.
+              </p>
+            </div>
           </CardHeader>
           <CardContent>
-            <GrowthChart data={snap?.growth ?? []} />
+            <GrowthChart data={snap?.growth ?? []} liveCount={liveUsers.length} />
           </CardContent>
         </Card>
 

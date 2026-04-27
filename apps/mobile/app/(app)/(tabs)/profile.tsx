@@ -155,7 +155,8 @@ export default function ProfilePage() {
       key: "feeding",
       label: t("profile.feeding"),
       icon: UtensilsCrossed,
-      onPress: () => router.push(`/(app)/feeding/${petId}` as any)
+      // v0.14.2 — feeding plan was merged into the Nutrition (calories) hub.
+      onPress: () => router.push(`/(app)/calories/${petId}` as any)
     }
   ];
 

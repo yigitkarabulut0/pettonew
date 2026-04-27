@@ -34,7 +34,16 @@ export function useUrlState<T extends UrlStateShape>(defaults: T) {
           sp.set(key, String(value));
         }
       }
-      router.replace(`?${sp.toString()}`, { scroll: false });
+      // Wrap in startTransition: tanstack-table can fire onSortingChange
+      // synchronously inside its own render (during initial settling), and
+      // Next.js' router.replace dispatches a state update on the Router
+      // component. Calling that inside another component's render throws
+      // "Cannot update Router while rendering DataTable". Marking the URL
+      // change as a transition tells React it's a non-urgent update —
+      // legal to schedule from within render.
+      React.startTransition(() => {
+        router.replace(`?${sp.toString()}`, { scroll: false });
+      });
     },
     [router, searchParams]
   );

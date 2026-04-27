@@ -5,7 +5,7 @@ import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
 import * as React from "react";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const Command = React.forwardRef<
@@ -30,6 +30,11 @@ interface CommandDialogProps extends React.ComponentProps<typeof DialogPrimitive
 const CommandDialog = ({ children, ...props }: CommandDialogProps) => (
   <Dialog {...props}>
     <DialogContent className="overflow-hidden p-0 shadow-lg">
+      {/* Radix dialogs require a DialogTitle for screen-reader users.
+          The command palette is purely visual (search bar + list), so
+          we hide the title from sighted users while keeping it in the
+          accessibility tree. */}
+      <DialogTitle className="sr-only">Command palette</DialogTitle>
       <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--muted-foreground)] [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-10 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2">
         {children}
       </Command>

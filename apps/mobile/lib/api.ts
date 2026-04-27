@@ -25,6 +25,7 @@ import type {
   Pet,
   PetDocument,
   PetHealthProfile,
+  MedicationDose,
   PetMedication,
   PetSitter,
   Playdate,
@@ -1233,6 +1234,35 @@ export async function markMedicationGiven(
     headers: authHeaders(accessToken)
   });
 }
+/** v0.14.3 — per-medication "given" timeline. Newest first. */
+export async function listMedicationDoses(
+  accessToken: string,
+  petId: string,
+  medId: string
+): Promise<MedicationDose[]> {
+  const data = await request<MedicationDose[] | null>(
+    `/v1/pets/${petId}/medications/${medId}/doses`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
+/** v0.14.4 — every dose across the pet's medications inside [from, to).
+ *  One round-trip per visible date strip window so the Apple-style
+ *  medications view can reason about per-day "taken/missed" without
+ *  N round-trips. */
+export async function listMedicationDosesByPet(
+  accessToken: string,
+  petId: string,
+  fromISO: string,
+  toISO: string
+): Promise<MedicationDose[]> {
+  const qs = new URLSearchParams({ from: fromISO, to: toISO }).toString();
+  const data = await request<MedicationDose[] | null>(
+    `/v1/pets/${petId}/medication-doses?${qs}`,
+    { headers: authHeaders(accessToken) }
+  );
+  return data ?? [];
+}
 
 // Weekly health summary
 export async function getWeeklyHealthSummary(accessToken: string): Promise<WeeklyHealthSummary> {
@@ -1341,9 +1371,14 @@ export async function getDailyMealSummary(
 // Breed care + First-aid (Care v0.14.3)
 export async function getBreedCareForPet(
   accessToken: string,
-  petId: string
+  petId: string,
+  locale?: string
 ): Promise<BreedCareLookup> {
-  return request<BreedCareLookup>(`/v1/pets/${petId}/breed-care`, {
+  // Server reads ?locale= and swaps title/summary/body with the matching
+  // translation if one exists — partial translations fall back per field
+  // to base English. Caller passes the i18next current language.
+  const qs = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+  return request<BreedCareLookup>(`/v1/pets/${petId}/breed-care${qs}`, {
     headers: authHeaders(accessToken)
   });
 }
@@ -1380,6 +1415,24 @@ export async function listFeedingSchedules(accessToken: string, petId: string): 
 }
 export async function createFeedingSchedule(accessToken: string, petId: string, schedule: Omit<FeedingSchedule, "id" | "petId">): Promise<FeedingSchedule> {
   return request<FeedingSchedule>(`/v1/pets/${petId}/feeding`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(schedule) });
+}
+export async function deleteFeedingSchedule(accessToken: string, petId: string, scheduleId: string): Promise<void> {
+  await request(`/v1/pets/${petId}/feeding/${scheduleId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+/**
+ * v0.14.2 — turn one feeding-plan row into a meal-log row "as eaten now".
+ * Calorie Counter picks up the new meal in its today's-meals list and the
+ * schedule's lastLoggedAt is bumped so the UI can show "Logged today ✓".
+ */
+export async function logFeedingScheduleNow(
+  accessToken: string,
+  petId: string,
+  scheduleId: string
+): Promise<MealLog> {
+  return request<MealLog>(`/v1/pets/${petId}/feeding/${scheduleId}/log-now`, {
+    method: "POST",
+    headers: authHeaders(accessToken)
+  });
 }
 
 // Playdates
@@ -1440,6 +1493,19 @@ export async function claimPlaydateShare(
       headers: authHeaders(accessToken)
     }
   );
+}
+
+/**
+ * v0.14.1 — exchange a "PD-XXXXXX" join code for an invite + the playdate
+ * payload. Mirrors joinGroupByCode but for playdates. The server normalises
+ * casing/whitespace, so passing the raw user input is safe.
+ */
+export async function joinPlaydateByCode(accessToken: string, code: string): Promise<Playdate> {
+  return request<Playdate>("/v1/playdates/join-by-code", {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
 }
 export async function createPlaydate(accessToken: string, playdate: Omit<Playdate, "id" | "organizerId" | "attendees" | "createdAt">): Promise<Playdate> {
   return request<Playdate>("/v1/playdates", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify(playdate) });

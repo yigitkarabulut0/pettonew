@@ -75,7 +75,7 @@ const asyncStoragePersister = createAsyncStoragePersister({
 const PERSIST_OPTIONS = {
   persister: asyncStoragePersister,
   maxAge: 1000 * 60 * 60 * 24, // 24h — show yesterday's data instantly, refetch in bg
-  buster: "0.14.0", // cache busted on version change
+  buster: "0.14.5", // cache busted on version change
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
       // Only persist lightweight list queries — skip large/binary data.

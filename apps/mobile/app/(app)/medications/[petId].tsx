@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,6 +20,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   ArrowLeft,
   Check,
+  CheckCircle2,
   Clock,
   Pill,
   Plus,
@@ -31,10 +33,12 @@ import { LottieLoading } from "@/components/lottie-loading";
 import {
   createMedication,
   deleteMedication,
+  listMedicationDosesByPet,
   listMedications,
   markMedicationGiven,
   type MedicationDraft
 } from "@/lib/api";
+import type { MedicationDose, PetMedication } from "@petto/contracts";
 import { mobileTheme, useTheme } from "@/lib/theme";
 import { useLocalRefresh } from "@/lib/use-local-refresh";
 import { useSessionStore } from "@/store/session";
@@ -70,6 +74,38 @@ function deviceTimezone(): string {
   } catch {
     return "UTC";
   }
+}
+
+function startOfDay(d: Date): Date {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+// Apple-Style date strip layout constants. Centralized so any tweak (gap
+// or bubble width) keeps the auto-scroll math in lockstep.
+const BUBBLE_W = 56;
+const BUBBLE_GAP = 8;
+const STRIP_PAD_H = 20; // matches mobileTheme.spacing.xl
+
+// Whether this medication is "applicable" on a given calendar date —
+// active + within start/end + day-of-week match. Drives the per-day
+// list filtering on the strip-bound view.
+function isMedApplicableOn(med: PetMedication, date: Date): boolean {
+  if (!med.active) return false;
+  const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  if (med.startDate && dateKey < med.startDate) return false;
+  if (med.endDate && dateKey > med.endDate) return false;
+  if (!med.daysOfWeek || med.daysOfWeek.length === 0) return true;
+  return med.daysOfWeek.includes(date.getDay());
 }
 
 function relativeFromNow(iso: string | undefined, t: (k: string) => string): string {
@@ -109,9 +145,46 @@ export default function MedicationsPage() {
   // Default to all 7 days. Order doesn't matter — server sanitises.
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
 
+  // v0.14.4 — Apple-style date strip. selectedDate is always at midnight
+  // (local) so day comparisons are exact. The strip renders 14 days back,
+  // today, and 7 days forward; we auto-scroll to today on mount.
+  const [selectedDate, setSelectedDate] = useState<Date>(() => startOfDay(new Date()));
+  const stripScrollRef = useRef<ScrollView>(null);
+  const stripDates = useMemo(() => {
+    const today = startOfDay(new Date());
+    const out: Date[] = [];
+    for (let i = -14; i <= 7; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      out.push(d);
+    }
+    return out;
+  }, []);
+
   const medsQuery = useQuery({
     queryKey: ["medications", petId],
     queryFn: () => listMedications(token, petId!),
+    enabled: Boolean(token && petId)
+  });
+
+  // Aggregate dose history for the strip's window. We fetch a fixed
+  // 30-day window (today-21 → today+8) so the strip + a bit of buffer is
+  // always covered without paging. Cache key is bound to the petId so
+  // tabs back and forth don't refetch.
+  const dosesRangeFrom = useMemo(() => {
+    const d = startOfDay(new Date());
+    d.setDate(d.getDate() - 21);
+    return d.toISOString();
+  }, []);
+  const dosesRangeTo = useMemo(() => {
+    const d = startOfDay(new Date());
+    d.setDate(d.getDate() + 8);
+    return d.toISOString();
+  }, []);
+  const dosesQuery = useQuery({
+    queryKey: ["medication-doses-by-pet", petId, dosesRangeFrom, dosesRangeTo],
+    queryFn: () =>
+      listMedicationDosesByPet(token, petId!, dosesRangeFrom, dosesRangeTo),
     enabled: Boolean(token && petId)
   });
 
@@ -140,9 +213,18 @@ export default function MedicationsPage() {
 
   const givenMutation = useMutation({
     mutationFn: (medId: string) => markMedicationGiven(token, petId!, medId),
+    onMutate: () => {
+      // Two haptics: one immediate "tap registered", one on success below.
+      // Mirrors how iOS native UIs feel — the first reassures the user
+      // their tap was heard, the second confirms the work succeeded.
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    },
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["medications", petId] });
+      // Refresh the per-pet dose aggregate so the strip indicator + the
+      // selected day's "given" status update without a manual refresh.
+      queryClient.invalidateQueries({ queryKey: ["medication-doses-by-pet"] });
     }
   });
 
@@ -154,8 +236,63 @@ export default function MedicationsPage() {
   });
 
   const { refreshing, handleRefresh } = useLocalRefresh(
-    useCallback(() => medsQuery.refetch(), [medsQuery])
+    useCallback(async () => {
+      await Promise.all([medsQuery.refetch(), dosesQuery.refetch()]);
+    }, [medsQuery, dosesQuery])
   );
+
+  // Auto-scroll the strip to today on first paint. We rely on layout
+  // having stabilised (small timeout) — without it, the ScrollView's
+  // contentSize is sometimes still 0 when contentOffset is set.
+  useEffect(() => {
+    const todayIdx = stripDates.findIndex((d: Date) =>
+      isSameDay(d, startOfDay(new Date()))
+    );
+    if (todayIdx < 0) return;
+    const offset = todayIdx * (BUBBLE_W + BUBBLE_GAP) - 96;
+    const id = setTimeout(() => {
+      stripScrollRef.current?.scrollTo({ x: Math.max(0, offset), animated: false });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [stripDates]);
+
+  // Doses for the currently-selected day, indexed by medication id for
+  // O(1) lookup inside the per-medication card render.
+  const dosesByMedForSelectedDay = useMemo(() => {
+    const map = new Map<string, MedicationDose[]>();
+    for (const dose of dosesQuery.data ?? []) {
+      const dt = new Date(dose.givenAt);
+      if (Number.isNaN(dt.getTime())) continue;
+      if (!isSameDay(dt, selectedDate)) continue;
+      const list = map.get(dose.medicationId) ?? [];
+      list.push(dose);
+      map.set(dose.medicationId, list);
+    }
+    return map;
+  }, [dosesQuery.data, selectedDate]);
+
+  // Per-day "compliance" indicator on the strip: for each strip date,
+  // count applicable meds vs given meds. Only meaningful for past +
+  // today; future days will read 0/N.
+  const stripCompliance = useMemo(() => {
+    const meds = medsQuery.data ?? [];
+    const doses = dosesQuery.data ?? [];
+    const map = new Map<string, { applicable: number; given: number }>();
+    for (const date of stripDates) {
+      const key = date.toDateString();
+      const applicable = meds.filter((m) => isMedApplicableOn(m, date));
+      const givenIds = new Set<string>();
+      for (const d of doses) {
+        const dt = new Date(d.givenAt);
+        if (!Number.isNaN(dt.getTime()) && isSameDay(dt, date)) {
+          givenIds.add(d.medicationId);
+        }
+      }
+      const givenForApplicable = applicable.filter((m) => givenIds.has(m.id)).length;
+      map.set(key, { applicable: applicable.length, given: givenForApplicable });
+    }
+    return map;
+  }, [medsQuery.data, dosesQuery.data, stripDates]);
 
   const toggleDay = (idx: number) => {
     setDays((prev) =>
@@ -487,165 +624,228 @@ export default function MedicationsPage() {
             </Text>
           </View>
         ) : (
-          <View style={{ gap: mobileTheme.spacing.md }}>
-            {meds.map((med) => {
-              const lastGiven = relativeFromNow(med.lastGivenAt, t);
-              return (
-                <View
-                  key={med.id}
-                  style={{
-                    backgroundColor: theme.colors.white,
-                    borderRadius: mobileTheme.radius.lg,
-                    padding: mobileTheme.spacing.lg,
-                    gap: mobileTheme.spacing.sm,
-                    ...mobileTheme.shadow.sm
-                  }}
-                >
-                  <View
+          <>
+            {/* ── Apple-style horizontal date strip ─────────────────── */}
+            <ScrollView
+              ref={stripScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                paddingHorizontal: STRIP_PAD_H,
+                paddingVertical: 4,
+                gap: BUBBLE_GAP
+              }}
+              style={{
+                marginHorizontal: -mobileTheme.spacing.xl,
+                marginBottom: mobileTheme.spacing.lg
+              }}
+            >
+              {stripDates.map((date: Date) => {
+                const isSelected = isSameDay(date, selectedDate);
+                const isToday = isSameDay(date, startOfDay(new Date()));
+                const compliance = stripCompliance.get(date.toDateString());
+                const isPastOrToday = date.getTime() <= startOfDay(new Date()).getTime();
+                let indicatorColor = "transparent";
+                if (compliance && compliance.applicable > 0 && isPastOrToday) {
+                  indicatorColor =
+                    compliance.given >= compliance.applicable
+                      ? theme.colors.success
+                      : compliance.given > 0
+                        ? theme.colors.starGold
+                        : theme.colors.danger + "55";
+                }
+                return (
+                  <Pressable
+                    key={date.toISOString()}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedDate(date);
+                    }}
                     style={{
-                      flexDirection: "row",
+                      width: BUBBLE_W,
+                      paddingVertical: 10,
+                      borderRadius: 14,
+                      backgroundColor: isSelected
+                        ? theme.colors.primary
+                        : theme.colors.white,
+                      borderWidth: isSelected ? 0 : isToday ? 1.5 : 1,
+                      borderColor: isToday
+                        ? theme.colors.primary
+                        : theme.colors.border,
                       alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: mobileTheme.spacing.sm
+                      gap: 2,
+                      ...mobileTheme.shadow.sm
                     }}
                   >
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text
-                        style={{
-                          fontSize: mobileTheme.typography.bodySemiBold.fontSize,
-                          fontWeight: mobileTheme.typography.bodySemiBold.fontWeight,
-                          color: theme.colors.ink,
-                          fontFamily: "Inter_700Bold"
-                        }}
-                      >
-                        {med.name}
-                      </Text>
-                      {med.dosage ? (
-                        <Text
-                          style={{
-                            fontSize: mobileTheme.typography.caption.fontSize,
-                            color: theme.colors.muted,
-                            fontFamily: "Inter_500Medium"
-                          }}
-                        >
-                          {med.dosage}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Pressable
-                      onPress={() => confirmDelete(med.id, med.name)}
-                      hitSlop={8}
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontFamily: "Inter_700Bold",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.6,
+                        color: isSelected
+                          ? "rgba(255,255,255,0.85)"
+                          : theme.colors.muted
+                      }}
                     >
-                      <Trash2 size={16} color={theme.colors.muted} />
-                    </Pressable>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      flexWrap: "wrap"
-                    }}
-                  >
+                      {date.toLocaleDateString([], { weekday: "short" })}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 22,
+                        fontFamily: "Inter_700Bold",
+                        color: isSelected
+                          ? "#FFFFFF"
+                          : isToday
+                            ? theme.colors.primary
+                            : theme.colors.ink
+                      }}
+                    >
+                      {date.getDate()}
+                    </Text>
                     <View
                       style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 4,
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: mobileTheme.radius.pill,
-                        backgroundColor: theme.colors.primaryBg
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        marginTop: 2,
+                        backgroundColor: indicatorColor
                       }}
-                    >
-                      <Clock size={12} color={theme.colors.primary} />
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: "700",
-                          color: theme.colors.primary,
-                          fontFamily: "Inter_700Bold"
-                        }}
-                      >
-                        {med.timeOfDay}
-                      </Text>
-                    </View>
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        color: theme.colors.muted,
-                        fontFamily: "Inter_500Medium"
-                      }}
-                    >
-                      {summariseDays(med.daysOfWeek, t)}
-                    </Text>
-                  </View>
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
-                  {med.notes ? (
-                    <Text
-                      style={{
-                        fontSize: mobileTheme.typography.caption.fontSize,
-                        color: theme.colors.muted,
-                        fontFamily: "Inter_400Regular",
-                        lineHeight: 18
-                      }}
-                    >
-                      {med.notes}
-                    </Text>
-                  ) : null}
-
-                  <View
+            {/* Selected day header */}
+            {(() => {
+              const today = startOfDay(new Date());
+              const yesterday = new Date(today);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const headerLabel = isSameDay(selectedDate, today)
+                ? t("medications.today")
+                : isSameDay(selectedDate, yesterday)
+                  ? t("medications.yesterday")
+                  : selectedDate.toLocaleDateString([], {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long"
+                    });
+              const applicableMeds = meds.filter((m) =>
+                isMedApplicableOn(m, selectedDate)
+              );
+              const givenCount = applicableMeds.filter((m) =>
+                (dosesByMedForSelectedDay.get(m.id) ?? []).length > 0
+              ).length;
+              return (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: mobileTheme.spacing.md
+                  }}
+                >
+                  <Text
                     style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginTop: 4
+                      fontSize: mobileTheme.typography.subheading.fontSize,
+                      fontWeight: "700",
+                      color: theme.colors.ink,
+                      fontFamily: "Inter_700Bold"
                     }}
                   >
-                    <Text
+                    {headerLabel}
+                  </Text>
+                  {applicableMeds.length > 0 ? (
+                    <View
                       style={{
-                        fontSize: 11,
-                        color: theme.colors.muted,
-                        fontFamily: "Inter_400Regular"
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: mobileTheme.radius.pill,
+                        backgroundColor:
+                          givenCount === applicableMeds.length
+                            ? theme.colors.successBg
+                            : theme.colors.background
                       }}
                     >
-                      {lastGiven
-                        ? t("medications.lastGiven", { when: lastGiven })
-                        : t("medications.neverGiven")}
-                    </Text>
-                    <Pressable
-                      onPress={() => givenMutation.mutate(med.id)}
-                      disabled={givenMutation.isPending}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: mobileTheme.radius.md,
-                        backgroundColor: theme.colors.successBg,
-                        borderWidth: 1,
-                        borderColor: theme.colors.success + "44"
-                      }}
-                    >
-                      <Check size={14} color={theme.colors.success} />
                       <Text
                         style={{
-                          fontSize: 12,
-                          fontWeight: "700",
-                          color: theme.colors.success,
-                          fontFamily: "Inter_700Bold"
+                          fontSize: 11,
+                          fontFamily: "Inter_700Bold",
+                          color:
+                            givenCount === applicableMeds.length
+                              ? theme.colors.success
+                              : theme.colors.muted
                         }}
                       >
-                        {t("medications.markGiven")}
+                        {givenCount} / {applicableMeds.length} {t("medications.givenCountSuffix")}
                       </Text>
-                    </Pressable>
-                  </View>
+                    </View>
+                  ) : null}
                 </View>
               );
-            })}
-          </View>
+            })()}
+
+            {/* Per-day medication list */}
+            {(() => {
+              const today = startOfDay(new Date());
+              const isPast = selectedDate.getTime() < today.getTime();
+              const isFuture = selectedDate.getTime() > today.getTime();
+              const isToday = isSameDay(selectedDate, today);
+              const applicableMeds = meds.filter((m) =>
+                isMedApplicableOn(m, selectedDate)
+              );
+              if (applicableMeds.length === 0) {
+                return (
+                  <View
+                    style={{
+                      paddingVertical: mobileTheme.spacing["3xl"],
+                      alignItems: "center",
+                      gap: mobileTheme.spacing.md
+                    }}
+                  >
+                    <Pill size={36} color={theme.colors.muted} />
+                    <Text
+                      style={{
+                        fontSize: mobileTheme.typography.body.fontSize,
+                        color: theme.colors.muted,
+                        fontFamily: "Inter_400Regular",
+                        textAlign: "center",
+                        paddingHorizontal: mobileTheme.spacing["3xl"]
+                      }}
+                    >
+                      {isPast
+                        ? t("medications.noneOnPast")
+                        : isFuture
+                          ? t("medications.noneOnFuture")
+                          : t("medications.noneOnToday")}
+                    </Text>
+                  </View>
+                );
+              }
+              return (
+                <View style={{ gap: mobileTheme.spacing.md }}>
+                  {applicableMeds.map((med) => (
+                    <MedicationCard
+                      key={med.id}
+                      med={med}
+                      dosesForDay={dosesByMedForSelectedDay.get(med.id) ?? []}
+                      isToday={isToday}
+                      isPast={isPast}
+                      isFuture={isFuture}
+                      onMarkGiven={() => givenMutation.mutate(med.id)}
+                      onDelete={() => confirmDelete(med.id, med.name)}
+                      isGivingPending={
+                        givenMutation.isPending && givenMutation.variables === med.id
+                      }
+                      t={t}
+                      theme={theme}
+                    />
+                  ))}
+                </View>
+              );
+            })()}
+          </>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -701,3 +901,361 @@ function summariseDays(days: number[], t: (k: string) => string): string {
   const labels = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   return sorted.map((d) => t(`medications.short_${labels[d]}`)).join(" · ");
 }
+
+// Helper: was the medication given today (in the device's local day).
+function wasGivenToday(iso?: string): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+// ── MedicationCard ─────────────────────────────────────────────────
+//
+// One row in the medication list. v0.14.3 upgrades:
+//   • A dedicated "given today" visual state — green-tinted card, success
+//     icon, "Given at HH:MM" line. Idle state stays cream/white.
+//   • Tap-to-mark animation: the whole card briefly scales (0.97) and
+//     a green flash overlay fades in/out on success. Combined with two
+//     haptics (impact on tap, success on resolve) the action feels
+//     responsive even on slow networks.
+//   • A dedicated "History" button next to the action — opens a sheet
+//     showing the full timeline of given doses.
+function MedicationCard({
+  med,
+  dosesForDay,
+  isToday,
+  isPast,
+  isFuture,
+  onMarkGiven,
+  onDelete,
+  isGivingPending,
+  t,
+  theme
+}: {
+  med: PetMedication;
+  dosesForDay: MedicationDose[];
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  onMarkGiven: () => void;
+  onDelete: () => void;
+  isGivingPending: boolean;
+  t: (k: string, opts?: any) => string;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  // Newest dose for the selected day (the strip's selectedDate). For
+  // past/today this means "did the user actually give it"; for future it
+  // is always [].
+  const lastDose = dosesForDay[0];
+  const givenOnDay = Boolean(lastDose);
+  const givenAtTime = lastDose
+    ? new Date(lastDose.givenAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      })
+    : null;
+
+  // Press-to-scale animation. Each tap shrinks the card slightly so the
+  // user feels the touch even before the network responds.
+  const scale = useRef(new Animated.Value(1)).current;
+  const flash = useRef(new Animated.Value(0)).current;
+  const [justGiven, setJustGiven] = useState(false);
+
+  // When isGivingPending flips from true to false (mutation resolved),
+  // play a quick green-flash overlay so success is unmistakable.
+  const wasPendingRef = useRef(false);
+  useEffect(() => {
+    if (wasPendingRef.current && !isGivingPending) {
+      // Mutation just resolved.
+      setJustGiven(true);
+      Animated.sequence([
+        Animated.timing(flash, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true
+        }),
+        Animated.timing(flash, {
+          toValue: 0,
+          duration: 420,
+          useNativeDriver: true
+        })
+      ]).start(() => setJustGiven(false));
+    }
+    wasPendingRef.current = isGivingPending;
+  }, [isGivingPending, flash]);
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      friction: 5,
+      tension: 200
+    }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 5,
+      tension: 200
+    }).start();
+  };
+
+  return (
+    <Animated.View
+      style={{
+        transform: [{ scale }],
+        backgroundColor: givenOnDay
+          ? theme.colors.successBg
+          : isPast
+            ? theme.colors.background
+            : theme.colors.white,
+        borderRadius: mobileTheme.radius.lg,
+        borderWidth: givenOnDay ? 1.5 : 0,
+        borderColor: givenOnDay ? theme.colors.success + "55" : "transparent",
+        ...mobileTheme.shadow.sm,
+        overflow: "hidden"
+      }}
+    >
+      <View style={{ padding: mobileTheme.spacing.lg, gap: mobileTheme.spacing.sm }}>
+        {/* Title row */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: mobileTheme.spacing.sm
+          }}
+        >
+          <View
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: givenOnDay
+                ? theme.colors.success + "22"
+                : theme.colors.primaryBg,
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            {givenOnDay ? (
+              <CheckCircle2 size={18} color={theme.colors.success} />
+            ) : (
+              <Pill size={18} color={theme.colors.primary} />
+            )}
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text
+              style={{
+                fontSize: mobileTheme.typography.bodySemiBold.fontSize,
+                fontWeight: "700",
+                color: theme.colors.ink,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {med.name}
+            </Text>
+            {med.dosage ? (
+              <Text
+                style={{
+                  fontSize: mobileTheme.typography.caption.fontSize,
+                  color: theme.colors.muted,
+                  fontFamily: "Inter_500Medium"
+                }}
+              >
+                {med.dosage}
+              </Text>
+            ) : null}
+          </View>
+          {/* Delete only on today's view to keep past/future rows tidy. */}
+          {isToday ? (
+            <Pressable onPress={onDelete} hitSlop={8}>
+              <Trash2 size={16} color={theme.colors.muted} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Schedule line — time pill */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap"
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+              borderRadius: mobileTheme.radius.pill,
+              backgroundColor: theme.colors.primaryBg
+            }}
+          >
+            <Clock size={12} color={theme.colors.primary} />
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "700",
+                color: theme.colors.primary,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {med.timeOfDay}
+            </Text>
+          </View>
+          {dosesForDay.length > 1 ? (
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {t("medications.dosesGivenCount", { count: dosesForDay.length })}
+            </Text>
+          ) : null}
+        </View>
+
+        {med.notes && isToday ? (
+          <Text
+            style={{
+              fontSize: mobileTheme.typography.caption.fontSize,
+              color: theme.colors.muted,
+              fontFamily: "Inter_400Regular",
+              lineHeight: 18
+            }}
+          >
+            {med.notes}
+          </Text>
+        ) : null}
+
+        {/* Status line — varies by where on the strip we are. */}
+        <View
+          style={{
+            marginTop: 4,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6
+          }}
+        >
+          {givenOnDay ? (
+            <>
+              <CheckCircle2 size={13} color={theme.colors.success} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.colors.success,
+                  fontFamily: "Inter_700Bold"
+                }}
+              >
+                {isToday
+                  ? t("medications.givenTodayAt", { when: givenAtTime ?? "" })
+                  : t("medications.givenAt", { when: givenAtTime ?? "" })}
+              </Text>
+            </>
+          ) : isPast ? (
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.danger,
+                fontFamily: "Inter_700Bold"
+              }}
+            >
+              {t("medications.notTaken")}
+            </Text>
+          ) : isFuture ? (
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {t("medications.scheduledForTime", { when: med.timeOfDay })}
+            </Text>
+          ) : (
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.colors.muted,
+                fontFamily: "Inter_500Medium"
+              }}
+            >
+              {t("medications.notYetToday")}
+            </Text>
+          )}
+        </View>
+
+        {/* Mark Given button — only visible on today. Past = read-only,
+            future = nothing to mark. */}
+        {isToday ? (
+          <Pressable
+            onPress={onMarkGiven}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            disabled={isGivingPending}
+            style={{
+              marginTop: 6,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              paddingVertical: 11,
+              borderRadius: mobileTheme.radius.md,
+              backgroundColor: givenOnDay
+                ? theme.colors.success
+                : theme.colors.primary,
+              opacity: isGivingPending ? 0.7 : 1
+            }}
+          >
+            {isGivingPending ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Check size={15} color="#FFFFFF" />
+                <Text
+                  style={{
+                    color: "#FFFFFF",
+                    fontSize: 13,
+                    fontFamily: "Inter_700Bold"
+                  }}
+                >
+                  {givenOnDay
+                    ? t("medications.markGivenAgain")
+                    : t("medications.markGiven")}
+                </Text>
+              </>
+            )}
+          </Pressable>
+        ) : null}
+      </View>
+
+      {/* Green flash overlay — fades in/out for ~600ms on successful tap */}
+      {(justGiven || isGivingPending) && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: theme.colors.success,
+            opacity: flash
+          }}
+        />
+      )}
+    </Animated.View>
+  );
+}
+

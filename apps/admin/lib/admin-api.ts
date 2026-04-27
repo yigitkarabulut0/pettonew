@@ -222,6 +222,81 @@ export async function getNotifications() {
   >("/notifications");
 }
 
+// Scheduled (recurring) pushes — admin-defined cron-lite. The per-minute
+// scheduler on the API fires each row when its `nextRunAt` arrives.
+export type ScheduledPushAudience = "all" | "pet_type" | "users";
+
+export interface ScheduledPush {
+  id: string;
+  title: string;
+  body: string;
+  deepLink?: string;
+  audience: ScheduledPushAudience;
+  petTypes: string[];
+  userIds: string[];
+  countryFilter?: string;
+  cityFilter?: string;
+  daysOfWeek: number[]; // Sunday=0 … Saturday=6
+  timeOfDay: string; // "HH:MM"
+  timezone: string;
+  enabled: boolean;
+  lastRunAt?: string | null;
+  nextRunAt: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface ScheduledPushInput {
+  title: string;
+  body: string;
+  deepLink?: string;
+  audience: ScheduledPushAudience;
+  petTypes?: string[];
+  userIds?: string[];
+  countryFilter?: string;
+  cityFilter?: string;
+  daysOfWeek: number[];
+  timeOfDay: string;
+  timezone?: string;
+  enabled?: boolean;
+}
+
+// Curated country / city / timezone catalogue. The same data drives the
+// scheduler's resolver on the backend, so a city picked here is
+// guaranteed to match exactly what the resolver looks for.
+export interface AdminCountry {
+  code: string;
+  name: string;
+  cities: string[];
+}
+export async function getAdminLocations() {
+  return apiRequest<{ countries: AdminCountry[]; timezones: string[] }>("/locations");
+}
+
+export async function listScheduledPushes() {
+  return apiRequest<ScheduledPush[]>("/scheduled-pushes");
+}
+
+export async function createScheduledPush(input: ScheduledPushInput) {
+  return apiRequest<{ id: string }>("/scheduled-pushes", {
+    method: "POST",
+    body: input
+  });
+}
+
+export async function updateScheduledPush(id: string, patch: Partial<ScheduledPushInput>) {
+  return apiRequest(`/scheduled-pushes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch
+  });
+}
+
+export async function deleteScheduledPush(id: string) {
+  return apiRequest(`/scheduled-pushes/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
 // Pet care data
 export async function getAdminPetHealth(petId: string) {
   return apiRequest<
@@ -294,6 +369,14 @@ export async function updateAdminTrainingTip(
 }
 
 // Breed care guides (Care v0.14.3)
+// Per-locale override for the editorial fields. Empty fields keep the
+// base English value; partial translations are valid (translator can
+// land `title` first and finish `body` later).
+export type BreedCareGuideTranslation = {
+  title?: string;
+  summary?: string;
+  body?: string;
+};
 export type AdminBreedCareGuide = {
   id: string;
   speciesId: string;
@@ -304,6 +387,9 @@ export type AdminBreedCareGuide = {
   summary?: string;
   body: string;
   heroImageUrl?: string;
+  // BCP-47 locale → fields the locale wants to override (e.g. "tr",
+  // "pt-BR"). Base English lives in the top-level title/summary/body.
+  translations?: Record<string, BreedCareGuideTranslation>;
   createdAt: string;
   updatedAt: string;
 };
@@ -320,6 +406,7 @@ export async function createAdminBreedCareGuide(g: {
   summary?: string;
   body: string;
   heroImageUrl?: string;
+  translations?: Record<string, BreedCareGuideTranslation>;
 }) {
   return apiRequest<AdminBreedCareGuide>("/breed-care-guides", { method: "POST", body: g });
 }
@@ -427,17 +514,141 @@ export async function getAdminPlaydates() {
   }>>("/playdates");
 }
 
-// Groups
-export async function getAdminGroups() {
-  return apiRequest<Array<{
-    id: string;
-    name: string;
-    description: string;
-    petType: string;
-    memberCount: number;
-    createdAt: string;
-  }>>("/groups");
+export type AdminPlaydateMemberPet = { id: string; name: string; photoUrl?: string };
+export type AdminPlaydateAttendee = {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  pets: AdminPlaydateMemberPet[];
+};
+export type AdminPlaydateHost = {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  isVerified: boolean;
+};
+export type AdminPlaydateDetail = {
+  id: string;
+  organizerId: string;
+  title: string;
+  description: string;
+  date: string;
+  location: string;
+  maxPets: number;
+  attendees: string[];
+  createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  cityLabel?: string;
+  venueId?: string;
+  coverImageUrl?: string;
+  rules?: string[];
+  status: string;
+  cancelledAt?: string;
+  conversationId?: string;
+  waitlist?: string[];
+  attendeesInfo?: AdminPlaydateAttendee[];
+  hostInfo?: AdminPlaydateHost;
+  visibility: string;
+  shareToken?: string;
+  joinCode?: string;
+  slotsUsed?: number;
+  pendingInvites?: number;
+  locked?: boolean;
+};
+export async function getAdminPlaydateDetail(id: string) {
+  return apiRequest<AdminPlaydateDetail>(`/playdates/${encodeURIComponent(id)}`);
 }
+
+// Conversation messages — used by the playdate / group live chat pane.
+export type AdminConversationMessage = {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  senderName?: string;
+  senderAvatarUrl?: string;
+  body: string;
+  type?: string;
+  imageUrl?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  deletedAt?: string | null;
+};
+export async function getAdminConversationMessages(
+  conversationId: string,
+  options: { limit?: number; offset?: number } = {}
+) {
+  const sp = new URLSearchParams();
+  sp.set("limit", String(options.limit ?? 200));
+  sp.set("offset", String(options.offset ?? 0));
+  // The admin handler wraps its response in the paginated `writeAdminList`
+  // envelope (`{data:{data:[...],total:N}}`). The Next proxy strips the outer
+  // `data`, leaving the inner envelope here — pluck `.data` so the chat pane
+  // gets a plain array regardless of which admin list shape the backend uses.
+  const envelope = await apiRequest<
+    AdminConversationMessage[] | { data: AdminConversationMessage[]; total?: number }
+  >(`/conversations/${encodeURIComponent(conversationId)}/messages?${sp.toString()}`);
+  if (Array.isArray(envelope)) return envelope;
+  return envelope?.data ?? [];
+}
+
+export async function deleteAdminConversationMessage(conversationId: string, messageId: string) {
+  return apiRequest(
+    `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" }
+  );
+}
+
+// Mints a short-lived HMAC ticket the browser can attach to the read-only
+// admin chat WebSocket. The ticket itself is the only secret on the wire —
+// the admin JWT never leaves the HttpOnly cookie.
+export async function getAdminConversationWsTicket(conversationId: string) {
+  return apiRequest<{ ticket: string; expiresAt: number }>(
+    `/conversations/${encodeURIComponent(conversationId)}/ws-ticket`
+  );
+}
+
+// Groups
+export type AdminGroupListItem = {
+  id: string;
+  name: string;
+  description: string;
+  petType: string;
+  category?: string;
+  memberCount: number;
+  imageUrl?: string;
+  conversationId?: string;
+  cityLabel?: string;
+  isPrivate?: boolean;
+  code?: string;
+  hashtags?: string[];
+  rules?: string[];
+  createdAt: string;
+};
+export async function getAdminGroups() {
+  return apiRequest<AdminGroupListItem[]>("/groups");
+}
+
+export type AdminGroupMemberPet = { id: string; name: string; photoUrl?: string };
+export type AdminGroupMember = {
+  userId: string;
+  firstName: string;
+  avatarUrl?: string;
+  pets: AdminGroupMemberPet[];
+  isMuted?: boolean;
+  mutedUntil?: string | null;
+};
+export type AdminGroupDetail = AdminGroupListItem & {
+  members: AdminGroupMember[];
+  ownerUserId?: string;
+  adminUserIds?: string[];
+  latitude?: number;
+  longitude?: number;
+};
+export async function getAdminGroupDetail(id: string) {
+  return apiRequest<AdminGroupDetail>(`/groups/${encodeURIComponent(id)}`);
+}
+
 export async function createAdminGroup(group: {
   name: string;
   description: string;
@@ -449,6 +660,10 @@ export async function createAdminGroup(group: {
   isPrivate?: boolean;
 }) {
   return apiRequest("/groups", { method: "POST", body: group });
+}
+
+export async function deleteAdminGroup(id: string) {
+  return apiRequest(`/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // Lost pets

@@ -54,7 +54,7 @@ const DEEP_LINKS: { title: string; href: string; subtitle?: string }[] = [
   { title: "User profile (demo)", href: "/(app)/user/demo-user-1" },
   { title: "Pet health (demo)", href: "/(app)/pet-health/demo-pet-1" },
   { title: "Pet weight (demo)", href: "/(app)/pet-weight/demo-pet-1" },
-  { title: "Feeding (demo)", href: "/(app)/feeding/demo-pet-1" },
+  { title: "Nutrition (demo)", href: "/(app)/calories/demo-pet-1" },
   { title: "Diary (demo)", href: "/(app)/diary/demo-pet-1" }
 ];
 

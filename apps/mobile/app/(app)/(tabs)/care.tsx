@@ -16,7 +16,6 @@ import {
   BookOpen,
   Calendar,
   FileText,
-  Flame,
   GraduationCap,
   Heart as HeartIcon,
   Phone,
@@ -44,8 +43,7 @@ const CARE_SECTIONS = [
       { labelKey: "care.healthRecords", subtitleKey: "care.healthRecordsSubtitle", icon: Activity, color: "#3F7D4E", routeKey: "pet-health" },
       { labelKey: "care.symptomLog", subtitleKey: "care.symptomLogSubtitle", icon: AlertTriangle, color: "#C48A3F", routeKey: "symptom-log" },
       { labelKey: "care.weightLog", subtitleKey: "care.weightLogSubtitle", icon: Scale, color: "#5B9BD5", routeKey: "pet-weight" },
-      { labelKey: "care.calories", subtitleKey: "care.caloriesSubtitle", icon: Flame, color: "#E6694A", routeKey: "calories" },
-      { labelKey: "care.feedingPlan", subtitleKey: "care.feedingPlanSubtitle", icon: UtensilsCrossed, color: "#F7B267", routeKey: "feeding" },
+      { labelKey: "care.nutrition", subtitleKey: "care.nutritionSubtitle", icon: UtensilsCrossed, color: "#E6694A", routeKey: "calories" },
       { labelKey: "care.diary", subtitleKey: "care.diarySubtitle", icon: BookOpen, color: "#8B6F47", routeKey: "diary" }
     ]
   },

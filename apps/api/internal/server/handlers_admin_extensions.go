@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yigitkarabulut/petto/apps/api/internal/auth"
+	"github.com/yigitkarabulut/petto/apps/api/internal/domain"
+	"github.com/yigitkarabulut/petto/apps/api/internal/service"
 	"github.com/yigitkarabulut/petto/apps/api/internal/store"
 )
 
@@ -808,15 +811,17 @@ func (s *Server) handleAdminConversations(w http.ResponseWriter, r *http.Request
 }
 
 type messageRow struct {
-	ID             string     `json:"id"`
-	ConversationID string     `json:"conversationId"`
-	SenderUserID   string     `json:"senderUserId"`
-	SenderName     string     `json:"senderName,omitempty"`
-	Body           string     `json:"body"`
-	Type           string     `json:"type,omitempty"`
-	ImageURL       string     `json:"imageUrl,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+	ID              string         `json:"id"`
+	ConversationID  string         `json:"conversationId"`
+	SenderUserID    string         `json:"senderUserId"`
+	SenderName      string         `json:"senderName,omitempty"`
+	SenderAvatarURL string         `json:"senderAvatarUrl,omitempty"`
+	Body            string         `json:"body"`
+	Type            string         `json:"type,omitempty"`
+	ImageURL        string         `json:"imageUrl,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       time.Time      `json:"createdAt"`
+	DeletedAt       *time.Time     `json:"deletedAt,omitempty"`
 }
 
 func (s *Server) handleAdminConversationMessages(w http.ResponseWriter, r *http.Request) {
@@ -832,7 +837,9 @@ func (s *Server) handleAdminConversationMessages(w http.ResponseWriter, r *http.
 	}
 	rows, err := pool.Query(adminCtx(),
 		`SELECT id, conversation_id, sender_profile_id, COALESCE(sender_name,''),
+		        COALESCE(sender_avatar_url,''),
 		        COALESCE(body,''), COALESCE(message_type,'text'), COALESCE(image_url,''),
+		        COALESCE(metadata::text,'{}'),
 		        created_at, deleted_at
 		 FROM messages WHERE conversation_id = $1
 		 ORDER BY created_at ASC
@@ -845,7 +852,12 @@ func (s *Server) handleAdminConversationMessages(w http.ResponseWriter, r *http.
 	var out []messageRow
 	for rows.Next() {
 		var m messageRow
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderUserID, &m.SenderName, &m.Body, &m.Type, &m.ImageURL, &m.CreatedAt, &m.DeletedAt); err == nil {
+		var metaJSON string
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderUserID, &m.SenderName, &m.SenderAvatarURL,
+			&m.Body, &m.Type, &m.ImageURL, &metaJSON, &m.CreatedAt, &m.DeletedAt); err == nil {
+			if metaJSON != "" && metaJSON != "{}" {
+				_ = json.Unmarshal([]byte(metaJSON), &m.Metadata)
+			}
 			out = append(out, m)
 		}
 	}
@@ -1650,18 +1662,183 @@ func (s *Server) handleAdminUpdateFeatureFlag(w http.ResponseWriter, r *http.Req
 	}})
 }
 
+// handleAdminBroadcast resolves an admin-defined audience segment, fans
+// out an Expo push to every targeted user's tokens, and persists a single
+// audit row + a notification record. Always returns the resolved counts so
+// the admin sees real numbers (not the previous {deliveredCount:0} stub).
+//
+// Segment shapes (audience drives the rest):
+//   {audience:"all"}                                — every signed-up user
+//   {audience:"pet_type", petTypes:["dog","cat"]}   — owners of any matching pet
+//   {audience:"users",    userIds:["u1","u2"]}      — explicit pick list
 func (s *Server) handleAdminBroadcast(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Title    string                 `json:"title"`
-		Body     string                 `json:"body"`
-		DeepLink string                 `json:"deepLink"`
-		Segment  map[string]interface{} `json:"segment"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		DeepLink string `json:"deepLink"`
+		Segment  struct {
+			Audience string   `json:"audience"`
+			PetTypes []string `json:"petTypes"`
+			UserIDs  []string `json:"userIds"`
+		} `json:"segment"`
 	}
 	if !decodeJSON(w, r, &payload) {
 		return
 	}
-	s.auditLog(r, "broadcast.send", "broadcast", "", payload)
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"deliveredCount": 0}})
+	if strings.TrimSpace(payload.Title) == "" || strings.TrimSpace(payload.Body) == "" {
+		writeError(w, http.StatusBadRequest, "title and body are required")
+		return
+	}
+
+	pool := s.pg()
+	if pool == nil {
+		writeError(w, http.StatusServiceUnavailable, "database not configured")
+		return
+	}
+
+	audience := payload.Segment.Audience
+	if audience == "" {
+		audience = "all"
+	}
+
+	// Resolve target user IDs based on audience.
+	userIDs, err := resolveBroadcastAudience(pool, audience, payload.Segment.PetTypes, payload.Segment.UserIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Pull push tokens for the targeted users in a single query.
+	tokens := []string{}
+	if len(userIDs) > 0 {
+		rows, terr := pool.Query(adminCtx(),
+			`SELECT token FROM push_tokens WHERE user_id = ANY($1) AND token <> ''`, userIDs)
+		if terr == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var t string
+				if scanErr := rows.Scan(&t); scanErr == nil && t != "" {
+					tokens = append(tokens, t)
+				}
+			}
+		}
+	}
+
+	// Fire-and-forget push delivery. Expo accepts batched recipient lists,
+	// so we hand off everything in one call (the service splits into Expo's
+	// 100-token chunks internally).
+	data := map[string]string{"type": "broadcast"}
+	if payload.DeepLink != "" {
+		data["deepLink"] = payload.DeepLink
+	}
+	if len(tokens) > 0 {
+		go func(t []string) {
+			if perr := service.SendExpoPush(t, payload.Title, payload.Body, data); perr != nil {
+				log.Printf("[BROADCAST] push failed: %v", perr)
+			}
+		}(tokens)
+	}
+
+	// Persist a notifications history row so admins can see prior broadcasts.
+	target := audience
+	if audience == "pet_type" && len(payload.Segment.PetTypes) > 0 {
+		target = "pet_type:" + strings.Join(payload.Segment.PetTypes, ",")
+	} else if audience == "users" {
+		target = fmt.Sprintf("users:%d", len(payload.Segment.UserIDs))
+	}
+	s.store.SaveNotification(domain.Notification{
+		ID:     fmt.Sprintf("notif-%d", time.Now().UnixNano()),
+		Title:  payload.Title,
+		Body:   payload.Body,
+		Target: target,
+		SentAt: time.Now().UTC().Format(time.RFC3339),
+		SentBy: adminIDFromContext(r.Context()),
+	})
+
+	s.auditLog(r, "broadcast.send", "broadcast", "", map[string]any{
+		"audience":       audience,
+		"petTypes":       payload.Segment.PetTypes,
+		"userIds":        payload.Segment.UserIDs,
+		"deepLink":       payload.DeepLink,
+		"recipientCount": len(userIDs),
+		"deliveredCount": len(tokens),
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"recipientCount": len(userIDs),
+			"deliveredCount": len(tokens),
+		},
+	})
+}
+
+// resolveBroadcastAudience translates an audience descriptor into a
+// distinct user-id slice. Pet-type matching is case-insensitive against
+// `pets.species_label` so the admin can pass "Dog" or "dog".
+func resolveBroadcastAudience(pool *pgxpool.Pool, audience string, petTypes []string, userIDs []string) ([]string, error) {
+	switch audience {
+	case "users":
+		out := make([]string, 0, len(userIDs))
+		seen := map[string]struct{}{}
+		for _, id := range userIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("at least one userId is required for audience=users")
+		}
+		return out, nil
+	case "pet_type":
+		if len(petTypes) == 0 {
+			return nil, fmt.Errorf("at least one petType is required for audience=pet_type")
+		}
+		lowered := make([]string, 0, len(petTypes))
+		for _, t := range petTypes {
+			t = strings.ToLower(strings.TrimSpace(t))
+			if t != "" {
+				lowered = append(lowered, t)
+			}
+		}
+		rows, err := pool.Query(adminCtx(),
+			`SELECT DISTINCT owner_id FROM pets
+			 WHERE owner_id <> ''
+			   AND is_hidden = false
+			   AND LOWER(COALESCE(species_label,'')) = ANY($1)`,
+			lowered)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var id string
+			if scanErr := rows.Scan(&id); scanErr == nil && id != "" {
+				out = append(out, id)
+			}
+		}
+		return out, nil
+	default: // "all"
+		rows, err := pool.Query(adminCtx(), `SELECT id FROM app_users`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var id string
+			if scanErr := rows.Scan(&id); scanErr == nil && id != "" {
+				out = append(out, id)
+			}
+		}
+		return out, nil
+	}
 }
 
 func (s *Server) handleAdminDashboardMetrics(w http.ResponseWriter, r *http.Request) {

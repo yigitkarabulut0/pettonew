@@ -1270,6 +1270,15 @@ func (s *MemoryStore) DeleteMedication(petID string, medID string) error {
 	return fmt.Errorf("medication not found")
 }
 
+func (s *MemoryStore) ListMedicationDoses(petID string, medID string, limit int) []domain.MedicationDose {
+	// In-memory backend is dev-only; production uses PostgresStore.
+	return []domain.MedicationDose{}
+}
+
+func (s *MemoryStore) ListMedicationDosesByPet(petID string, fromISO string, toISO string) []domain.MedicationDose {
+	return []domain.MedicationDose{}
+}
+
 func (s *MemoryStore) MarkMedicationGiven(petID string, medID string) (domain.PetMedication, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1801,6 +1810,14 @@ func (s *MemoryStore) DeleteFeedingSchedule(petID string, scheduleID string) err
 	return fmt.Errorf("feeding schedule not found")
 }
 
+// LogFeedingScheduleNow on the in-memory store is a stub — the production
+// path is PostgresStore. The dev memory backend doesn't carry food_items
+// joins, so this returns an error to surface that the wiring requires the
+// Postgres backend.
+func (s *MemoryStore) LogFeedingScheduleNow(petID string, scheduleID string) (domain.MealLog, error) {
+	return domain.MealLog{}, fmt.Errorf("log feeding requires the Postgres store")
+}
+
 // ── Playdates ───────────────────────────────────────────────────────
 
 func (s *MemoryStore) ListPlaydates(_ ListPlaydatesParams) []domain.Playdate {
@@ -1934,6 +1951,9 @@ func (s *MemoryStore) RespondToPlaydateInvite(_ string, _ string, _ bool) (strin
 }
 func (s *MemoryStore) ClaimPlaydateShareToken(_ string, _ string, _ string) error {
 	return fmt.Errorf("invites require the Postgres store")
+}
+func (s *MemoryStore) JoinPlaydateByCode(_ string, _ string) (*domain.Playdate, error) {
+	return nil, fmt.Errorf("invites require the Postgres store")
 }
 
 // ── Playdate chat stubs (v0.14.0) ─────────────────────────────────────
@@ -2751,10 +2771,11 @@ func (s *MemoryStore) Dashboard() domain.DashboardSnapshot {
 		dayStart := startOfDay(now.AddDate(0, 0, -offset))
 		dayEnd := dayStart.Add(24 * time.Hour)
 		growth = append(growth, domain.DashboardPoint{
-			Label:   dayStart.Format("Mon"),
-			Users:   countUsersBetween(s.users, dayStart, dayEnd),
-			Pets:    countTimesBetween(s.petCreatedAt, dayStart, dayEnd),
-			Matches: countTimesBetween(s.matchCreatedAt, dayStart, dayEnd),
+			Label:       dayStart.Format("Mon"),
+			Users:       countUsersBetween(s.users, dayStart, dayEnd),
+			Pets:        countTimesBetween(s.petCreatedAt, dayStart, dayEnd),
+			Matches:     countTimesBetween(s.matchCreatedAt, dayStart, dayEnd),
+			ActiveUsers: 0,
 		})
 	}
 

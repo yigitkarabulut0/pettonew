@@ -74,6 +74,14 @@ type ListPlaydatesParams struct {
 	From   string // ISO — inclusive lower bound on playdate.date
 	To     string // ISO — exclusive upper bound
 	Sort   string // "distance" (default) | "time"
+	// IncludePast: opt-in to include playdates whose date is already in
+	// the past. Used by the admin panel — the public discovery feed
+	// hides past events to keep it forward-looking.
+	IncludePast bool
+	// IncludeAll: opt-in to bypass the cancelled/visibility/private
+	// filters. Used by the admin panel which has the right to see every
+	// row including cancelled and private ones.
+	IncludeAll bool
 }
 
 // ListAdoptablePetsParams filters the public adoption browse feed.
@@ -181,6 +189,15 @@ type Store interface {
 	UpdateMedication(petID string, medID string, med domain.PetMedication) (domain.PetMedication, error)
 	DeleteMedication(petID string, medID string) error
 	MarkMedicationGiven(petID string, medID string) (domain.PetMedication, error)
+	// ListMedicationDoses returns the timeline of "given" events for one
+	// medication, newest first. Limit caps the response so a long-running
+	// schedule doesn't drag the mobile UI on first open.
+	ListMedicationDoses(petID string, medID string, limit int) []domain.MedicationDose
+	// ListMedicationDosesByPet returns every dose row across the pet's
+	// medications in [fromISO, toISO). Powers the Apple-style date strip
+	// on the mobile medications screen with one round-trip per visible
+	// window.
+	ListMedicationDosesByPet(petID string, fromISO string, toISO string) []domain.MedicationDose
 	// Sweeper helpers — return medications due to be pushed and record the
 	// "already pushed for this scheduled date" state so we don't double-fire.
 	ListActiveMedicationsForSweeper() []MedicationSweeperRow
@@ -231,6 +248,11 @@ type Store interface {
 	ListFeedingSchedules(petID string) []domain.FeedingSchedule
 	CreateFeedingSchedule(petID string, schedule domain.FeedingSchedule) domain.FeedingSchedule
 	DeleteFeedingSchedule(petID string, scheduleID string) error
+	// LogFeedingScheduleNow turns one schedule into a meal_log row for the
+	// caller's day, then bumps last_logged_at on the schedule. The bridge
+	// between the recurring "plan" view and the "what did the pet actually
+	// eat today" view in Calorie Counter.
+	LogFeedingScheduleNow(petID string, scheduleID string) (domain.MealLog, error)
 	// Playdates
 	ListPlaydates(params ListPlaydatesParams) []domain.Playdate
 	GetPlaydate(playdateID string) (*domain.Playdate, error)
@@ -252,6 +274,12 @@ type Store interface {
 	// share_token and, if valid, upserts a pending playdate_invites row so
 	// the caller can pass the GetPlaydateForUser visibility gate.
 	ClaimPlaydateShareToken(userID string, playdateID string, token string) error
+	// JoinPlaydateByCode looks up a private playdate by its short
+	// human-friendly join code (PD-XXXXXX) and upserts a pending invite for
+	// the caller. Mirrors the share-token flow downstream so the visibility
+	// gate doesn't care which entry path was used. Returns the loaded
+	// playdate object on success; "invalid playdate code" error otherwise.
+	JoinPlaydateByCode(userID string, code string) (*domain.Playdate, error)
 	// Playdate chat (v0.14.0)
 	GetPlaydateByConversation(conversationID string) *domain.Playdate
 	SendPlaydateMessageEx(userID string, playdateID string, input SendGroupMessageInput) (domain.Message, error)

@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Calendar, MapPin } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 
 import { PageHeader } from "@/components/common/PageHeader";
@@ -26,6 +28,7 @@ type Playdate = {
 
 export default function PlaydatesPage() {
   const { state, setState, selection, setSelection } = useDataTable();
+  const router = useRouter();
   const query = useQuery({ queryKey: ["admin-playdates"], queryFn: getAdminPlaydates });
 
   const all = (query.data as Playdate[] | undefined) ?? [];
@@ -46,7 +49,15 @@ export default function PlaydatesPage() {
       {
         accessorKey: "title",
         header: "Title",
-        cell: ({ row }) => <span className="text-sm font-medium">{row.original.title}</span>
+        cell: ({ row }) => (
+          <Link
+            href={`/playdates/${row.original.id}`}
+            className="text-sm font-medium text-[var(--foreground)] hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {row.original.title}
+          </Link>
+        )
       },
       {
         accessorKey: "location",
@@ -101,6 +112,7 @@ export default function PlaydatesPage() {
         loading={query.isLoading}
         selection={selection}
         onSelectionChange={setSelection}
+        onRowClick={(row) => router.push(`/playdates/${row.id}`)}
         emptyState={
           <div className="flex flex-col items-center gap-2 py-6 text-sm text-[var(--muted-foreground)]">
             <Calendar className="h-5 w-5" />

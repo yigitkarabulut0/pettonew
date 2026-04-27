@@ -37,7 +37,9 @@ export type AdminMatch = {
 export type AdminSwipe = {
   id: string;
   actorPetId: string;
+  actorName?: string;
   targetPetId: string;
+  targetName?: string;
   direction: "like" | "pass" | "super-like";
   createdAt: string;
 };
