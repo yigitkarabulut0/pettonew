@@ -78,12 +78,23 @@ const noopModule: NativeModule = {
   addListener: () => ({ remove: () => {} }),
 };
 
+/**
+ * The error thrown by requireNativeModule when the native module isn't
+ * registered. Captured so callers can surface it in diagnostics — silently
+ * falling back to noop hid issues like missing autolinking or a failed
+ * Swift Module load for far too long.
+ */
+export let nativeLoadError: string | null = null;
+
 const native: NativeModule =
   Platform.OS === "ios"
     ? (() => {
         try {
           return requireNativeModule<NativeModule>("PettoLiveActivities");
-        } catch {
+        } catch (err) {
+          nativeLoadError = err instanceof Error ? err.message : String(err);
+          // eslint-disable-next-line no-console
+          console.warn("[petto-live-activities] native module not loaded:", nativeLoadError);
           return noopModule;
         }
       })()

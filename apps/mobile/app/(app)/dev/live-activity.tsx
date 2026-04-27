@@ -13,6 +13,7 @@ import { ChevronLeft } from "lucide-react-native";
 
 import LiveActivities, {
   type ActivePlaydateActivity,
+  nativeLoadError,
 } from "petto-live-activities";
 
 const ACCENT = "#E6694A";
@@ -48,6 +49,9 @@ export default function LiveActivityDevScreen() {
   }, []);
 
   useEffect(() => {
+    if (nativeLoadError) {
+      setDiagError(`requireNativeModule failed: ${nativeLoadError}`);
+    }
     LiveActivities.isSupported()
       .then(setSupported)
       .catch((err) => {
