@@ -11,10 +11,14 @@ export default {
   // expo run:ios) rather than flipping this flag.
   newArchEnabled: true,
   icon: "./assets/images/icon.png",
+  // Native splash intentionally has no image — we render a custom animated
+  // splash from JS (components/animated-splash.tsx) the moment the bundle
+  // loads. Keeping the static logo here would show TWO splashes back-to-back
+  // (logo flash → animation). Matching the background colour to the
+  // animated splash makes the hand-off seamless: a single solid orange
+  // screen, then the animation fades in on the same colour.
   splash: {
-    image: "./assets/images/splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#E6694A"
+    backgroundColor: "#F48C28"
   },
   experiments: {
     typedRoutes: true
