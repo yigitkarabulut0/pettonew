@@ -2,7 +2,7 @@ export default {
   name: "Fetcht",
   slug: "petto-mobile",
   scheme: "petto",
-  version: "0.14.6",
+  version: "0.14.7",
   orientation: "portrait",
   userInterfaceStyle: "light",
   // react-native-reanimated 4.x requires the new architecture, so this must
@@ -43,7 +43,14 @@ export default {
         locationWhenInUsePermission:
           "Fetcht uses your current location to show nearby pet matches."
       }
-    ]
+    ],
+    // Generates the PettoActivities iOS extension target (Live Activities +
+    // Dynamic Island). Targets are auto-discovered from `targets/` via each
+    // expo-target.config.js.
+    "@bacons/apple-targets",
+    // Local Expo native module that exposes ActivityKit start/update/end
+    // to JS and emits push token updates for Live Activities.
+    "./modules/petto-live-activities"
   ],
   extra: {
     eas: {
@@ -53,6 +60,12 @@ export default {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "app.petto.mobile",
+    // Shared App Group lets the main app and the PettoActivities widget
+    // extension exchange data (e.g. cached avatars). The same group id is
+    // declared in targets/PettoActivities/expo-target.config.js.
+    entitlements: {
+      "com.apple.security.application-groups": ["group.app.petto.shared"]
+    },
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSAppTransportSecurity: {
@@ -60,7 +73,12 @@ export default {
       },
       // Required so iOS wakes the JS runtime to handle the inline-reply
       // notification action while the app is suspended / terminated.
-      UIBackgroundModes: ["remote-notification"]
+      // Live Activities additionally use this for push-driven updates.
+      UIBackgroundModes: ["remote-notification"],
+      // Enables Live Activities and lets the app start them while in the
+      // foreground. Push-to-start works without this flag, but a foreground
+      // request requires it.
+      NSSupportsLiveActivities: true
     }
   },
   android: {

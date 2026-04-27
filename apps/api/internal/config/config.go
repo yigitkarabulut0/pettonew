@@ -21,6 +21,15 @@ type Config struct {
 	R2AccessKeyID     string
 	R2SecretKey       string
 	R2PublicBaseURL   string
+	// APNs token-based auth for iOS Live Activity pushes (Dynamic Island).
+	// Expo Push does not support the `liveactivity` push type, so the API
+	// sends Live Activity updates directly. Empty values disable Live
+	// Activity pushes — the rest of the system keeps working.
+	APNSKeyID         string
+	APNSTeamID        string
+	APNSKeyPath       string
+	APNSTopic         string
+	APNSProduction    bool
 }
 
 func Load() Config {
@@ -40,6 +49,11 @@ func Load() Config {
 		R2AccessKeyID:     env("R2_ACCESS_KEY_ID", ""),
 		R2SecretKey:       env("R2_SECRET_ACCESS_KEY", ""),
 		R2PublicBaseURL:   env("R2_PUBLIC_BASE_URL", ""),
+		APNSKeyID:         env("APNS_KEY_ID", ""),
+		APNSTeamID:        env("APNS_TEAM_ID", ""),
+		APNSKeyPath:       env("APNS_KEY_PATH", ""),
+		APNSTopic:         env("APNS_TOPIC", "app.petto.mobile"),
+		APNSProduction:    env("APNS_PRODUCTION", "true") == "true",
 	}
 }
 

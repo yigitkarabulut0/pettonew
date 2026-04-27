@@ -1053,6 +1053,35 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 	pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_match_pet_pairs_unique
 	 ON match_pet_pairs (conversation_id, my_pet_id, matched_pet_id)`)
 
+	// ── Live Activities (iOS Dynamic Island) v0.15.0 ─────────────────
+	// Two tables: per-activity push tokens (rotate often, dropped on end)
+	// and the iOS 17.2+ push-to-start tokens (one per device per kind).
+	// See migrations/0010_live_activities.sql for the source-of-truth copy.
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS live_activities (
+		id              TEXT PRIMARY KEY,
+		user_id         TEXT NOT NULL,
+		kind            TEXT NOT NULL,
+		related_id      TEXT,
+		push_token      TEXT NOT NULL,
+		started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+		ended_at        TIMESTAMPTZ,
+		last_update_at  TIMESTAMPTZ
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_live_activities_active
+		ON live_activities (kind, related_id) WHERE ended_at IS NULL`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_live_activities_user
+		ON live_activities (user_id)`)
+	pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS live_activity_start_tokens (
+		user_id     TEXT NOT NULL,
+		device_id   TEXT NOT NULL,
+		kind        TEXT NOT NULL,
+		token       TEXT NOT NULL,
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (user_id, device_id, kind)
+	)`)
+	pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_la_start_tokens_user_kind
+		ON live_activity_start_tokens (user_id, kind)`)
+
 	return &PostgresStore{pool: pool}, nil
 }
 
@@ -8447,6 +8476,84 @@ func (s *PostgresStore) ListNotifications() []domain.Notification {
 	}
 	if out == nil { return []domain.Notification{} }
 	return out
+}
+
+// ================================================================
+// Live Activities (iOS Dynamic Island)
+// ================================================================
+
+func (s *PostgresStore) UpsertLiveActivity(activity domain.LiveActivity) {
+	if activity.ID == "" {
+		return
+	}
+	if activity.StartedAt.IsZero() {
+		activity.StartedAt = time.Now().UTC()
+	}
+	s.pool.Exec(s.ctx(), `
+		INSERT INTO live_activities(id, user_id, kind, related_id, push_token, started_at, last_update_at)
+		VALUES($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (id) DO UPDATE
+		  SET push_token = EXCLUDED.push_token,
+		      last_update_at = NOW(),
+		      ended_at = NULL`,
+		activity.ID, activity.UserID, activity.Kind, activity.RelatedID, activity.PushToken, activity.StartedAt)
+}
+
+func (s *PostgresStore) UpsertLiveActivityStartToken(t domain.LiveActivityStartToken) {
+	s.pool.Exec(s.ctx(), `
+		INSERT INTO live_activity_start_tokens(user_id, device_id, kind, token, updated_at)
+		VALUES($1, $2, $3, $4, NOW())
+		ON CONFLICT (user_id, device_id, kind) DO UPDATE
+		  SET token = EXCLUDED.token,
+		      updated_at = NOW()`,
+		t.UserID, t.DeviceID, t.Kind, t.Token)
+}
+
+func (s *PostgresStore) GetActiveLiveActivitiesForRelated(kind string, relatedID string) []domain.LiveActivity {
+	rows, err := s.pool.Query(s.ctx(), `
+		SELECT id, user_id, kind, related_id, push_token, started_at, ended_at, last_update_at
+		FROM live_activities
+		WHERE kind = $1 AND related_id = $2 AND ended_at IS NULL`, kind, relatedID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.LiveActivity
+	for rows.Next() {
+		var a domain.LiveActivity
+		var endedAt, lastUpdate *time.Time
+		rows.Scan(&a.ID, &a.UserID, &a.Kind, &a.RelatedID, &a.PushToken, &a.StartedAt, &endedAt, &lastUpdate)
+		a.EndedAt = endedAt
+		a.LastUpdateAt = lastUpdate
+		out = append(out, a)
+	}
+	return out
+}
+
+func (s *PostgresStore) GetUserLiveActivityStartTokens(userID string, kind string) []domain.LiveActivityStartToken {
+	rows, err := s.pool.Query(s.ctx(), `
+		SELECT user_id, device_id, kind, token, updated_at
+		FROM live_activity_start_tokens
+		WHERE user_id = $1 AND kind = $2`, userID, kind)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.LiveActivityStartToken
+	for rows.Next() {
+		var t domain.LiveActivityStartToken
+		rows.Scan(&t.UserID, &t.DeviceID, &t.Kind, &t.Token, &t.UpdatedAt)
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PostgresStore) MarkLiveActivityEnded(activityID string, userID string) {
+	s.pool.Exec(s.ctx(), `
+		UPDATE live_activities
+		SET ended_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND ended_at IS NULL`,
+		activityID, userID)
 }
 
 // ================================================================

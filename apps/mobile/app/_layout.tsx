@@ -46,6 +46,7 @@ import {
   registerReplyCategory
 } from "@/lib/notification-actions";
 import { registerBackgroundNotificationTask } from "@/lib/notification-background";
+import { setupLiveActivityListeners } from "@/lib/live-activities";
 import { useSessionStore } from "@/store/session";
 
 SplashScreen.preventAutoHideAsync();
@@ -236,6 +237,9 @@ export default function RootLayout() {
       await registerReplyCategory();
       await registerBackgroundNotificationTask();
     })();
+    // Also wire ActivityKit token streams to the backend. Idempotent —
+    // listeners are installed once per process.
+    setupLiveActivityListeners();
   }, []);
 
   // Silent retry queue for inline replies: drain any replies that failed

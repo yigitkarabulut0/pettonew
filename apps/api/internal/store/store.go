@@ -346,6 +346,12 @@ type Store interface {
 	GetUserPushTokens(userID string) []domain.PushToken
 	SaveNotification(notification domain.Notification)
 	ListNotifications() []domain.Notification
+	// iOS Live Activities (Dynamic Island).
+	UpsertLiveActivity(activity domain.LiveActivity)
+	UpsertLiveActivityStartToken(token domain.LiveActivityStartToken)
+	GetActiveLiveActivitiesForRelated(kind string, relatedID string) []domain.LiveActivity
+	GetUserLiveActivityStartTokens(userID string, kind string) []domain.LiveActivityStartToken
+	MarkLiveActivityEnded(activityID string, userID string)
 	// Notification preferences — per-user opt-outs gating push fan-out.
 	// Categories: "matches", "messages", "playdates", "groups".
 	GetNotificationPrefs(userID string) domain.NotificationPreferences

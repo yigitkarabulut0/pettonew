@@ -36,6 +36,10 @@ type Server struct {
 	cfg   config.Config
 	store store.Store
 	hub   *chat.Hub
+	// apns is the direct-to-Apple sender used for iOS Live Activity
+	// (Dynamic Island) updates. nil when APNs env is unconfigured —
+	// helpers tolerate that and skip Live Activity work silently.
+	apns *service.LiveActivityAPNs
 }
 
 func New(cfg config.Config, dataStore store.Store) *Server {
@@ -43,6 +47,21 @@ func New(cfg config.Config, dataStore store.Store) *Server {
 		cfg:   cfg,
 		store: dataStore,
 		hub:   chat.NewHub(),
+	}
+	if cfg.APNSKeyID != "" && cfg.APNSTeamID != "" && cfg.APNSKeyPath != "" {
+		client, err := service.NewLiveActivityAPNs(service.LiveActivityAPNsConfig{
+			KeyID:      cfg.APNSKeyID,
+			TeamID:     cfg.APNSTeamID,
+			KeyPath:    cfg.APNSKeyPath,
+			Topic:      cfg.APNSTopic,
+			Production: cfg.APNSProduction,
+		})
+		if err != nil {
+			log.Printf("[liveactivity] APNs disabled: %v", err)
+		} else {
+			srv.apns = client
+			log.Printf("[liveactivity] APNs ready (topic=%s production=%v)", cfg.APNSTopic, cfg.APNSProduction)
+		}
 	}
 	// Start the background playdate-reminder scheduler. Sends a "starts in 1
 	// hour" push to each attendee/host exactly once per playdate.
@@ -117,6 +136,11 @@ func (s *Server) runPlaydateReminderLoop() {
 					}
 				}
 				s.store.MarkPlaydateReminderSent(tgt.PlaydateID, tgt.UserID, kind)
+				// Live Activity push-to-start (iOS 17.2+): if this user has
+				// uploaded a push-to-start token and isn't already showing
+				// a Live Activity for this playdate, kick one off so the
+				// lock screen + Dynamic Island banner appears.
+				s.pushPlaydateLiveActivityStart(tgt.PlaydateID, []string{tgt.UserID})
 			}
 			if len(targets) > 0 {
 				log.Printf("[PLAYDATE-REMINDER] sent %d reminders for 1h window", len(targets))
@@ -460,6 +484,11 @@ func (s *Server) Routes() http.Handler {
 			router.Post("/blocks", s.handleBlockUser)
 			router.Post("/reports", s.handleReport)
 			router.Post("/push-token", s.handleSavePushToken)
+			// iOS Live Activities (Dynamic Island). Tokens are sent up by
+			// the device; updates are pushed back via APNs `liveactivity`.
+			router.Post("/live-activities/start-tokens", s.handleSaveLiveActivityStartToken)
+			router.Post("/live-activities/tokens", s.handleSaveLiveActivityToken)
+			router.Delete("/live-activities/{activityID}", s.handleDeleteLiveActivity)
 			// Presence — foreground heartbeat + offline ping.
 			router.Post("/presence/heartbeat", s.handlePresenceHeartbeat)
 			router.Post("/presence/offline", s.handlePresenceOffline)
@@ -3297,6 +3326,7 @@ func (s *Server) handleUpdatePlaydate(writer http.ResponseWriter, request *http.
 				})
 			}
 		}
+			s.pushPlaydateLiveActivityUpdate(playdateID, "", "")
 	}()
 	writeJSON(writer, http.StatusOK, map[string]any{"data": result})
 }
@@ -3357,6 +3387,7 @@ func (s *Server) handleJoinPlaydate(writer http.ResponseWriter, request *http.Re
 		}
 		if len(push) > 0 {
 			_ = service.SendExpoPush(push, title, body, map[string]string{"type": "playdate_join", "playdateId": playdateID})
+				s.pushPlaydateLiveActivityUpdate(playdateID, "", "")
 		}
 	}()
 
@@ -3406,6 +3437,7 @@ func (s *Server) handleLeavePlaydate(writer http.ResponseWriter, request *http.R
 				}
 				if len(push) > 0 {
 					_ = service.SendExpoPush(push, "Playdate update", "A participant has left your playdate.", map[string]string{"type": "playdate_leave", "playdateId": playdateID})
+						s.pushPlaydateLiveActivityUpdate(playdateID, "", "")
 				}
 			}
 		}
@@ -3495,6 +3527,7 @@ func (s *Server) handleCancelPlaydate(writer http.ResponseWriter, request *http.
 			}
 			if len(push) > 0 {
 				_ = service.SendExpoPush(push, "Playdate cancelled", "A playdate you joined has been cancelled.", map[string]string{"type": "playdate_cancelled", "playdateId": playdateID})
+					s.endPlaydateLiveActivities(playdateID, "cancelled", "İptal edildi", true)
 			}
 		}
 	}()

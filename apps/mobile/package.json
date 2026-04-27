@@ -50,6 +50,7 @@
     "i18next": "^26.0.4",
     "lottie-react-native": "^7.3.6",
     "lucide-react-native": "^1.6.0",
+    "petto-live-activities": "link:./modules/petto-live-activities",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-hook-form": "^7.65.0",
@@ -68,6 +69,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
+    "@bacons/apple-targets": "^4.0.6",
     "@types/react": "~19.2.14",
     "babel-plugin-module-resolver": "^5.0.2",
     "typescript": "^5.9.3"

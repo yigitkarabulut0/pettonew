@@ -2668,6 +2668,22 @@ func (s *MemoryStore) SaveNotification(notification domain.Notification) {
 	s.notifications = append(s.notifications, notification)
 }
 
+// In-memory Live Activity store: small no-op-leaning implementation that
+// keeps the dev path compilable. Production deployments use PostgresStore.
+func (s *MemoryStore) UpsertLiveActivity(_ domain.LiveActivity) {}
+
+func (s *MemoryStore) UpsertLiveActivityStartToken(_ domain.LiveActivityStartToken) {}
+
+func (s *MemoryStore) GetActiveLiveActivitiesForRelated(_ string, _ string) []domain.LiveActivity {
+	return nil
+}
+
+func (s *MemoryStore) GetUserLiveActivityStartTokens(_ string, _ string) []domain.LiveActivityStartToken {
+	return nil
+}
+
+func (s *MemoryStore) MarkLiveActivityEnded(_ string, _ string) {}
+
 func (s *MemoryStore) ListNotifications() []domain.Notification {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
