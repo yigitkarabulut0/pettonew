@@ -30,7 +30,6 @@ struct MarkMedicationGivenIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func endActivity(status: String) async {
         guard
             let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })
@@ -63,7 +62,6 @@ struct SkipMedicationIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func endActivity(status: String) async {
         guard
             let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })
@@ -107,7 +105,6 @@ struct SomeoneElseMedicationIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func endActivity() async {
         guard
             let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })
@@ -140,7 +137,6 @@ struct SnoozeMedicationIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func snooze() async {
         guard
             let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })

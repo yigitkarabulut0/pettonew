@@ -28,7 +28,6 @@ struct MarkFeedingDoneIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func endActivity(status: String) async {
         guard
             let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
@@ -59,7 +58,6 @@ struct SkipFeedingIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func endActivity() async {
         guard
             let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
@@ -90,7 +88,6 @@ struct SnoozeFeedingIntent: LiveActivityIntent {
         return .result()
     }
 
-    @available(iOS 16.2, *)
     private func snooze() async {
         guard
             let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
