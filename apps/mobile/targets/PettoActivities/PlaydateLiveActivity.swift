@@ -77,7 +77,7 @@ struct PlaydateLockScreenView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(attrs.title)
                             .font(.system(.headline, design: .rounded).weight(.bold))
-                            .foregroundStyle(PettoTheme.textPrimary(for: scheme))
+                            .foregroundColor(PettoTheme.textPrimary(for: scheme))
                             .strikethrough(terminal, color: PettoTheme.statusCancelled)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
@@ -128,7 +128,7 @@ struct PlaydateLockScreenView: View {
                     if let msg = state.statusMessage, !msg.isEmpty {
                         Text(msg)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                            .foregroundColor(PettoTheme.textSecondary(for: scheme))
                             .lineLimit(1)
                         Spacer()
                     } else {
@@ -141,7 +141,7 @@ struct PlaydateLockScreenView: View {
                             Text("Yol Tarifi")
                                 .font(.system(size: 12, weight: .heavy, design: .rounded))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundColor(.white)
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
                         .background(
@@ -166,7 +166,7 @@ struct DICompactLeading: View {
     var body: some View {
         Image(systemName: "pawprint.fill")
             .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(PettoTheme.accent(for: scheme))
+            .foregroundColor(PettoTheme.accent(for: scheme))
             .symbolRenderingMode(.hierarchical)
     }
 }
@@ -192,7 +192,7 @@ struct DIMinimalView: View {
     var body: some View {
         Image(systemName: "pawprint.fill")
             .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(PettoTheme.accent(for: scheme))
+            .foregroundColor(PettoTheme.accent(for: scheme))
             .symbolRenderingMode(.hierarchical)
     }
 }
@@ -254,21 +254,21 @@ struct DIExpandedCenter: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(context.attributes.title)
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
-                .foregroundStyle(PettoTheme.textPrimary(for: scheme))
+                .foregroundColor(PettoTheme.textPrimary(for: scheme))
                 .lineLimit(1)
             HStack(spacing: 8) {
                 if let city = context.attributes.city, !city.isEmpty {
                     Text(city)
                         .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                        .foregroundColor(PettoTheme.textSecondary(for: scheme))
                         .lineLimit(1)
                 }
                 Text("•")
                     .font(.system(size: 9, weight: .black))
-                    .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
                 Text("\(context.state.attendeeCount)/\(context.state.maxPets)")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
-                    .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                    .foregroundColor(PettoTheme.textSecondary(for: scheme))
                     .monospacedDigit()
             }
         }
@@ -289,12 +289,17 @@ struct DIExpandedBottom: View {
             if let waitlist = context.state.waitlistPosition, !terminal {
                 WaitlistBadge(position: waitlist)
             } else {
-                Text(context.attributes.hostName)
+                // Text+Text concatenation: use the iOS 13+ `.foregroundColor`
+                // overload here. The newer `.foregroundStyle` API works for
+                // standalone views but on chained Text it requires iOS 17+,
+                // and our pod's deployment target is 15.1.
+                (Text(context.attributes.hostName)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(PettoTheme.textSecondary(for: scheme))
-                    + Text("'in pati buluşması")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+                    .foregroundColor(PettoTheme.textSecondary(for: scheme))
+                + Text("'in pati buluşması")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(PettoTheme.textTertiary(for: scheme)))
+                .lineLimit(1)
             }
             Spacer()
             if !terminal {
@@ -305,7 +310,7 @@ struct DIExpandedBottom: View {
                         Text("Yol")
                             .font(.system(size: 11, weight: .heavy, design: .rounded))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
                     .background(

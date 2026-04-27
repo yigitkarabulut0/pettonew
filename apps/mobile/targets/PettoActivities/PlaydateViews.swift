@@ -29,7 +29,7 @@ struct HeroPetBubble: View {
 
             Image(systemName: "pawprint.fill")
                 .font(.system(size: size * 0.46, weight: .medium))
-                .foregroundStyle(
+                .foregroundColor(
                     isCancelled
                         ? PettoTheme.statusCancelled
                         : PettoTheme.accent(for: scheme)
@@ -76,13 +76,13 @@ struct PlaydateCountdown: View {
                      showsHours: false)
                     .font(.system(size: largeFontSize, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(PettoTheme.statusActive)
+                    .foregroundColor(PettoTheme.statusActive)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Text("DEVAM EDİYOR")
                     .font(.system(size: 9, weight: .heavy, design: .rounded))
                     .tracking(0.8)
-                    .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
             default:
                 Text(timerInterval: Date()...startsAt,
                      pauseTime: nil,
@@ -90,13 +90,13 @@ struct PlaydateCountdown: View {
                      showsHours: false)
                     .font(.system(size: largeFontSize, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(PettoTheme.accent(for: scheme))
+                    .foregroundColor(PettoTheme.accent(for: scheme))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Text("KALA")
                     .font(.system(size: 9, weight: .heavy, design: .rounded))
                     .tracking(0.8)
-                    .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
             }
         }
     }
@@ -115,7 +115,7 @@ struct StatusPill: View {
         Text(label.uppercased())
             .font(.system(size: 11, weight: .heavy, design: .rounded))
             .tracking(0.6)
-            .foregroundStyle(.white)
+            .foregroundColor(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
@@ -138,10 +138,10 @@ struct MetaItem: View {
         HStack(spacing: 5) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                .foregroundColor(PettoTheme.textSecondary(for: scheme))
             Text(text)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                .foregroundColor(PettoTheme.textSecondary(for: scheme))
                 .lineLimit(1)
         }
     }
@@ -160,7 +160,7 @@ struct WaitlistBadge: View {
             Text("\(position). sırada")
                 .font(.system(size: 11, weight: .heavy, design: .rounded))
         }
-        .foregroundStyle(.white)
+        .foregroundColor(.white)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
         .background(
@@ -190,12 +190,12 @@ struct DICompactValue: View {
                 Text("CANLI")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .tracking(0.4)
-                    .foregroundStyle(PettoTheme.statusActive)
+                    .foregroundColor(PettoTheme.statusActive)
             }
         case "cancelled", "ended":
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .heavy))
-                .foregroundStyle(PettoTheme.statusCancelled)
+                .foregroundColor(PettoTheme.statusCancelled)
         default:
             Text(timerInterval: Date()...startsAt,
                  pauseTime: nil,
@@ -203,7 +203,7 @@ struct DICompactValue: View {
                  showsHours: false)
                 .font(.system(size: 13, weight: .heavy, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(PettoTheme.accent(for: scheme))
+                .foregroundColor(PettoTheme.accent(for: scheme))
         }
     }
 }
