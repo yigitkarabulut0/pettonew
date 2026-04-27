@@ -90,21 +90,35 @@ export default function HomePage() {
     undefined
   );
 
+  // The home feed deliberately disables passive refetches — react-query's
+  // defaults (refetchOnWindowFocus + refetchOnMount) caused the page to
+  // self-refresh every time the user tab-switched away and back, every
+  // time the app returned from background, and after the 30s staleTime
+  // elapsed. The user reads this screen, so a flicker mid-scroll is
+  // worse than slightly stale posts. Active refresh paths still work:
+  // pull-to-refresh (handleRefreshPosts), the createMutation
+  // invalidateQueries, and any push-notification-driven invalidations.
   const { data: posts = [], isLoading: postsLoading, refetch: refetchPosts } = useQuery({
     queryKey: ["home-feed", session?.tokens.accessToken],
     queryFn: () => listHomeFeed(session!.tokens.accessToken),
-    enabled: Boolean(session)
+    enabled: Boolean(session),
+    refetchOnWindowFocus: false,
+    refetchOnMount: false
   });
   const { refreshing: postsRefreshing, handleRefresh: handleRefreshPosts } = useLocalRefresh(refetchPosts);
   const { data: pets = [] } = useQuery({
     queryKey: ["home-my-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
-    enabled: Boolean(session)
+    enabled: Boolean(session),
+    refetchOnWindowFocus: false,
+    refetchOnMount: false
   });
   const { data: venues = [] } = useQuery({
     queryKey: ["home-venues", session?.tokens.accessToken],
     queryFn: () => listExploreVenues(session!.tokens.accessToken),
-    enabled: Boolean(session)
+    enabled: Boolean(session),
+    refetchOnWindowFocus: false,
+    refetchOnMount: false
   });
 
   const selectedPet =
