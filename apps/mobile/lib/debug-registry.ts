@@ -27,7 +27,8 @@ const SCREEN_ROUTES: { title: string; href: string; subtitle?: string }[] = [
   { title: "Pet sitters", href: "/(app)/pet-sitters" },
   { title: "Vet contacts", href: "/(app)/vet-contacts" },
   { title: "Training tips", href: "/(app)/training-tips" },
-  { title: "Notification settings", href: "/(app)/notification-settings" }
+  { title: "Notification settings", href: "/(app)/notification-settings" },
+  { title: "🐾 Live Activity test", href: "/(app)/dev/live-activity", subtitle: "iOS Dynamic Island + Lock Screen test harness" }
 ];
 
 // ── Modals / sheets ─────────────────────────────────────────

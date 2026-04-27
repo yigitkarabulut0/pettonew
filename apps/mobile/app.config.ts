@@ -23,6 +23,13 @@ export default {
   experiments: {
     typedRoutes: true
   },
+  // Tells expo-modules-autolinking to scan ./modules for local Expo native
+  // modules. Without this, our petto-live-activities module under
+  // apps/mobile/modules/ is invisible to autolinking — the JS side falls
+  // back to the noop module and Live Activities silently disable.
+  autolinking: {
+    nativeModulesDir: "./modules"
+  },
   plugins: [
     "expo-router",
     "expo-image",
@@ -46,11 +53,10 @@ export default {
     ],
     // Generates the PettoActivities iOS extension target (Live Activities +
     // Dynamic Island). Targets are auto-discovered from `targets/` via each
-    // expo-target.config.js.
-    "@bacons/apple-targets",
-    // Local Expo native module that exposes ActivityKit start/update/end
-    // to JS and emits push token updates for Live Activities.
-    "./modules/petto-live-activities"
+    // expo-target.config.js. The local petto-live-activities Expo module
+    // does NOT need a plugin entry — Expo autolinking picks it up from
+    // apps/mobile/modules/ on prebuild.
+    "@bacons/apple-targets"
   ],
   extra: {
     eas: {
@@ -60,6 +66,9 @@ export default {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "app.petto.mobile",
+    // Apple Developer Team ID — read by @bacons/apple-targets to wire the
+    // PettoActivities widget extension's signing.
+    appleTeamId: "5C2NRK938T",
     // Shared App Group lets the main app and the PettoActivities widget
     // extension exchange data (e.g. cached avatars). The same group id is
     // declared in targets/PettoActivities/expo-target.config.js.
