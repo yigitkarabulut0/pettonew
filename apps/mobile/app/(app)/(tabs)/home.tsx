@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   KeyboardAvoidingView,
@@ -10,6 +10,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  type ScrollView as RNScrollView,
   Share,
   Text,
   TextInput,
@@ -21,7 +22,7 @@ import * as Sharing from "expo-sharing";
 import LottieView from "lottie-react-native";
 import { LottieLoading } from "@/components/lottie-loading";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router as expoRouter } from "expo-router";
+import { router as expoRouter, useNavigation } from "expo-router";
 import {
   AlertTriangle,
   Edit3,
@@ -65,7 +66,13 @@ export default function HomePage() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
+  // Animated.ScrollView is a HOC over the native ScrollView and the
+  // `scrollTo` method lives on the underlying RN ScrollView instance.
+  // Typing the ref as RNScrollView is the safest way to call scrollTo
+  // without `any`. The Animated wrapper forwards refs through to it.
+  const scrollRef = useRef<RNScrollView>(null);
   const catRef = useRef<LottieView>(null);
+  const navigation = useNavigation();
   const [composerOpen, setComposerOpen] = useState(false);
   const [petPickerOpen, setPetPickerOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -106,6 +113,23 @@ export default function HomePage() {
     refetchOnMount: false
   });
   const { refreshing: postsRefreshing, handleRefresh: handleRefreshPosts } = useLocalRefresh(refetchPosts);
+
+  // "Tap Home while already on Home" → scroll to top + pull-to-refresh.
+  // Without this listener the default behaviour is a no-op (rn-tabs only
+  // navigates if you weren't already on the screen). isFocused() guards
+  // against firing when the user navigates TO Home from another tab —
+  // arrival should leave the user wherever they last were on the feed,
+  // re-tapping should jump them up to the freshest content.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("tabPress" as never, () => {
+      if (!navigation.isFocused()) return;
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      handleRefreshPosts();
+    });
+    return unsubscribe;
+  }, [navigation, handleRefreshPosts]);
+
+
   const { data: pets = [] } = useQuery({
     queryKey: ["home-my-pets", session?.tokens.accessToken],
     queryFn: () => listMyPets(session!.tokens.accessToken),
@@ -325,6 +349,7 @@ export default function HomePage() {
       </Animated.View>
 
       <Animated.ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
         scrollEventThrottle={16}
