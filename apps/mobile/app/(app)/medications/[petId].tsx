@@ -35,6 +35,7 @@ import {
   deleteMedication,
   listMedicationDosesByPet,
   listMedications,
+  listMyPets,
   markMedicationGiven,
   type MedicationDraft
 } from "@/lib/api";
@@ -166,6 +167,38 @@ export default function MedicationsPage() {
     queryFn: () => listMedications(token, petId!),
     enabled: Boolean(token && petId)
   });
+
+  // Pet adını lokal cache'ten çek — Live Activity attributes için lazım.
+  const { data: myPets = [] } = useQuery({
+    queryKey: ["my-pets-medications", token],
+    queryFn: () => listMyPets(token),
+    enabled: Boolean(token)
+  });
+  const petName = useMemo(
+    () => myPets.find((p) => p.id === petId)?.name ?? "",
+    [myPets, petId]
+  );
+
+  // iOS Live Activity — bugünkü doz zamanı 30 dk içinde olan ilaçlar
+  // için lock screen + Dynamic Island banner'ı tetikle. Listede her ilaç
+  // için ayrı activity başlar (Apple aynı anda 8'e kadar destekler).
+  useEffect(() => {
+    const meds = medsQuery.data;
+    if (!meds || !petName) return;
+    let cancelled = false;
+    (async () => {
+      const { ensureMedicationLiveActivity } = await import("@/lib/live-activities");
+      if (cancelled) return;
+      for (const m of meds) {
+        try {
+          await ensureMedicationLiveActivity(m, petName);
+        } catch {
+          // best-effort
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [medsQuery.data, petName]);
 
   // Aggregate dose history for the strip's window. We fetch a fixed
   // 30-day window (today-21 → today+8) so the strip + a bit of buffer is

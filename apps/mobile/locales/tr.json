@@ -1103,6 +1103,20 @@
     "queue": "sırada",
     "directions": "Yol Tarifi",
     "directionsShort": "Yol",
-    "playdateBy": "buluşması"
+    "playdateBy": "buluşması",
+    "medDue": "Doz zamanı",
+    "medGiven": "Verildi",
+    "medSkip": "Pas geç",
+    "medSomeoneElse": "Başkası verdi",
+    "medSnooze": "Ertele",
+    "medCompleted": "Verildi",
+    "medSkipped": "Atlandı",
+    "feedDue": "Mama saati",
+    "feedFed": "Verildi",
+    "feedSkip": "Pas geç",
+    "feedSnooze": "Ertele",
+    "feedCompleted": "Verildi",
+    "feedSkipped": "Atlandı",
+    "minutesShort": "dk"
   }
 }

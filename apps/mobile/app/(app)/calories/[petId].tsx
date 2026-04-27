@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -120,6 +120,27 @@ export default function CaloriesPage() {
     queryFn: () => listFeedingSchedules(token, petId!),
     enabled: Boolean(token && petId)
   });
+
+  // iOS Live Activity — bugünkü zamanı 30 dk içinde olan beslenme
+  // planları için lock screen + Dynamic Island banner'ı tetikle.
+  // ensureFeedingLiveActivity idempotent: çoklu çağrı state'i günceller.
+  useEffect(() => {
+    const schedules = feedingQuery.data;
+    if (!schedules || !pet) return;
+    let cancelled = false;
+    (async () => {
+      const { ensureFeedingLiveActivity } = await import("@/lib/live-activities");
+      if (cancelled) return;
+      for (const s of schedules) {
+        try {
+          await ensureFeedingLiveActivity(s, pet.name);
+        } catch {
+          // best-effort; başka schedule'ları etkilemesin
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [feedingQuery.data, pet]);
 
   const logScheduleMutation = useMutation({
     mutationFn: (scheduleId: string) => logFeedingScheduleNow(token, petId!, scheduleId),

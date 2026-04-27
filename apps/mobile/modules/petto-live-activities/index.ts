@@ -70,6 +70,84 @@ export interface ActivityEndedEvent {
   state: "ended" | "dismissed";
 }
 
+// MARK: - Medication
+
+export type MedicationActivityStatus = "due" | "given" | "skipped" | "snoozed";
+
+export interface MedicationLabels {
+  due: string;
+  given: string;
+  skip: string;
+  someoneElse: string;
+  snooze: string;
+  inProgress: string;
+  completed: string;
+  skipped: string;
+  minutesShort: string;
+}
+
+export interface MedicationAttributes {
+  medicationId: string;
+  petId: string;
+  medicationName: string;
+  dosage: string;
+  petName: string;
+  labels?: MedicationLabels;
+}
+
+export interface MedicationState {
+  status: MedicationActivityStatus;
+  dueAt: number; // sec since epoch
+  snoozedUntil?: number | null;
+  statusMessage?: string | null;
+}
+
+export interface ActiveMedicationActivity {
+  id: string;
+  medicationId: string;
+  petId: string;
+  status: "active" | "ended" | "dismissed";
+}
+
+// MARK: - Feeding
+
+export type FeedingActivityStatus = "due" | "fed" | "skipped" | "snoozed";
+
+export interface FeedingLabels {
+  due: string;
+  fed: string;
+  skip: string;
+  snooze: string;
+  inProgress: string;
+  completed: string;
+  skipped: string;
+  minutesShort: string;
+}
+
+export interface FeedingAttributes {
+  scheduleId: string;
+  petId: string;
+  mealName: string;
+  foodType: string;
+  amount: string;
+  petName: string;
+  labels?: FeedingLabels;
+}
+
+export interface FeedingState {
+  status: FeedingActivityStatus;
+  dueAt: number;
+  snoozedUntil?: number | null;
+  statusMessage?: string | null;
+}
+
+export interface ActiveFeedingActivity {
+  id: string;
+  scheduleId: string;
+  petId: string;
+  status: "active" | "ended" | "dismissed";
+}
+
 interface NativeModule {
   isSupported(): Promise<boolean>;
   startPlaydate(input: {
@@ -84,6 +162,38 @@ interface NativeModule {
     dismissAfterSeconds?: number | null,
   ): Promise<void>;
   listActive(): Promise<ActivePlaydateActivity[]>;
+
+  startMedication(input: {
+    attributes: MedicationAttributes;
+    state: MedicationState;
+    staleAt?: number | null;
+  }): Promise<string>;
+  updateMedication(activityId: string, state: MedicationState): Promise<void>;
+  endMedication(
+    activityId: string,
+    finalState?: MedicationState | null,
+    dismissAfterSeconds?: number | null,
+  ): Promise<void>;
+  listActiveMedications(): Promise<ActiveMedicationActivity[]>;
+
+  startFeeding(input: {
+    attributes: FeedingAttributes;
+    state: FeedingState;
+    staleAt?: number | null;
+  }): Promise<string>;
+  updateFeeding(activityId: string, state: FeedingState): Promise<void>;
+  endFeeding(
+    activityId: string,
+    finalState?: FeedingState | null,
+    dismissAfterSeconds?: number | null,
+  ): Promise<void>;
+  listActiveFeedings(): Promise<ActiveFeedingActivity[]>;
+
+  /** Bridge auth state into the App Group so App Intents (Mark Given /
+   *  Mark Fed) can call the backend without opening the app. Pass null
+   *  on logout to clear. */
+  setAppGroupAuth(accessToken: string | null, apiBaseUrl: string | null): Promise<void>;
+
   addListener(eventName: string, listener: (...args: unknown[]) => void): EventSubscription;
 }
 
@@ -95,6 +205,19 @@ const noopModule: NativeModule = {
   updatePlaydate: async () => {},
   endPlaydate: async () => {},
   listActive: async () => [],
+  startMedication: async () => {
+    throw new Error("Live Activities are only supported on iOS 16.2+");
+  },
+  updateMedication: async () => {},
+  endMedication: async () => {},
+  listActiveMedications: async () => [],
+  startFeeding: async () => {
+    throw new Error("Live Activities are only supported on iOS 16.2+");
+  },
+  updateFeeding: async () => {},
+  endFeeding: async () => {},
+  listActiveFeedings: async () => [],
+  setAppGroupAuth: async () => {},
   addListener: () => ({ remove: () => {} }),
 };
 
@@ -140,6 +263,47 @@ export const LiveActivities = {
     native.endPlaydate(activityId, finalState ?? null, dismissAfterSeconds ?? null),
 
   listActive: () => native.listActive(),
+
+  // Medication
+  startMedication: (
+    attributes: MedicationAttributes,
+    state: MedicationState,
+    staleAt?: number,
+  ) => native.startMedication({ attributes, state, staleAt }),
+
+  updateMedication: (activityId: string, state: MedicationState) =>
+    native.updateMedication(activityId, state),
+
+  endMedication: (
+    activityId: string,
+    finalState?: MedicationState,
+    dismissAfterSeconds?: number,
+  ) =>
+    native.endMedication(activityId, finalState ?? null, dismissAfterSeconds ?? null),
+
+  listActiveMedications: () => native.listActiveMedications(),
+
+  // Feeding
+  startFeeding: (
+    attributes: FeedingAttributes,
+    state: FeedingState,
+    staleAt?: number,
+  ) => native.startFeeding({ attributes, state, staleAt }),
+
+  updateFeeding: (activityId: string, state: FeedingState) =>
+    native.updateFeeding(activityId, state),
+
+  endFeeding: (
+    activityId: string,
+    finalState?: FeedingState,
+    dismissAfterSeconds?: number,
+  ) =>
+    native.endFeeding(activityId, finalState ?? null, dismissAfterSeconds ?? null),
+
+  listActiveFeedings: () => native.listActiveFeedings(),
+
+  setAppGroupAuth: (accessToken: string | null, apiBaseUrl: string | null) =>
+    native.setAppGroupAuth(accessToken, apiBaseUrl),
 
   addPushToStartTokenListener: (
     cb: (e: PushToStartTokenEvent) => void,

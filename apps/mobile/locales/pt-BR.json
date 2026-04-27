@@ -1103,6 +1103,20 @@
     "queue": "na fila",
     "directions": "Como chegar",
     "directionsShort": "Mapa",
-    "playdateBy": "encontro"
+    "playdateBy": "encontro",
+    "medDue": "Hora da dose",
+    "medGiven": "Dada",
+    "medSkip": "Pular",
+    "medSomeoneElse": "Outra pessoa",
+    "medSnooze": "Adiar",
+    "medCompleted": "Dada",
+    "medSkipped": "Pulada",
+    "feedDue": "Hora da refeição",
+    "feedFed": "Alimentado",
+    "feedSkip": "Pular",
+    "feedSnooze": "Adiar",
+    "feedCompleted": "Alimentado",
+    "feedSkipped": "Pulada",
+    "minutesShort": "min"
   }
 }

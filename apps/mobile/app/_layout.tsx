@@ -135,6 +135,24 @@ export default function RootLayout() {
     })();
   }, [session]);
 
+  // App Group auth bridge — Live Activity App Intent'lar (Mark Given /
+  // Mark Fed) widget extension process'inde çalıştığı için backend'e POST
+  // atmak için access token + API base URL'sini App Group UserDefaults'tan
+  // okur. Login'de yaz, logout'ta temizle.
+  useEffect(() => {
+    (async () => {
+      try {
+        const LiveActivities = (await import("petto-live-activities")).default;
+        await LiveActivities.setAppGroupAuth(
+          session?.tokens.accessToken ?? null,
+          session ? API_BASE : null
+        );
+      } catch {
+        // best-effort
+      }
+    })();
+  }, [session]);
+
   // Start real-time presence tracking while signed in. The tracker posts a
   // heartbeat every ~20s with lat/lng so the admin dashboard can display
   // true "online now" status and live location.

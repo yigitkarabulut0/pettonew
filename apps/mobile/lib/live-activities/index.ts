@@ -63,3 +63,11 @@ export function setupLiveActivityListeners() {
 }
 
 export { ensurePlaydateLiveActivity, endPlaydateLiveActivity } from "./playdate";
+export {
+  ensureMedicationLiveActivity,
+  endMedicationLiveActivity,
+} from "./medication";
+export {
+  ensureFeedingLiveActivity,
+  endFeedingLiveActivity,
+} from "./feeding";

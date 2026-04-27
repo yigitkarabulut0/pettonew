@@ -110,6 +110,143 @@ public class PettoLiveActivitiesModule: Module {
                 ]
             }
         }
+
+        // MARK: - Medication
+
+        AsyncFunction("startMedication") { (input: [String: Any]) -> String in
+            guard #available(iOS 16.2, *) else { throw LiveActivityError.unsupportedOS }
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+                throw LiveActivityError.notAuthorized
+            }
+            let attributes = try Self.parseMedicationAttributes(from: input["attributes"])
+            let state = try Self.parseMedicationState(from: input["state"])
+            let staleAt = (input["staleAt"] as? Double).map { Date(timeIntervalSince1970: $0) }
+            let content = ActivityContent(state: state, staleDate: staleAt)
+            let activity = try Activity<MedicationAttributes>.request(
+                attributes: attributes,
+                content: content,
+                pushType: .token
+            )
+            return activity.id
+        }
+
+        AsyncFunction("updateMedication") { (activityId: String, stateInput: [String: Any]) -> Void in
+            guard #available(iOS 16.2, *) else { return }
+            guard let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId }) else {
+                throw LiveActivityError.notFound
+            }
+            let state = try Self.parseMedicationState(from: stateInput)
+            let content = ActivityContent(state: state, staleDate: nil)
+            await activity.update(content)
+        }
+
+        AsyncFunction("endMedication") { (activityId: String, stateInput: [String: Any]?, dismissAfterSeconds: Double?) -> Void in
+            guard #available(iOS 16.2, *) else { return }
+            guard let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId }) else { return }
+            let finalState: ActivityContent<MedicationAttributes.ContentState>?
+            if let stateInput = stateInput {
+                let state = try Self.parseMedicationState(from: stateInput)
+                finalState = ActivityContent(state: state, staleDate: nil)
+            } else { finalState = nil }
+            let policy: ActivityUIDismissalPolicy = (dismissAfterSeconds ?? -1) <= 0
+                ? .immediate
+                : .after(Date().addingTimeInterval(dismissAfterSeconds!))
+            await activity.end(finalState, dismissalPolicy: policy)
+        }
+
+        AsyncFunction("listActiveMedications") { () -> [[String: Any]] in
+            guard #available(iOS 16.2, *) else { return [] }
+            return Activity<MedicationAttributes>.activities.map { activity in
+                [
+                    "id": activity.id,
+                    "medicationId": activity.attributes.medicationId,
+                    "petId": activity.attributes.petId,
+                    "status": activity.activityState == .active ? "active"
+                            : activity.activityState == .ended ? "ended"
+                            : "dismissed"
+                ]
+            }
+        }
+
+        // MARK: - Feeding
+
+        AsyncFunction("startFeeding") { (input: [String: Any]) -> String in
+            guard #available(iOS 16.2, *) else { throw LiveActivityError.unsupportedOS }
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+                throw LiveActivityError.notAuthorized
+            }
+            let attributes = try Self.parseFeedingAttributes(from: input["attributes"])
+            let state = try Self.parseFeedingState(from: input["state"])
+            let staleAt = (input["staleAt"] as? Double).map { Date(timeIntervalSince1970: $0) }
+            let content = ActivityContent(state: state, staleDate: staleAt)
+            let activity = try Activity<FeedingAttributes>.request(
+                attributes: attributes,
+                content: content,
+                pushType: .token
+            )
+            return activity.id
+        }
+
+        AsyncFunction("updateFeeding") { (activityId: String, stateInput: [String: Any]) -> Void in
+            guard #available(iOS 16.2, *) else { return }
+            guard let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId }) else {
+                throw LiveActivityError.notFound
+            }
+            let state = try Self.parseFeedingState(from: stateInput)
+            let content = ActivityContent(state: state, staleDate: nil)
+            await activity.update(content)
+        }
+
+        AsyncFunction("endFeeding") { (activityId: String, stateInput: [String: Any]?, dismissAfterSeconds: Double?) -> Void in
+            guard #available(iOS 16.2, *) else { return }
+            guard let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId }) else { return }
+            let finalState: ActivityContent<FeedingAttributes.ContentState>?
+            if let stateInput = stateInput {
+                let state = try Self.parseFeedingState(from: stateInput)
+                finalState = ActivityContent(state: state, staleDate: nil)
+            } else { finalState = nil }
+            let policy: ActivityUIDismissalPolicy = (dismissAfterSeconds ?? -1) <= 0
+                ? .immediate
+                : .after(Date().addingTimeInterval(dismissAfterSeconds!))
+            await activity.end(finalState, dismissalPolicy: policy)
+        }
+
+        AsyncFunction("listActiveFeedings") { () -> [[String: Any]] in
+            guard #available(iOS 16.2, *) else { return [] }
+            return Activity<FeedingAttributes>.activities.map { activity in
+                [
+                    "id": activity.id,
+                    "scheduleId": activity.attributes.scheduleId,
+                    "petId": activity.attributes.petId,
+                    "status": activity.activityState == .active ? "active"
+                            : activity.activityState == .ended ? "ended"
+                            : "dismissed"
+                ]
+            }
+        }
+
+        // MARK: - App Group auth bridge
+        //
+        // App Intent'lar (Mark given / Mark fed) extension process'inde
+        // çalışır ve backend'e doğrudan POST atar; bunun için access token
+        // ile API base URL'sini App Group UserDefaults üzerinden almaları
+        // gerekir. JS tarafı login/logout'ta bu metodu çağırarak köprüyü
+        // canlı tutar.
+
+        AsyncFunction("setAppGroupAuth") { (accessToken: String?, apiBaseUrl: String?) -> Void in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            if let t = accessToken, !t.isEmpty {
+                d?.set(t, forKey: "petto.accessToken")
+            } else {
+                d?.removeObject(forKey: "petto.accessToken")
+            }
+            if let u = apiBaseUrl, !u.isEmpty {
+                d?.set(u, forKey: "petto.apiBaseUrl")
+            } else {
+                d?.removeObject(forKey: "petto.apiBaseUrl")
+            }
+        }
     }
 
     @available(iOS 17.2, *)
@@ -226,6 +363,120 @@ public class PettoLiveActivitiesModule: Module {
             firstAvatars: avatars,
             waitlistPosition: waitlist,
             statusMessage: msg
+        )
+    }
+
+    // MARK: - Medication parsers
+
+    @available(iOS 16.2, *)
+    private static func parseMedicationAttributes(from raw: Any?) throws -> MedicationAttributes {
+        guard let dict = raw as? [String: Any] else {
+            throw LiveActivityError.invalidPayload("medication attributes missing")
+        }
+        guard let medicationId = dict["medicationId"] as? String,
+              let petId = dict["petId"] as? String,
+              let medicationName = dict["medicationName"] as? String,
+              let petName = dict["petName"] as? String else {
+            throw LiveActivityError.invalidPayload("medication attributes incomplete")
+        }
+        return MedicationAttributes(
+            medicationId: medicationId,
+            petId: petId,
+            medicationName: medicationName,
+            dosage: (dict["dosage"] as? String) ?? "",
+            petName: petName,
+            labels: parseMedicationLabels(from: dict["labels"])
+        )
+    }
+
+    @available(iOS 16.2, *)
+    private static func parseMedicationLabels(from raw: Any?) -> MedicationAttributes.Labels {
+        let d = MedicationAttributes.Labels()
+        guard let dict = raw as? [String: Any] else { return d }
+        return MedicationAttributes.Labels(
+            due: (dict["due"] as? String) ?? d.due,
+            given: (dict["given"] as? String) ?? d.given,
+            skip: (dict["skip"] as? String) ?? d.skip,
+            someoneElse: (dict["someoneElse"] as? String) ?? d.someoneElse,
+            snooze: (dict["snooze"] as? String) ?? d.snooze,
+            inProgress: (dict["inProgress"] as? String) ?? d.inProgress,
+            completed: (dict["completed"] as? String) ?? d.completed,
+            skipped: (dict["skipped"] as? String) ?? d.skipped,
+            minutesShort: (dict["minutesShort"] as? String) ?? d.minutesShort
+        )
+    }
+
+    @available(iOS 16.2, *)
+    private static func parseMedicationState(from raw: Any?) throws -> MedicationAttributes.ContentState {
+        guard let dict = raw as? [String: Any] else {
+            throw LiveActivityError.invalidPayload("medication state missing")
+        }
+        guard let status = dict["status"] as? String,
+              let dueAtSec = dict["dueAt"] as? Double else {
+            throw LiveActivityError.invalidPayload("medication state incomplete")
+        }
+        return MedicationAttributes.ContentState(
+            status: status,
+            dueAtSec: dueAtSec,
+            snoozedUntilSec: dict["snoozedUntil"] as? Double,
+            statusMessage: dict["statusMessage"] as? String
+        )
+    }
+
+    // MARK: - Feeding parsers
+
+    @available(iOS 16.2, *)
+    private static func parseFeedingAttributes(from raw: Any?) throws -> FeedingAttributes {
+        guard let dict = raw as? [String: Any] else {
+            throw LiveActivityError.invalidPayload("feeding attributes missing")
+        }
+        guard let scheduleId = dict["scheduleId"] as? String,
+              let petId = dict["petId"] as? String,
+              let mealName = dict["mealName"] as? String,
+              let petName = dict["petName"] as? String else {
+            throw LiveActivityError.invalidPayload("feeding attributes incomplete")
+        }
+        return FeedingAttributes(
+            scheduleId: scheduleId,
+            petId: petId,
+            mealName: mealName,
+            foodType: (dict["foodType"] as? String) ?? "",
+            amount: (dict["amount"] as? String) ?? "",
+            petName: petName,
+            labels: parseFeedingLabels(from: dict["labels"])
+        )
+    }
+
+    @available(iOS 16.2, *)
+    private static func parseFeedingLabels(from raw: Any?) -> FeedingAttributes.Labels {
+        let d = FeedingAttributes.Labels()
+        guard let dict = raw as? [String: Any] else { return d }
+        return FeedingAttributes.Labels(
+            due: (dict["due"] as? String) ?? d.due,
+            fed: (dict["fed"] as? String) ?? d.fed,
+            skip: (dict["skip"] as? String) ?? d.skip,
+            snooze: (dict["snooze"] as? String) ?? d.snooze,
+            inProgress: (dict["inProgress"] as? String) ?? d.inProgress,
+            completed: (dict["completed"] as? String) ?? d.completed,
+            skipped: (dict["skipped"] as? String) ?? d.skipped,
+            minutesShort: (dict["minutesShort"] as? String) ?? d.minutesShort
+        )
+    }
+
+    @available(iOS 16.2, *)
+    private static func parseFeedingState(from raw: Any?) throws -> FeedingAttributes.ContentState {
+        guard let dict = raw as? [String: Any] else {
+            throw LiveActivityError.invalidPayload("feeding state missing")
+        }
+        guard let status = dict["status"] as? String,
+              let dueAtSec = dict["dueAt"] as? Double else {
+            throw LiveActivityError.invalidPayload("feeding state incomplete")
+        }
+        return FeedingAttributes.ContentState(
+            status: status,
+            dueAtSec: dueAtSec,
+            snoozedUntilSec: dict["snoozedUntil"] as? Double,
+            statusMessage: dict["statusMessage"] as? String
         )
     }
 }

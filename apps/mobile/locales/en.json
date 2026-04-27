@@ -1103,6 +1103,20 @@
     "queue": "in queue",
     "directions": "Directions",
     "directionsShort": "Map",
-    "playdateBy": "playdate"
+    "playdateBy": "playdate",
+    "medDue": "Dose time",
+    "medGiven": "Given",
+    "medSkip": "Skip",
+    "medSomeoneElse": "Someone else",
+    "medSnooze": "Snooze",
+    "medCompleted": "Given",
+    "medSkipped": "Skipped",
+    "feedDue": "Meal time",
+    "feedFed": "Fed",
+    "feedSkip": "Skip",
+    "feedSnooze": "Snooze",
+    "feedCompleted": "Fed",
+    "feedSkipped": "Skipped",
+    "minutesShort": "min"
   }
 }
