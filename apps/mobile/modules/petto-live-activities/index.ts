@@ -7,6 +7,25 @@ export type PlaydateActivityStatus =
   | "cancelled"
   | "ended";
 
+/**
+ * Localized labels rendered by the SwiftUI Live Activity views. Set once
+ * when the activity starts; immutable for the activity's lifetime. JS side
+ * builds this from i18next's current language so the lock screen / Dynamic
+ * Island always match the device locale at start time.
+ */
+export interface PlaydateLabels {
+  left: string;
+  inProgress: string;
+  cancelled: string;
+  ended: string;
+  live: string;
+  friends: string;
+  queue: string;
+  directions: string;
+  directionsShort: string;
+  playdateBy: string;
+}
+
 export interface PlaydateAttributes {
   playdateId: string;
   title: string;
@@ -14,6 +33,7 @@ export interface PlaydateAttributes {
   hostName: string;
   hostAvatar?: string | null;
   emoji?: string;
+  labels?: PlaydateLabels;
 }
 
 export interface PlaydateState {

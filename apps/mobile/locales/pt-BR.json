@@ -1092,5 +1092,17 @@
     "optimizeNotice": "A imagem será otimizada para upload",
     "processing": "Processando...",
     "usePhoto": "Usar foto"
+  },
+  "liveActivity": {
+    "left": "restantes",
+    "inProgress": "Em andamento",
+    "cancelled": "Cancelado",
+    "ended": "Encerrado",
+    "live": "Ao vivo",
+    "friends": "amigos",
+    "queue": "na fila",
+    "directions": "Como chegar",
+    "directionsShort": "Mapa",
+    "playdateBy": "encontro"
   }
 }

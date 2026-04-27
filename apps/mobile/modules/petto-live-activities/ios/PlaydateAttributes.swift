@@ -5,6 +5,43 @@ import Foundation
 public struct PlaydateAttributes: ActivityAttributes {
     public typealias ContentState = State
 
+    public struct Labels: Codable, Hashable {
+        public var left: String
+        public var inProgress: String
+        public var cancelled: String
+        public var ended: String
+        public var live: String
+        public var friends: String
+        public var queue: String
+        public var directions: String
+        public var directionsShort: String
+        public var playdateBy: String
+
+        public init(
+            left: String = "kala",
+            inProgress: String = "Devam ediyor",
+            cancelled: String = "İptal",
+            ended: String = "Bitti",
+            live: String = "Canlı",
+            friends: String = "dost",
+            queue: String = "sırada",
+            directions: String = "Yol Tarifi",
+            directionsShort: String = "Yol",
+            playdateBy: String = "buluşması"
+        ) {
+            self.left = left
+            self.inProgress = inProgress
+            self.cancelled = cancelled
+            self.ended = ended
+            self.live = live
+            self.friends = friends
+            self.queue = queue
+            self.directions = directions
+            self.directionsShort = directionsShort
+            self.playdateBy = playdateBy
+        }
+    }
+
     public struct State: Codable, Hashable {
         public var status: String
         public var startsAtSec: Double
@@ -42,6 +79,7 @@ public struct PlaydateAttributes: ActivityAttributes {
     public var hostName: String
     public var hostAvatar: String?
     public var emoji: String
+    public var labels: Labels
 
     public init(
         playdateId: String,
@@ -49,7 +87,8 @@ public struct PlaydateAttributes: ActivityAttributes {
         city: String? = nil,
         hostName: String,
         hostAvatar: String? = nil,
-        emoji: String = "🐾"
+        emoji: String = "🐾",
+        labels: Labels = Labels()
     ) {
         self.playdateId = playdateId
         self.title = title
@@ -57,5 +96,6 @@ public struct PlaydateAttributes: ActivityAttributes {
         self.hostName = hostName
         self.hostAvatar = hostAvatar
         self.emoji = emoji
+        self.labels = labels
     }
 }

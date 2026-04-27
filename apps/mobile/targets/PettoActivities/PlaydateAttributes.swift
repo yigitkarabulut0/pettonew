@@ -5,6 +5,47 @@ import Foundation
 public struct PlaydateAttributes: ActivityAttributes {
     public typealias ContentState = State
 
+    /// All translated strings the views render. Set once at start time —
+    /// attributes don't change for the life of the activity. JS side fills
+    /// this based on i18next current language so the lock screen / Dynamic
+    /// Island always match the device locale.
+    public struct Labels: Codable, Hashable {
+        public var left: String          // "kala" / "left"
+        public var inProgress: String    // "Devam ediyor" / "In progress"
+        public var cancelled: String     // "İptal" / "Cancelled"
+        public var ended: String         // "Bitti" / "Ended"
+        public var live: String          // "Canlı" / "Live"
+        public var friends: String       // "dost" / "friends"
+        public var queue: String         // "sırada" / "in queue"
+        public var directions: String    // "Yol Tarifi" / "Directions"
+        public var directionsShort: String // "Yol" / "Map"
+        public var playdateBy: String    // "{host}'un buluşması" / "{host}'s playdate"
+
+        public init(
+            left: String = "kala",
+            inProgress: String = "Devam ediyor",
+            cancelled: String = "İptal",
+            ended: String = "Bitti",
+            live: String = "Canlı",
+            friends: String = "dost",
+            queue: String = "sırada",
+            directions: String = "Yol Tarifi",
+            directionsShort: String = "Yol",
+            playdateBy: String = "buluşması"
+        ) {
+            self.left = left
+            self.inProgress = inProgress
+            self.cancelled = cancelled
+            self.ended = ended
+            self.live = live
+            self.friends = friends
+            self.queue = queue
+            self.directions = directions
+            self.directionsShort = directionsShort
+            self.playdateBy = playdateBy
+        }
+    }
+
     /// Times are stored as seconds-since-1970 doubles instead of `Date`.
     /// ActivityKit's default JSONDecoder treats `Date` as seconds-since
     /// -reference-date (2001-01-01) which silently mangles Unix-epoch
@@ -52,6 +93,7 @@ public struct PlaydateAttributes: ActivityAttributes {
     public var hostName: String
     public var hostAvatar: String?
     public var emoji: String
+    public var labels: Labels
 
     public init(
         playdateId: String,
@@ -59,7 +101,8 @@ public struct PlaydateAttributes: ActivityAttributes {
         city: String? = nil,
         hostName: String,
         hostAvatar: String? = nil,
-        emoji: String = "🐾"
+        emoji: String = "🐾",
+        labels: Labels = Labels()
     ) {
         self.playdateId = playdateId
         self.title = title
@@ -67,5 +110,6 @@ public struct PlaydateAttributes: ActivityAttributes {
         self.hostName = hostName
         self.hostAvatar = hostAvatar
         self.emoji = emoji
+        self.labels = labels
     }
 }

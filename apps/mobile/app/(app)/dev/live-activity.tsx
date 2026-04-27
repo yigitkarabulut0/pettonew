@@ -13,8 +13,29 @@ import { ChevronLeft } from "lucide-react-native";
 
 import LiveActivities, {
   type ActivePlaydateActivity,
+  type PlaydateLabels,
   nativeLoadError,
 } from "petto-live-activities";
+
+import i18n from "@/lib/i18n";
+
+/** i18next snapshot used by every test scenario so the labels match the
+ *  current device language. Re-run via Reload to pick up locale changes. */
+function testLabels(): PlaydateLabels {
+  const t = i18n.t.bind(i18n);
+  return {
+    left: t("liveActivity.left"),
+    inProgress: t("liveActivity.inProgress"),
+    cancelled: t("liveActivity.cancelled"),
+    ended: t("liveActivity.ended"),
+    live: t("liveActivity.live"),
+    friends: t("liveActivity.friends"),
+    queue: t("liveActivity.queue"),
+    directions: t("liveActivity.directions"),
+    directionsShort: t("liveActivity.directionsShort"),
+    playdateBy: t("liveActivity.playdateBy"),
+  };
+}
 
 const ACCENT = "#E6694A";
 const CREAM = "#FFF8F0";
@@ -76,6 +97,7 @@ export default function LiveActivityDevScreen() {
           city: "Levent, İstanbul",
           hostName: "Yigit",
           emoji: "🐾",
+          labels: testLabels(),
         },
         {
           status: "upcoming",
@@ -103,6 +125,7 @@ export default function LiveActivityDevScreen() {
           city: "Caddebostan",
           hostName: "Bora",
           emoji: "🐶",
+          labels: testLabels(),
         },
         {
           status: "in_progress",
@@ -130,6 +153,7 @@ export default function LiveActivityDevScreen() {
           city: "Maçka Parkı",
           hostName: "Ayşe",
           emoji: "🐕",
+          labels: testLabels(),
         },
         {
           status: "upcoming",

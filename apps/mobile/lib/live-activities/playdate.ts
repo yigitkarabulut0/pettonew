@@ -2,9 +2,11 @@ import type { Playdate } from "@petto/contracts";
 
 import LiveActivities, {
   type PlaydateAttributes,
+  type PlaydateLabels,
   type PlaydateState,
 } from "petto-live-activities";
 
+import i18n from "@/lib/i18n";
 import { useSessionStore } from "@/store/session";
 
 import { deleteActivity } from "./api";
@@ -20,6 +22,29 @@ function speciesEmoji(_playdate: Playdate): string {
   return PETTO_EMOJI;
 }
 
+/**
+ * Build the localized label set the SwiftUI Live Activity views render.
+ * Snapshot of i18next at start time — Apple's ActivityAttributes are
+ * immutable for the activity's lifetime, so if the user later changes
+ * device language, existing activities keep their original labels and
+ * any *new* activity picks up the new language.
+ */
+function deriveLabels(): PlaydateLabels {
+  const t = i18n.t.bind(i18n);
+  return {
+    left: t("liveActivity.left"),
+    inProgress: t("liveActivity.inProgress"),
+    cancelled: t("liveActivity.cancelled"),
+    ended: t("liveActivity.ended"),
+    live: t("liveActivity.live"),
+    friends: t("liveActivity.friends"),
+    queue: t("liveActivity.queue"),
+    directions: t("liveActivity.directions"),
+    directionsShort: t("liveActivity.directionsShort"),
+    playdateBy: t("liveActivity.playdateBy"),
+  };
+}
+
 function deriveAttributes(playdate: Playdate): PlaydateAttributes {
   return {
     playdateId: playdate.id,
@@ -28,6 +53,7 @@ function deriveAttributes(playdate: Playdate): PlaydateAttributes {
     hostName: playdate.hostInfo?.firstName ?? "Host",
     hostAvatar: playdate.hostInfo?.avatarUrl ?? null,
     emoji: speciesEmoji(playdate),
+    labels: deriveLabels(),
   };
 }
 

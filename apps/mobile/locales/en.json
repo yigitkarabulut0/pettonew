@@ -1092,5 +1092,17 @@
     "optimizeNotice": "Image will be optimized for upload",
     "processing": "Processing...",
     "usePhoto": "Use Photo"
+  },
+  "liveActivity": {
+    "left": "left",
+    "inProgress": "In progress",
+    "cancelled": "Cancelled",
+    "ended": "Ended",
+    "live": "Live",
+    "friends": "friends",
+    "queue": "in queue",
+    "directions": "Directions",
+    "directionsShort": "Map",
+    "playdateBy": "playdate"
   }
 }

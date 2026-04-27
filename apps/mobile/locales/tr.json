@@ -1092,5 +1092,17 @@
     "optimizeNotice": "Görsel yükleme için optimize edilecek",
     "processing": "İşleniyor...",
     "usePhoto": "Fotoğrafı Kullan"
+  },
+  "liveActivity": {
+    "left": "kala",
+    "inProgress": "Devam ediyor",
+    "cancelled": "İptal",
+    "ended": "Bitti",
+    "live": "Canlı",
+    "friends": "dost",
+    "queue": "sırada",
+    "directions": "Yol Tarifi",
+    "directionsShort": "Yol",
+    "playdateBy": "buluşması"
   }
 }

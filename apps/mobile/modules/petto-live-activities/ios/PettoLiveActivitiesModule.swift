@@ -176,7 +176,28 @@ public class PettoLiveActivitiesModule: Module {
             city: dict["city"] as? String,
             hostName: hostName,
             hostAvatar: dict["hostAvatar"] as? String,
-            emoji: (dict["emoji"] as? String) ?? "🐾"
+            emoji: (dict["emoji"] as? String) ?? "🐾",
+            labels: parseLabels(from: dict["labels"])
+        )
+    }
+
+    @available(iOS 16.2, *)
+    private static func parseLabels(from raw: Any?) -> PlaydateAttributes.Labels {
+        // No labels passed → fall back to defaults (Turkish baseline). Any
+        // missing key inside the labels dict also falls back to its default.
+        let defaults = PlaydateAttributes.Labels()
+        guard let dict = raw as? [String: Any] else { return defaults }
+        return PlaydateAttributes.Labels(
+            left: (dict["left"] as? String) ?? defaults.left,
+            inProgress: (dict["inProgress"] as? String) ?? defaults.inProgress,
+            cancelled: (dict["cancelled"] as? String) ?? defaults.cancelled,
+            ended: (dict["ended"] as? String) ?? defaults.ended,
+            live: (dict["live"] as? String) ?? defaults.live,
+            friends: (dict["friends"] as? String) ?? defaults.friends,
+            queue: (dict["queue"] as? String) ?? defaults.queue,
+            directions: (dict["directions"] as? String) ?? defaults.directions,
+            directionsShort: (dict["directionsShort"] as? String) ?? defaults.directionsShort,
+            playdateBy: (dict["playdateBy"] as? String) ?? defaults.playdateBy
         )
     }
 

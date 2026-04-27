@@ -2,12 +2,16 @@ import ActivityKit
 import WidgetKit
 import SwiftUI
 
-// Single source of truth for the Petto Playdate Live Activity. Provides
-// four presentations from one config:
-//   • Lock Screen banner — sıcak, minimal, geri sayıma odaklı
-//   • Dynamic Island compact — patik + monospace dakika (şerit kadar dar)
-//   • Dynamic Island expanded — 4 region: hero / countdown / başlık / aksiyon
+// Single source of truth for the Petto Playdate Live Activity.
+//
+// Üç sunum:
+//   • Lock Screen banner — cinematic, hero-led, geri sayıma odaklı
+//   • Dynamic Island compact — minimal: sadece pati + dar bir status
+//   • Dynamic Island expanded — Apple Maps tarzı 4 region hiyerarşisi
 //   • Dynamic Island minimal — tek pati glyph
+//
+// Tüm string'ler `context.attributes.labels`'den okunur — i18next'in
+// snapshotu. Cihaz dili değişince yeni activity'ler yeni dilde başlar.
 
 @available(iOS 16.2, *)
 struct PlaydateLiveActivity: Widget {
@@ -43,16 +47,17 @@ struct PlaydateLiveActivity: Widget {
 
 // MARK: - Lock Screen Banner
 //
-// Düzen:
-//   ┌─────────────────────────────────────────────────────────────┐
-//   │  ●●●  PATI BULUŞMASI                              47        │
-//   │  🐾   Levent · 4 dost                             KALA      │
-//   │       ─────────────                               ────      │
-//   │       [Yol Tarifi →]                                        │
-//   └─────────────────────────────────────────────────────────────┘
+// Cinematic 3-zone layout:
+//   ┌────────────────────────────────────────────┐
+//   │  ╭──╮                              47      │
+//   │  │🐾│  Pati Buluşması              KALA    │
+//   │  ╰──╯  Levent · 4 dost                      │
+//   │  ─────────────────────────────────────     │
+//   │                          [↗ Yol Tarifi]    │
+//   └────────────────────────────────────────────┘
 //
-// Üç sütun: hero (56pt), title+meta (esnek), countdown (sağda).
-// Alt satır: aksiyon butonu. İptal/bitti durumunda büyük status pill girer.
+// 16pt yatay / 12pt dikey safe padding. İptal/bitti hâli countdown yerine
+// büyük status pill koyup alt aksiyon barını gizler.
 
 @available(iOS 16.2, *)
 struct PlaydateLockScreenView: View {
@@ -62,10 +67,11 @@ struct PlaydateLockScreenView: View {
     var body: some View {
         let state = context.state
         let attrs = context.attributes
+        let labels = attrs.labels
         let terminal = state.status == "cancelled" || state.status == "ended"
 
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 HeroPetBubble(
                     size: 52,
                     scheme: scheme,
@@ -73,8 +79,8 @@ struct PlaydateLockScreenView: View {
                     isCancelled: terminal
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(attrs.title)
                             .font(.system(.headline, design: .rounded).weight(.bold))
                             .foregroundColor(PettoTheme.textPrimary(for: scheme))
@@ -82,47 +88,47 @@ struct PlaydateLockScreenView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                         if let waitlist = state.waitlistPosition, !terminal {
-                            WaitlistBadge(position: waitlist)
+                            WaitlistBadge(position: waitlist, queueLabel: labels.queue)
                         }
                     }
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         if let city = attrs.city, !city.isEmpty {
                             MetaItem(icon: "mappin.and.ellipse", text: city, scheme: scheme)
                         }
                         MetaItem(
                             icon: "pawprint.fill",
-                            text: "\(state.attendeeCount)/\(state.maxPets) dost",
+                            text: "\(state.attendeeCount) \(labels.friends)",
                             scheme: scheme
                         )
                     }
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
 
-                Group {
-                    if terminal {
-                        StatusPill(
-                            label: state.status == "cancelled" ? "İptal" : "Bitti",
-                            color: PettoTheme.statusCancelled
-                        )
-                    } else {
-                        PlaydateCountdown(
-                            startsAt: state.startsAt,
-                            endsAt: state.endsAt,
-                            status: state.status,
-                            scheme: scheme,
-                            alignment: .trailing,
-                            largeFontSize: 28
-                        )
-                    }
+                if terminal {
+                    StatusPill(
+                        label: state.status == "cancelled" ? labels.cancelled : labels.ended,
+                        color: PettoTheme.statusCancelled
+                    )
+                } else {
+                    PlaydateCountdown(
+                        startsAt: state.startsAt,
+                        endsAt: state.endsAt,
+                        status: state.status,
+                        labels: labels,
+                        scheme: scheme,
+                        alignment: .trailing,
+                        largeFontSize: 30,
+                        widthCap: 92
+                    )
                 }
             }
 
             if !terminal {
                 Divider()
-                    .background(PettoTheme.textTertiary(for: scheme).opacity(0.3))
-                    .padding(.top, 12)
-                    .padding(.bottom, 10)
+                    .background(PettoTheme.textTertiary(for: scheme).opacity(0.25))
+                    .padding(.top, 11)
+                    .padding(.bottom, 9)
 
                 HStack(spacing: 10) {
                     if let msg = state.statusMessage, !msg.isEmpty {
@@ -130,34 +136,32 @@ struct PlaydateLockScreenView: View {
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundColor(PettoTheme.textSecondary(for: scheme))
                             .lineLimit(1)
-                        Spacer()
                     } else {
-                        Spacer()
+                        Text("\(attrs.hostName) · \(labels.playdateBy)")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(PettoTheme.textTertiary(for: scheme))
+                            .lineLimit(1)
                     }
-                    Link(destination: URL(string: "petto://playdate/\(attrs.playdateId)/directions")!) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                                .font(.system(size: 11, weight: .heavy))
-                            Text("Yol Tarifi")
-                                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule().fill(PettoTheme.accent(for: scheme))
-                        )
-                    }
+                    Spacer(minLength: 6)
+                    DirectionsButton(
+                        url: URL(string: "petto://playdate/\(attrs.playdateId)/directions")!,
+                        label: labels.directions,
+                        scheme: scheme,
+                        compact: false
+                    )
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
         .background(PettoTheme.background(for: scheme))
     }
 }
 
 // MARK: - Dynamic Island compact
+//
+// Hep aynı, EN DAR şerit. Apple'ın compact regions'ı zaten dar; biz de
+// sayı değil sembol veya tek satır timer kullanıyoruz.
 
 @available(iOS 16.2, *)
 struct DICompactLeading: View {
@@ -180,6 +184,7 @@ struct DICompactTrailingView: View {
         DICompactValue(
             startsAt: context.state.startsAt,
             status: context.state.status,
+            labels: context.attributes.labels,
             scheme: scheme
         )
     }
@@ -199,8 +204,18 @@ struct DIMinimalView: View {
 
 // MARK: - Dynamic Island expanded
 //
-// Apple'ın 4 region modeli: leading / trailing / center / bottom.
-// Hero küçük (32pt), title kompakt, countdown büyük, aksiyon altta tek satır.
+// Apple Maps tarzı 4 region kompozisyon:
+//   ┌─────────────────────────────────────────┐
+//   │  ╭──╮  Pati Buluşması           47       │
+//   │  │🐾│  Levent · 4/6 dost        KALA     │
+//   │  ╰──╯                                    │
+//   │   Yigit'in buluşması        [↗ Yol]     │
+//   └─────────────────────────────────────────┘
+//
+// Leading: küçük hero (32pt, 4pt padding-left)
+// Trailing: countdown stack (right-aligned, 22pt)
+// Center: title + meta
+// Bottom: subtitle + Yol pill
 
 @available(iOS 16.2, *)
 struct DIExpandedLeading: View {
@@ -209,7 +224,7 @@ struct DIExpandedLeading: View {
 
     var body: some View {
         HeroPetBubble(
-            size: 36,
+            size: 32,
             scheme: scheme,
             showLiveDot: context.state.status == "in_progress",
             isCancelled: context.state.status == "cancelled"
@@ -224,20 +239,23 @@ struct DIExpandedTrailing: View {
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
+        let labels = context.attributes.labels
         Group {
             switch context.state.status {
             case "cancelled":
-                StatusPill(label: "İptal", color: PettoTheme.statusCancelled)
+                StatusPill(label: labels.cancelled, color: PettoTheme.statusCancelled)
             case "ended":
-                StatusPill(label: "Bitti", color: PettoTheme.statusCancelled)
+                StatusPill(label: labels.ended, color: PettoTheme.statusCancelled)
             default:
                 PlaydateCountdown(
                     startsAt: context.state.startsAt,
                     endsAt: context.state.endsAt,
                     status: context.state.status,
+                    labels: labels,
                     scheme: scheme,
                     alignment: .trailing,
-                    largeFontSize: 22
+                    largeFontSize: 22,
+                    widthCap: 70
                 )
             }
         }
@@ -251,29 +269,31 @@ struct DIExpandedCenter: View {
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
+        let labels = context.attributes.labels
         VStack(alignment: .leading, spacing: 2) {
             Text(context.attributes.title)
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
                 .foregroundColor(PettoTheme.textPrimary(for: scheme))
                 .lineLimit(1)
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 if let city = context.attributes.city, !city.isEmpty {
                     Text(city)
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundColor(PettoTheme.textSecondary(for: scheme))
                         .lineLimit(1)
+                    Text("·")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundColor(PettoTheme.textTertiary(for: scheme))
                 }
-                Text("•")
-                    .font(.system(size: 9, weight: .black))
-                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
-                Text("\(context.state.attendeeCount)/\(context.state.maxPets)")
+                Text("\(context.state.attendeeCount) \(labels.friends)")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .foregroundColor(PettoTheme.textSecondary(for: scheme))
+                    .lineLimit(1)
                     .monospacedDigit()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 8)
+        .padding(.leading, 6)
     }
 }
 
@@ -283,43 +303,31 @@ struct DIExpandedBottom: View {
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
+        let labels = context.attributes.labels
         let terminal = context.state.status == "cancelled" || context.state.status == "ended"
 
-        HStack {
-            if let waitlist = context.state.waitlistPosition, !terminal {
-                WaitlistBadge(position: waitlist)
-            } else {
-                // Text+Text concatenation: use the iOS 13+ `.foregroundColor`
-                // overload here. The newer `.foregroundStyle` API works for
-                // standalone views but on chained Text it requires iOS 17+,
-                // and our pod's deployment target is 15.1.
-                (Text(context.attributes.hostName)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(PettoTheme.textSecondary(for: scheme))
-                + Text("'in pati buluşması")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundColor(PettoTheme.textTertiary(for: scheme)))
-                .lineLimit(1)
-            }
-            Spacer()
-            if !terminal {
-                Link(destination: URL(string: "petto://playdate/\(context.attributes.playdateId)/directions")!) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                            .font(.system(size: 10, weight: .heavy))
-                        Text("Yol")
-                            .font(.system(size: 11, weight: .heavy, design: .rounded))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule().fill(PettoTheme.accent(for: scheme))
-                    )
+        if terminal {
+            EmptyView()
+        } else {
+            HStack(spacing: 8) {
+                if let waitlist = context.state.waitlistPosition {
+                    WaitlistBadge(position: waitlist, queueLabel: labels.queue)
+                } else {
+                    Text("\(context.attributes.hostName) · \(labels.playdateBy)")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(PettoTheme.textSecondary(for: scheme))
+                        .lineLimit(1)
                 }
+                Spacer()
+                DirectionsButton(
+                    url: URL(string: "petto://playdate/\(context.attributes.playdateId)/directions")!,
+                    label: labels.directionsShort,
+                    scheme: scheme,
+                    compact: true
+                )
             }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 2)
         }
-        .padding(.horizontal, 4)
-        .padding(.bottom, 2)
     }
 }
