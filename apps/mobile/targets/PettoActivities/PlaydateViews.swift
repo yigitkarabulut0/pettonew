@@ -1,155 +1,153 @@
 import SwiftUI
 
-@available(iOS 16.2, *)
-struct CountdownLabel: View {
-    let startsAt: Date
-    let endsAt: Date?
-    let status: String
-
-    var body: some View {
-        switch status {
-        case "in_progress":
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(PettoTheme.inProgress)
-                    .frame(width: 6, height: 6)
-                Text(timerInterval: startsAt...(endsAt ?? Date().addingTimeInterval(3600)),
-                     pauseTime: nil,
-                     countsDown: false,
-                     showsHours: true)
-                    .monospacedDigit()
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-            }
-        case "cancelled":
-            Text("İptal edildi")
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundStyle(PettoTheme.cancelled)
-        case "ended":
-            Text("Bitti")
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundStyle(PettoTheme.cancelled)
-        default:
-            HStack(spacing: 3) {
-                Image(systemName: "clock.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PettoTheme.accent)
-                Text(timerInterval: Date()...startsAt,
-                     pauseTime: nil,
-                     countsDown: true,
-                     showsHours: true)
-                    .monospacedDigit()
-                    .font(.system(.subheadline, design: .rounded).weight(.bold))
-                    .foregroundStyle(PettoTheme.accent)
-            }
-        }
-    }
-}
+// MARK: - Hero pet bubble
+//
+// Tek görsel imzamız: warm-orange tinted bir daire içinde pati ikonu.
+// Köşede minik canlılık noktası ("şu an aktif" hissini verir, animate olur).
+// Boyut çağrılanca scale edilir (lock screen'de büyük, DI expanded'da orta).
 
 @available(iOS 16.2, *)
-struct CompactCountdown: View {
-    let startsAt: Date
-    let status: String
-
-    var body: some View {
-        if status == "upcoming" {
-            Text(timerInterval: Date()...startsAt,
-                 pauseTime: nil,
-                 countsDown: true,
-                 showsHours: false)
-                .monospacedDigit()
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-        } else if status == "in_progress" {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(PettoTheme.inProgress)
-        } else {
-            Image(systemName: "checkmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(PettoTheme.cancelled)
-        }
-    }
-}
-
-struct AvatarStack: View {
-    let urls: [String]
-    let total: Int
+struct HeroPetBubble: View {
     let size: CGFloat
-    let strokeColor: Color
-
-    var body: some View {
-        HStack(spacing: -size * 0.28) {
-            ForEach(Array(urls.prefix(3).enumerated()), id: \.offset) { _, url in
-                AvatarBubble(url: url, size: size, stroke: strokeColor)
-            }
-            if total > urls.count {
-                ZStack {
-                    Circle()
-                        .fill(PettoTheme.accentSoft.opacity(0.18))
-                    Circle()
-                        .stroke(strokeColor, lineWidth: 1.5)
-                    Text("+\(total - urls.count)")
-                        .font(.system(size: size * 0.36, weight: .bold, design: .rounded))
-                        .foregroundStyle(PettoTheme.accent)
-                }
-                .frame(width: size, height: size)
-            }
-        }
-    }
-}
-
-struct AvatarBubble: View {
-    let url: String
-    let size: CGFloat
-    let stroke: Color
+    let scheme: ColorScheme
+    let showLiveDot: Bool
+    let isCancelled: Bool
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(PettoTheme.accentSoft.opacity(0.25))
-            if let nsurl = URL(string: url) {
-                AsyncImage(url: nsurl) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Image(systemName: "pawprint.fill")
-                        .font(.system(size: size * 0.45))
-                        .foregroundStyle(PettoTheme.accent)
-                }
-                .clipShape(Circle())
-            } else {
-                Image(systemName: "pawprint.fill")
-                    .font(.system(size: size * 0.45))
-                    .foregroundStyle(PettoTheme.accent)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            PettoTheme.accent(for: scheme).opacity(scheme == .dark ? 0.30 : 0.18),
+                            PettoTheme.accent(for: scheme).opacity(scheme == .dark ? 0.18 : 0.08),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: size * 0.46, weight: .medium))
+                .foregroundStyle(
+                    isCancelled
+                        ? PettoTheme.statusCancelled
+                        : PettoTheme.accent(for: scheme)
+                )
+                .symbolRenderingMode(.hierarchical)
+
+            if showLiveDot && !isCancelled {
+                Circle()
+                    .fill(PettoTheme.statusActive)
+                    .frame(width: size * 0.20, height: size * 0.20)
+                    .overlay(
+                        Circle()
+                            .stroke(PettoTheme.background(for: scheme), lineWidth: size * 0.04)
+                    )
+                    .offset(x: size * 0.36, y: size * 0.36)
             }
-            Circle()
-                .stroke(stroke, lineWidth: 1.5)
         }
         .frame(width: size, height: size)
     }
 }
 
+// MARK: - Big countdown
+//
+// Lock screen'in ana göstergesi. Başlamadan önce iri geri sayım, başladıktan
+// sonra geçen süre. İptal durumunda tamamen kaybolur (yerine status pill
+// koyulur).
+
 @available(iOS 16.2, *)
-struct AttendeeChip: View {
-    let count: Int
-    let max: Int
+struct PlaydateCountdown: View {
+    let startsAt: Date
+    let endsAt: Date?
+    let status: String
+    let scheme: ColorScheme
+    let alignment: HorizontalAlignment
+    let largeFontSize: CGFloat
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: 2) {
+            switch status {
+            case "in_progress":
+                Text(timerInterval: startsAt...(endsAt ?? Date().addingTimeInterval(3600)),
+                     pauseTime: nil,
+                     countsDown: false,
+                     showsHours: false)
+                    .font(.system(size: largeFontSize, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(PettoTheme.statusActive)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text("DEVAM EDİYOR")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+            default:
+                Text(timerInterval: Date()...startsAt,
+                     pauseTime: nil,
+                     countsDown: true,
+                     showsHours: false)
+                    .font(.system(size: largeFontSize, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(PettoTheme.accent(for: scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text("KALA")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(PettoTheme.textTertiary(for: scheme))
+            }
+        }
+    }
+}
+
+// MARK: - Status pill
+//
+// "İptal edildi" / "Bitti" gibi terminal durumlarda countdown yerine bu girer.
+
+@available(iOS 16.2, *)
+struct StatusPill: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
+        Text(label.uppercased())
+            .font(.system(size: 11, weight: .heavy, design: .rounded))
+            .tracking(0.6)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(color)
+            )
+    }
+}
+
+// MARK: - Meta row icon+text
+//
+// Lock screen'in alt sırası: lokasyon ve katılımcı sayısı için.
+
+@available(iOS 16.2, *)
+struct MetaItem: View {
+    let icon: String
+    let text: String
     let scheme: ColorScheme
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "pawprint.fill")
-                .font(.system(size: 10, weight: .semibold))
-            Text("\(count)/\(max)")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+            Text(text)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(PettoTheme.textSecondary(for: scheme))
+                .lineLimit(1)
         }
-        .foregroundStyle(PettoTheme.textSecondary(for: scheme))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule()
-                .fill(PettoTheme.accent.opacity(0.10))
-        )
     }
 }
+
+// MARK: - Waitlist badge
 
 @available(iOS 16.2, *)
 struct WaitlistBadge: View {
@@ -158,16 +156,54 @@ struct WaitlistBadge: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "hourglass")
-                .font(.system(size: 10, weight: .bold))
-            Text("Sıra #\(position)")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.system(size: 10, weight: .heavy))
+            Text("\(position). sırada")
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .background(
-            Capsule()
-                .fill(PettoTheme.accent)
+            Capsule().fill(PettoTheme.statusWaitlist)
         )
+    }
+}
+
+// MARK: - Compact DI mini-pill
+//
+// Compact trailing icin: küçük, dar, monospaced. "47m" / "BAŞLADI" / "❌"
+// gibi 4 karakter altı.
+
+@available(iOS 16.2, *)
+struct DICompactValue: View {
+    let startsAt: Date
+    let status: String
+    let scheme: ColorScheme
+
+    var body: some View {
+        switch status {
+        case "in_progress":
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(PettoTheme.statusActive)
+                    .frame(width: 6, height: 6)
+                Text("CANLI")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .tracking(0.4)
+                    .foregroundStyle(PettoTheme.statusActive)
+            }
+        case "cancelled", "ended":
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(PettoTheme.statusCancelled)
+        default:
+            Text(timerInterval: Date()...startsAt,
+                 pauseTime: nil,
+                 countsDown: true,
+                 showsHours: false)
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(PettoTheme.accent(for: scheme))
+        }
     }
 }
