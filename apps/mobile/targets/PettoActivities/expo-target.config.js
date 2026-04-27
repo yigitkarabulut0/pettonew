@@ -13,7 +13,7 @@ module.exports = {
   // If the next production build pushes the host to 42, bump `buildNumber`
   // here too — otherwise iOS will refuse to load the extension.
   version: "0.14.8",
-  buildNumber: "41",
+  buildNumber: "44",
   entitlements: {
     "com.apple.security.application-groups": ["group.app.petto.shared"],
   },
