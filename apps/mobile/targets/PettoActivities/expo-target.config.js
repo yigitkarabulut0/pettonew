@@ -12,7 +12,7 @@ module.exports = {
   // override the default of '1', producing the EAS Build mismatch warning.
   // If the next production build pushes the host to 42, bump `buildNumber`
   // here too — otherwise iOS will refuse to load the extension.
-  version: "0.14.7",
+  version: "0.14.8",
   buildNumber: "41",
   entitlements: {
     "com.apple.security.application-groups": ["group.app.petto.shared"],
