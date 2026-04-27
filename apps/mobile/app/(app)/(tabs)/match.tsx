@@ -103,7 +103,17 @@ export default function MatchesPage() {
     enabled: Boolean(session)
   });
 
-  const { data: matches = [], refetch: refetchMatches } = useQuery({
+  const {
+    data: matches = [],
+    refetch: refetchMatches,
+    // `isPending` is true only on the very first fetch with no cached
+    // data. With persistence wired up in _layout.tsx, returning users
+    // get matches restored from AsyncStorage instantly and isPending
+    // is false on first render — so this flag specifically tracks
+    // "we have nothing to show yet, please wait" without false-flagging
+    // the 3-second background refetch as "loading".
+    isPending: matchesPending
+  } = useQuery({
     queryKey: ["matches", session?.tokens.accessToken],
     queryFn: () => listMatches(session!.tokens.accessToken),
     enabled: Boolean(session),
@@ -535,6 +545,7 @@ export default function MatchesPage() {
           onMatchPress={handleMatchPress}
           onRefresh={handleRefreshMatches}
           isRefreshing={matchesRefreshing}
+          isPending={matchesPending}
         />
       )}
 

@@ -78,9 +78,31 @@ const PERSIST_OPTIONS = {
   buster: "0.14.5", // cache busted on version change
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
-      // Only persist lightweight list queries — skip large/binary data.
+      // Only persist lightweight list / metadata queries. Chat scrollback
+      // (`messages-*`) intentionally stays out — it can grow into the MBs
+      // and we want fresh history every open anyway. Header/context
+      // queries are persisted so opening a chat shows the right title,
+      // member list, or playdate banner instantly while the live data
+      // refetches in the background.
       const key = query.queryKey?.[0] as string;
-      return ["matches", "conversations", "my-pets", "explore-venues"].includes(key);
+      return [
+        "matches",
+        "conversations",
+        "my-pets",
+        "explore-venues",
+        // Chat header context — what kind of chat this is + counterpart info.
+        // Without these, the conversation page loads cold every tap and the
+        // peer name / group members / playdate banner pop in seconds late.
+        "group-by-conv",
+        "playdate-by-conv",
+        "group-detail",
+        "playdate-detail",
+        // Discovery lists — same "show stale, refetch fresh" treatment so
+        // hopping into a tab feels instant on cold launch.
+        "groups",
+        "playdates",
+        "my-playdates"
+      ].includes(key);
     }
   }
 };

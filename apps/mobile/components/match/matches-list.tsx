@@ -32,6 +32,10 @@ interface MatchesListProps {
   onMatchPress: (match: MatchPreview) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  // True only on a true cold load with no cached data. Drives the
+  // skeleton vs "No matches yet" branch — without it, the screen
+  // briefly lies ("No matches yet") to returning users on first paint.
+  isPending?: boolean;
 }
 
 export function MatchesList({
@@ -41,7 +45,8 @@ export function MatchesList({
   onStartDiscovering,
   onMatchPress,
   onRefresh,
-  isRefreshing
+  isRefreshing,
+  isPending = false
 }: MatchesListProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -310,7 +315,17 @@ export function MatchesList({
           gap: mobileTheme.spacing.sm
         }}
       >
-        {filteredMatches.length === 0 ? (
+        {filteredMatches.length === 0 && isPending ? (
+          // Skeleton — first cold load with no cached data. Shows three
+          // grey rows so returning users (cache-restored) never see the
+          // misleading "No matches yet" while real data is one network
+          // round-trip away.
+          <>
+            {[0, 1, 2].map((i) => (
+              <SkeletonMatchRow key={i} />
+            ))}
+          </>
+        ) : filteredMatches.length === 0 ? (
           <View
             style={{
               padding: mobileTheme.spacing["3xl"],
@@ -593,5 +608,34 @@ function MatchRow({ match, onPress }: MatchRowProps) {
         </View>
       )}
     </Pressable>
+  );
+}
+
+// Skeleton row shown only while the matches query is still pending and
+// no cached data exists. Geometry mirrors a real MatchRow so the layout
+// doesn't jump when real data lands. Plain non-animated greys keep this
+// dependency-free; matches the "fast and quiet" feel of returning users
+// whose cache restores in <50ms anyway.
+function SkeletonMatchRow() {
+  const theme = useTheme();
+  const blockColor = theme.colors.primaryBg;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        backgroundColor: theme.colors.surface,
+        borderRadius: mobileTheme.radius.lg,
+        ...mobileTheme.shadow.sm,
+        padding: mobileTheme.spacing.md,
+        alignItems: "center",
+        gap: mobileTheme.spacing.md
+      }}
+    >
+      <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: blockColor }} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <View style={{ width: "60%", height: 14, borderRadius: 4, backgroundColor: blockColor }} />
+        <View style={{ width: "85%", height: 12, borderRadius: 4, backgroundColor: blockColor, opacity: 0.7 }} />
+      </View>
+    </View>
   );
 }
