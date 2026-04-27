@@ -1,6 +1,13 @@
 packages:
   - apps/*
   - packages/*
+  # Local Expo native modules under apps/mobile/modules/*. We need real
+  # workspace packages here (not pnpm `link:` deps) so EAS Build's
+  # frozen-lockfile install reliably recreates the symlinks that
+  # expo-modules-autolinking walks. Without this petto-live-activities
+  # silently goes missing in the cloud build and the JS side falls back
+  # to the noop module.
+  - apps/mobile/modules/*
   - '!apps/mobile-backup'
   - '!apps/mobile-pre-check'
 

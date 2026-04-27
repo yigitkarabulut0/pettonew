@@ -50,7 +50,7 @@
     "i18next": "^26.0.4",
     "lottie-react-native": "^7.3.6",
     "lucide-react-native": "^1.6.0",
-    "petto-live-activities": "link:./modules/petto-live-activities",
+    "petto-live-activities": "workspace:*",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-hook-form": "^7.65.0",
