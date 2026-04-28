@@ -2,11 +2,6 @@ import AppIntents
 import ActivityKit
 import Foundation
 
-// Apple WWDC23 patternine en yakın haliyle: minimum boilerplate, default
-// parametre değerleri, openAppWhenRun=false. Her perform() başında App
-// Group'a "tetiklendim" notu yazıyor — app tarafı bunu okuyup butonların
-// gerçekten çağırılıp çağırılmadığını teyit edebilir.
-
 @available(iOS 17.0, *)
 struct MarkMedicationGivenIntent: AppIntent, LiveActivityIntent {
     static var title: LocalizedStringResource = "Mark medication as given"
@@ -32,22 +27,57 @@ struct MarkMedicationGivenIntent: AppIntent, LiveActivityIntent {
         AppGroupAuth.recordIntent(
             name: "MarkMedicationGivenIntent",
             status: "fired",
-            detail: "med=\(medicationId) pet=\(petId) act=\(activityId)"
+            detail: "med='\(medicationId)' pet='\(petId)' act='\(activityId)'"
         )
-        let ok = await BackendClient.post(
-            path: "/v1/pets/\(petId)/medications/\(medicationId)/mark-given"
-        )
-        await Self.endActivity(activityId: activityId, status: ok ? "given" : "given")
+
+        // Activity'yi bulmak için 3 yol dene: önce activityId, yoksa
+        // medicationId üzerinden attributes match, sonra "ilk aktif".
+        // iOS bazen @Parameter deserialize'ı başarısız ediyor; bu fallback
+        // o senaryoda da banner'ı dismiss etmemizi sağlıyor.
+        let activity = await Self.findActivity(activityId: activityId, medicationId: medicationId)
+
+        // Backend'e POST — petId/medicationId boşsa atlanır.
+        if !petId.isEmpty && !medicationId.isEmpty {
+            await BackendClient.post(
+                path: "/v1/pets/\(petId)/medications/\(medicationId)/mark-given"
+            )
+        } else if let act = activity {
+            // Param boş ama activity'den okuyabiliyorsak oradan
+            await BackendClient.post(
+                path: "/v1/pets/\(act.attributes.petId)/medications/\(act.attributes.medicationId)/mark-given"
+            )
+        } else {
+            AppGroupAuth.recordIntent(
+                name: "BackendClient.post",
+                status: "skipped_empty_params",
+                detail: ""
+            )
+        }
+
+        if let activity = activity {
+            await Self.endActivity(activity, status: "given")
+        } else {
+            AppGroupAuth.recordIntent(
+                name: "endActivity",
+                status: "not_found",
+                detail: "id='\(activityId)' med='\(medicationId)'"
+            )
+        }
         return .result()
     }
 
-    static func endActivity(activityId: String, status: String) async {
-        guard
-            let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })
-        else {
-            AppGroupAuth.recordIntent(name: "endActivity", status: "not_found", detail: activityId)
-            return
+    static func findActivity(activityId: String, medicationId: String) async -> Activity<MedicationAttributes>? {
+        let all = Activity<MedicationAttributes>.activities
+        if !activityId.isEmpty, let m = all.first(where: { $0.id == activityId }) {
+            return m
         }
+        if !medicationId.isEmpty, let m = all.first(where: { $0.attributes.medicationId == medicationId }) {
+            return m
+        }
+        return all.first(where: { $0.activityState == .active })
+    }
+
+    static func endActivity(_ activity: Activity<MedicationAttributes>, status: String) async {
         let now = Date().timeIntervalSince1970
         let final = MedicationAttributes.ContentState(
             status: status,
@@ -75,11 +105,16 @@ struct SkipMedicationIntent: AppIntent, LiveActivityIntent {
         AppGroupAuth.recordIntent(
             name: "SkipMedicationIntent",
             status: "fired",
-            detail: "act=\(activityId)"
+            detail: "act='\(activityId)'"
         )
-        guard
-            let activity = Activity<MedicationAttributes>.activities.first(where: { $0.id == activityId })
-        else { return .result() }
+        let activity = await MarkMedicationGivenIntent.findActivity(
+            activityId: activityId,
+            medicationId: ""
+        )
+        guard let activity = activity else {
+            AppGroupAuth.recordIntent(name: "endActivity", status: "not_found", detail: "skip act='\(activityId)'")
+            return .result()
+        }
         let now = Date().timeIntervalSince1970
         let final = MedicationAttributes.ContentState(
             status: "skipped",

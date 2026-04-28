@@ -27,24 +27,49 @@ struct MarkFeedingDoneIntent: AppIntent, LiveActivityIntent {
         AppGroupAuth.recordIntent(
             name: "MarkFeedingDoneIntent",
             status: "fired",
-            detail: "sched=\(scheduleId) pet=\(petId) act=\(activityId)"
+            detail: "sched='\(scheduleId)' pet='\(petId)' act='\(activityId)'"
         )
-        await BackendClient.post(
-            path: "/v1/pets/\(petId)/feeding/\(scheduleId)/log-now"
-        )
-        guard
-            let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
-        else { return .result() }
-        let now = Date().timeIntervalSince1970
-        let final = FeedingAttributes.ContentState(
-            status: "fed",
-            dueAtSec: now,
-            snoozedUntilSec: nil,
-            statusMessage: nil
-        )
-        let content = ActivityContent(state: final, staleDate: nil)
-        await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(3)))
+        let activity = Self.findActivity(activityId: activityId, scheduleId: scheduleId)
+
+        if !petId.isEmpty && !scheduleId.isEmpty {
+            await BackendClient.post(
+                path: "/v1/pets/\(petId)/feeding/\(scheduleId)/log-now"
+            )
+        } else if let act = activity {
+            await BackendClient.post(
+                path: "/v1/pets/\(act.attributes.petId)/feeding/\(act.attributes.scheduleId)/log-now"
+            )
+        }
+
+        if let activity = activity {
+            let now = Date().timeIntervalSince1970
+            let final = FeedingAttributes.ContentState(
+                status: "fed",
+                dueAtSec: now,
+                snoozedUntilSec: nil,
+                statusMessage: nil
+            )
+            let content = ActivityContent(state: final, staleDate: nil)
+            await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(3)))
+        } else {
+            AppGroupAuth.recordIntent(
+                name: "endFeedingActivity",
+                status: "not_found",
+                detail: "id='\(activityId)' sched='\(scheduleId)'"
+            )
+        }
         return .result()
+    }
+
+    static func findActivity(activityId: String, scheduleId: String) -> Activity<FeedingAttributes>? {
+        let all = Activity<FeedingAttributes>.activities
+        if !activityId.isEmpty, let m = all.first(where: { $0.id == activityId }) {
+            return m
+        }
+        if !scheduleId.isEmpty, let m = all.first(where: { $0.attributes.scheduleId == scheduleId }) {
+            return m
+        }
+        return all.first(where: { $0.activityState == .active })
     }
 }
 
@@ -63,11 +88,13 @@ struct SkipFeedingIntent: AppIntent, LiveActivityIntent {
         AppGroupAuth.recordIntent(
             name: "SkipFeedingIntent",
             status: "fired",
-            detail: "act=\(activityId)"
+            detail: "act='\(activityId)'"
         )
-        guard
-            let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
-        else { return .result() }
+        let activity = MarkFeedingDoneIntent.findActivity(activityId: activityId, scheduleId: "")
+        guard let activity = activity else {
+            AppGroupAuth.recordIntent(name: "endFeedingActivity", status: "not_found", detail: "skip")
+            return .result()
+        }
         let now = Date().timeIntervalSince1970
         let final = FeedingAttributes.ContentState(
             status: "skipped",

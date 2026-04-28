@@ -18,4 +18,14 @@ module.exports = {
   // `Button(intent:)` çağrılarının extension process'inde direkt
   // çalışabilmesi için açıkça link'lenmeli.
   frameworks: ["ActivityKit", "WidgetKit", "SwiftUI", "AppIntents"],
+  // Widget extension Info.plist override'ı. Ana app'in NSAllowsArbitraryLoads
+  // ayarı extension'a otomatik geçmiyor; App Intent'larımız backend'e
+  // http://148.230.123.242 ile ulaştığı için (HTTPS değil) bu izni
+  // extension'da da açıkça vermek zorundayız, yoksa URLSession exception
+  // atıyor (NSAppTransportSecurity policy denied).
+  infoPlist: {
+    NSAppTransportSecurity: {
+      NSAllowsArbitraryLoads: true,
+    },
+  },
 };
