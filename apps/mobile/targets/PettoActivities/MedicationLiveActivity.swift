@@ -36,12 +36,24 @@ struct MedicationLiveActivity: Widget {
                     .symbolRenderingMode(.hierarchical)
             }
             .keylineTint(PettoTheme.accentLight)
-            .widgetURL(URL(string: "petto://pet-health/\(context.attributes.petId)"))
+            // Tap'in nereye götüreceği. `petto://medications/<petId>` route'u
+            // (app)/medications/[petId].tsx ekranına denk geliyor — bu sayede
+            // user banner'a basınca direkt bugünkü doz listesini görür.
+            .widgetURL(URL(string: "petto://medications/\(context.attributes.petId)"))
         }
     }
 }
 
 // MARK: - Lock Screen
+//
+// Düzen:
+//   ┌──────────────────────────────────────────────────────┐
+//   │  ╭──╮                                          🔔    │
+//   │  │💊│  İlaç adı                            DOZ       │
+//   │  ╰──╯  Bora · 5mg                          ZAMANI    │
+//   │  ──────────────────────────────────────────          │
+//   │  [   ✓ Verildi   ]   [ Geç ]                         │
+//   └──────────────────────────────────────────────────────┘
 
 @available(iOS 16.2, *)
 struct MedicationLockScreenView: View {
@@ -66,15 +78,18 @@ struct MedicationLockScreenView: View {
                         .lineLimit(1)
                     HStack(spacing: 6) {
                         Text(attrs.petName)
-                            .font(.system(size: 12, weight: .heavy, design: .rounded))
+                            .font(.system(size: 13, weight: .heavy, design: .rounded))
                             .foregroundColor(PettoTheme.accent(for: scheme))
-                        Text("·")
-                            .font(.system(size: 9, weight: .black))
-                            .foregroundColor(PettoTheme.textTertiary(for: scheme))
-                        Text(attrs.dosage)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundColor(PettoTheme.textSecondary(for: scheme))
                             .lineLimit(1)
+                        if !attrs.dosage.isEmpty {
+                            Text("·")
+                                .font(.system(size: 9, weight: .black))
+                                .foregroundColor(PettoTheme.textTertiary(for: scheme))
+                            Text(attrs.dosage)
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundColor(PettoTheme.textSecondary(for: scheme))
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -86,8 +101,8 @@ struct MedicationLockScreenView: View {
             if !terminal {
                 Divider()
                     .background(PettoTheme.textTertiary(for: scheme).opacity(0.25))
-                    .padding(.top, 11)
-                    .padding(.bottom, 9)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
 
                 MedActionRow(
                     activityId: context.activityID,
@@ -148,10 +163,12 @@ struct MedDIExpandedCenter: View {
                 Text(context.attributes.petName)
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .foregroundColor(PettoTheme.accent(for: scheme))
-                Text(context.attributes.dosage)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundColor(PettoTheme.textSecondary(for: scheme))
-                    .lineLimit(1)
+                if !context.attributes.dosage.isEmpty {
+                    Text(context.attributes.dosage)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundColor(PettoTheme.textSecondary(for: scheme))
+                        .lineLimit(1)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,10 +195,16 @@ struct MedDIExpandedBottom: View {
                 full: false
             )
             .padding(.horizontal, 4)
-            .padding(.bottom, 2)
+            .padding(.bottom, 4)
+            .padding(.top, 2)
         }
     }
 }
+
+// MARK: - DI compact trailing
+//
+// Pet adı (kısa, accent renkli). Kullanıcı hangi pet'in dozu olduğunu
+// bir bakışta anlasın diye sayı/dot yerine ad gösteriliyor.
 
 @available(iOS 16.2, *)
 struct MedDICompactTrailing: View {
@@ -189,7 +212,8 @@ struct MedDICompactTrailing: View {
     @Environment(\.colorScheme) var scheme
 
     var body: some View {
-        switch context.state.status {
+        let state = context.state
+        switch state.status {
         case "given":
             Image(systemName: "checkmark")
                 .font(.system(size: 11, weight: .heavy))
@@ -203,9 +227,12 @@ struct MedDICompactTrailing: View {
                 .font(.system(size: 11, weight: .heavy))
                 .foregroundColor(PettoTheme.statusWaitlist)
         default:
-            Circle()
-                .fill(PettoTheme.accent(for: scheme))
-                .frame(width: 8, height: 8)
+            Text(context.attributes.petName)
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundColor(PettoTheme.accent(for: scheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: 64, alignment: .trailing)
         }
     }
 }
@@ -269,27 +296,8 @@ struct MedStatusBadge: View {
             StatusPill(label: labels.completed, color: PettoTheme.statusActive)
         case "skipped":
             StatusPill(label: labels.skipped, color: PettoTheme.statusCancelled)
-        case "snoozed":
-            VStack(alignment: .trailing, spacing: 1) {
-                if let until = state.snoozedUntil {
-                    Text(timerInterval: Date()...until,
-                         pauseTime: nil,
-                         countsDown: true,
-                         showsHours: false)
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(PettoTheme.statusWaitlist)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .fixedSize()
-                }
-                Text(labels.snooze.uppercased())
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
-                    .tracking(0.7)
-                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
-            }
         default:
-            VStack(alignment: .trailing, spacing: 1) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Image(systemName: "bell.fill")
                     .font(.system(size: 18, weight: .heavy))
                     .foregroundColor(PettoTheme.accent(for: scheme))
@@ -304,9 +312,12 @@ struct MedStatusBadge: View {
 
 // MARK: - Action row
 //
-// iOS 17+ → Button(intent:) — uygulamayı açmaz, App Intent extension
-// process'inde çalışır.
-// iOS 16.2-16.6 → fallback: Link with deep link, açıkken uygulama log atar.
+// Sadece 2 buton: Verildi (primary, geniş) + Geç (secondary, kompakt).
+// İkisi de iOS 17+ Live Activity Intent — extension process'inde direkt
+// çalışır, app açmaz. iOS 16 fallback Link ile app'e yönlendirir.
+//
+// `full: true` (lock screen) → büyük tap target'lar
+// `full: false` (DI expanded bottom) → tighter ama hâlâ yeterince geniş
 
 @available(iOS 16.2, *)
 struct MedActionRow: View {
@@ -318,65 +329,67 @@ struct MedActionRow: View {
     let full: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if #available(iOS 17.0, *) {
                 Button(intent: MarkMedicationGivenIntent(
                     activityId: activityId,
                     petId: petId,
                     medicationId: medicationId
                 )) {
-                    actionLabel(icon: "checkmark.circle.fill", text: labels.given, primary: true)
-                }
-                .buttonStyle(.plain)
-
-                if full {
-                    Button(intent: SomeoneElseMedicationIntent(
-                        activityId: activityId,
-                        petId: petId,
-                        medicationId: medicationId
-                    )) {
-                        actionLabel(icon: "person.2.fill", text: labels.someoneElse, primary: false)
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: full ? 16 : 13, weight: .heavy))
+                        Text(labels.given)
+                            .font(.system(size: full ? 15 : 12, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                    .buttonStyle(.plain)
-                }
-
-                Button(intent: SnoozeMedicationIntent(activityId: activityId)) {
-                    actionLabel(icon: "moon.zzz.fill", text: labels.snooze, primary: false)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, full ? 11 : 8)
+                    .padding(.horizontal, full ? 14 : 10)
+                    .background(
+                        Capsule().fill(PettoTheme.accent(for: scheme))
+                    )
                 }
                 .buttonStyle(.plain)
 
                 Button(intent: SkipMedicationIntent(activityId: activityId)) {
-                    actionLabel(icon: "xmark", text: labels.skip, primary: false)
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: full ? 13 : 11, weight: .heavy))
+                        Text(labels.skip)
+                            .font(.system(size: full ? 14 : 12, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(PettoTheme.accent(for: scheme))
+                    .padding(.vertical, full ? 11 : 8)
+                    .padding(.horizontal, full ? 16 : 12)
+                    .background(
+                        Capsule()
+                            .fill(PettoTheme.accent(for: scheme).opacity(0.14))
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
-                // iOS 16 fallback — sadece deep link tap, açar log atar.
-                Link(destination: URL(string: "petto://medication/\(medicationId)/given")!) {
-                    actionLabel(icon: "checkmark.circle.fill", text: labels.given, primary: true)
+                // iOS 16 fallback — app açar, log atar
+                Link(destination: URL(string: "petto://medications/\(medicationId)/given")!) {
+                    Text(labels.given)
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(PettoTheme.accent(for: scheme)))
                 }
-                Link(destination: URL(string: "petto://medication/\(medicationId)/skip")!) {
-                    actionLabel(icon: "xmark", text: labels.skip, primary: false)
+                Link(destination: URL(string: "petto://medications/\(medicationId)/skip")!) {
+                    Text(labels.skip)
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundColor(PettoTheme.accent(for: scheme))
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .background(Capsule().fill(PettoTheme.accent(for: scheme).opacity(0.14)))
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func actionLabel(icon: String, text: String, primary: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: full ? 11 : 10, weight: .heavy))
-            Text(text)
-                .font(.system(size: full ? 12 : 10, weight: .heavy, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .foregroundColor(primary ? .white : PettoTheme.accent(for: scheme))
-        .padding(.horizontal, full ? 11 : 8)
-        .padding(.vertical, full ? 7 : 5)
-        .background(
-            Capsule()
-                .fill(primary ? PettoTheme.accent(for: scheme) : PettoTheme.accent(for: scheme).opacity(0.12))
-        )
     }
 }

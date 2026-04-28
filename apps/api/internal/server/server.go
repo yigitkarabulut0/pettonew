@@ -230,20 +230,17 @@ func (s *Server) runMedicationReminderLoop() {
 					SentAt: time.Now().UTC().Format(time.RFC3339),
 					SentBy: "system",
 				})
-				if s.store.ShouldSendPush(row.OwnerID, "medications") {
-					tokens := s.store.GetUserPushTokens(row.OwnerID)
-					var t []string
-					for _, tk := range tokens {
-						t = append(t, tk.Token)
-					}
-					if len(t) > 0 {
-						_ = service.SendExpoPush(t, title, body, map[string]string{
-							"type":  "medication",
-							"petId": row.PetID,
-							"medId": row.MedID,
-						})
-					}
-				}
+				// NOT: Medication için Expo push artık gönderilmiyor — bunun
+				// yerine iOS Live Activity (lock screen + Dynamic Island) tek
+				// kanal olarak kullanılıyor. Live Activity şu an mobile app
+				// medications screen'ine girince tetikleniyor; backend'in
+				// push-to-start akışı hâlâ wire'lanmadı, gelecek commit'te
+				// eklenecek (live_activity_start_tokens'taki kayıtlı tokenlara
+				// liveactivity push-type'lı APNs çağrısı). Şu anlık in-app
+				// notif satırı (yukarıdaki SaveNotification) yine yazılıyor
+				// ki kullanıcı uygulama içi geçmişte görsün.
+				_ = title
+				_ = body
 				_ = s.store.MarkMedicationPushed(row.MedID, todayDate)
 				pushed++
 			}

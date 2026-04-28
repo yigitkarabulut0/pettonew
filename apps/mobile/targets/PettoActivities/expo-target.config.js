@@ -14,5 +14,8 @@ module.exports = {
   entitlements: {
     "com.apple.security.application-groups": ["group.app.petto.shared"],
   },
-  frameworks: ["ActivityKit", "WidgetKit", "SwiftUI"],
+  // AppIntents framework, Live Activity action button'larındaki
+  // `Button(intent:)` çağrılarının extension process'inde direkt
+  // çalışabilmesi için açıkça link'lenmeli.
+  frameworks: ["ActivityKit", "WidgetKit", "SwiftUI", "AppIntents"],
 };

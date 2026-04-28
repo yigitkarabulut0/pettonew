@@ -64,8 +64,9 @@ struct FeedingLockScreenView: View {
                         .lineLimit(1)
                     HStack(spacing: 6) {
                         Text(attrs.petName)
-                            .font(.system(size: 12, weight: .heavy, design: .rounded))
+                            .font(.system(size: 13, weight: .heavy, design: .rounded))
                             .foregroundColor(PettoTheme.accent(for: scheme))
+                            .lineLimit(1)
                         if !attrs.amount.isEmpty {
                             Text("·")
                                 .font(.system(size: 9, weight: .black))
@@ -86,8 +87,8 @@ struct FeedingLockScreenView: View {
             if !terminal {
                 Divider()
                     .background(PettoTheme.textTertiary(for: scheme).opacity(0.25))
-                    .padding(.top, 11)
-                    .padding(.bottom, 9)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
 
                 FeedActionRow(
                     activityId: context.activityID,
@@ -176,7 +177,8 @@ struct FeedDIExpandedBottom: View {
                 full: false
             )
             .padding(.horizontal, 4)
-            .padding(.bottom, 2)
+            .padding(.bottom, 4)
+            .padding(.top, 2)
         }
     }
 }
@@ -195,14 +197,13 @@ struct FeedDICompactTrailing: View {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .heavy))
                 .foregroundColor(PettoTheme.statusCancelled)
-        case "snoozed":
-            Image(systemName: "moon.zzz.fill")
-                .font(.system(size: 11, weight: .heavy))
-                .foregroundColor(PettoTheme.statusWaitlist)
         default:
-            Circle()
-                .fill(PettoTheme.accent(for: scheme))
-                .frame(width: 8, height: 8)
+            Text(context.attributes.petName)
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundColor(PettoTheme.accent(for: scheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: 64, alignment: .trailing)
         }
     }
 }
@@ -223,9 +224,6 @@ struct FeedingHero: View {
         case "skipped":
             icon = "xmark"
             color = PettoTheme.statusCancelled
-        case "snoozed":
-            icon = "moon.zzz.fill"
-            color = PettoTheme.statusWaitlist
         default:
             icon = "fork.knife"
             color = PettoTheme.accent(for: scheme)
@@ -264,27 +262,8 @@ struct FeedStatusBadge: View {
             StatusPill(label: labels.completed, color: PettoTheme.statusActive)
         case "skipped":
             StatusPill(label: labels.skipped, color: PettoTheme.statusCancelled)
-        case "snoozed":
-            VStack(alignment: .trailing, spacing: 1) {
-                if let until = state.snoozedUntil {
-                    Text(timerInterval: Date()...until,
-                         pauseTime: nil,
-                         countsDown: true,
-                         showsHours: false)
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(PettoTheme.statusWaitlist)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .fixedSize()
-                }
-                Text(labels.snooze.uppercased())
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
-                    .tracking(0.7)
-                    .foregroundColor(PettoTheme.textTertiary(for: scheme))
-            }
         default:
-            VStack(alignment: .trailing, spacing: 1) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Image(systemName: "bell.fill")
                     .font(.system(size: 18, weight: .heavy))
                     .foregroundColor(PettoTheme.accent(for: scheme))
@@ -307,53 +286,66 @@ struct FeedActionRow: View {
     let full: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if #available(iOS 17.0, *) {
                 Button(intent: MarkFeedingDoneIntent(
                     activityId: activityId,
                     petId: petId,
                     scheduleId: scheduleId
                 )) {
-                    actionLabel(icon: "checkmark.circle.fill", text: labels.fed, primary: true)
-                }
-                .buttonStyle(.plain)
-
-                Button(intent: SnoozeFeedingIntent(activityId: activityId)) {
-                    actionLabel(icon: "moon.zzz.fill", text: labels.snooze, primary: false)
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: full ? 16 : 13, weight: .heavy))
+                        Text(labels.fed)
+                            .font(.system(size: full ? 15 : 12, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, full ? 11 : 8)
+                    .padding(.horizontal, full ? 14 : 10)
+                    .background(
+                        Capsule().fill(PettoTheme.accent(for: scheme))
+                    )
                 }
                 .buttonStyle(.plain)
 
                 Button(intent: SkipFeedingIntent(activityId: activityId)) {
-                    actionLabel(icon: "xmark", text: labels.skip, primary: false)
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: full ? 13 : 11, weight: .heavy))
+                        Text(labels.skip)
+                            .font(.system(size: full ? 14 : 12, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(PettoTheme.accent(for: scheme))
+                    .padding(.vertical, full ? 11 : 8)
+                    .padding(.horizontal, full ? 16 : 12)
+                    .background(
+                        Capsule()
+                            .fill(PettoTheme.accent(for: scheme).opacity(0.14))
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
                 Link(destination: URL(string: "petto://feeding/\(scheduleId)/log-now")!) {
-                    actionLabel(icon: "checkmark.circle.fill", text: labels.fed, primary: true)
+                    Text(labels.fed)
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(PettoTheme.accent(for: scheme)))
                 }
                 Link(destination: URL(string: "petto://feeding/\(scheduleId)/skip")!) {
-                    actionLabel(icon: "xmark", text: labels.skip, primary: false)
+                    Text(labels.skip)
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundColor(PettoTheme.accent(for: scheme))
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .background(Capsule().fill(PettoTheme.accent(for: scheme).opacity(0.14)))
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func actionLabel(icon: String, text: String, primary: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: full ? 11 : 10, weight: .heavy))
-            Text(text)
-                .font(.system(size: full ? 12 : 10, weight: .heavy, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .foregroundColor(primary ? .white : PettoTheme.accent(for: scheme))
-        .padding(.horizontal, full ? 11 : 8)
-        .padding(.vertical, full ? 7 : 5)
-        .background(
-            Capsule()
-                .fill(primary ? PettoTheme.accent(for: scheme) : PettoTheme.accent(for: scheme).opacity(0.12))
-        )
     }
 }
