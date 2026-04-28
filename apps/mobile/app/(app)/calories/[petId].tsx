@@ -144,11 +144,20 @@ export default function CaloriesPage() {
 
   const logScheduleMutation = useMutation({
     mutationFn: (scheduleId: string) => logFeedingScheduleNow(token, petId!, scheduleId),
-    onSuccess: () => {
+    onSuccess: (_data, scheduleId) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["meals", petId] });
       queryClient.invalidateQueries({ queryKey: ["meals-summary", petId] });
       queryClient.invalidateQueries({ queryKey: ["feeding-schedules", petId] });
+      // App içinden "verildi" → Live Activity'yi de kapat.
+      (async () => {
+        try {
+          const { endFeedingLiveActivity } = await import("@/lib/live-activities");
+          await endFeedingLiveActivity(scheduleId);
+        } catch {
+          // best-effort
+        }
+      })();
     }
   });
 

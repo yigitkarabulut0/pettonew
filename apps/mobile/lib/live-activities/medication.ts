@@ -9,7 +9,9 @@ import LiveActivities, {
 import i18n from "@/lib/i18n";
 
 const REMINDER_WINDOW_MS = 30 * 60 * 1000;       // doz vakti −30dk içinde tetikle
-const POST_DUE_WINDOW_MS = 90 * 60 * 1000;       // dozdan sonra 90 dk daha banner kalsın
+const POST_DUE_WINDOW_MS = 4 * 60 * 60 * 1000;   // dozdan sonra 4 saat daha aktif
+const ACTIVE_LIFETIME_SEC = 8 * 60 * 60;          // Apple max active süresi
+
 
 function deriveLabels(): MedicationLabels {
   const t = i18n.t.bind(i18n);
@@ -101,7 +103,12 @@ export async function ensureMedicationLiveActivity(
     petName,
     labels: deriveLabels(),
   };
-  return LiveActivities.startMedication(attributes, state);
+  // staleAt'ı 8 saat ileri ayarla — bu sürede kullanıcı butona basmazsa
+  // banner sadece "stale" görünüme geçer; Apple ekstra ~4 saat daha
+  // dismiss etmeden tutar. Yani toplam ~12 saat kullanıcı işlem yapmazsa
+  // bile banner kaybolmaz.
+  const staleAtSec = Math.floor(Date.now() / 1000) + ACTIVE_LIFETIME_SEC;
+  return LiveActivities.startMedication(attributes, state, staleAtSec);
 }
 
 export async function endMedicationLiveActivity(medicationId: string) {

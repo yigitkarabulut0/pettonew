@@ -9,7 +9,9 @@ import LiveActivities, {
 import i18n from "@/lib/i18n";
 
 const REMINDER_WINDOW_MS = 30 * 60 * 1000;        // 30 dk önceden tetikle (kullanıcı 15 dk istedi, biraz tampon)
-const POST_DUE_WINDOW_MS = 60 * 60 * 1000;        // doz zamanı sonrası 60 dk banner kalsın
+const POST_DUE_WINDOW_MS = 4 * 60 * 60 * 1000;    // 4 saat sonraya kadar aktif
+const ACTIVE_LIFETIME_SEC = 8 * 60 * 60;          // Apple max active süresi
+
 
 function deriveLabels(): FeedingLabels {
   const t = i18n.t.bind(i18n);
@@ -82,7 +84,11 @@ export async function ensureFeedingLiveActivity(
     petName,
     labels: deriveLabels(),
   };
-  return LiveActivities.startFeeding(attributes, state);
+  // staleAt 8 saat ileri — banner kullanıcı işlem yapmazsa bile uzun süre
+  // dursun (Apple max active süresi). Sonrasında ~4 saat daha "stale"
+  // moduna geçer, toplam ~12 saatte sistem dismiss eder.
+  const staleAtSec = Math.floor(Date.now() / 1000) + ACTIVE_LIFETIME_SEC;
+  return LiveActivities.startFeeding(attributes, state, staleAtSec);
 }
 
 export async function endFeedingLiveActivity(scheduleId: string) {

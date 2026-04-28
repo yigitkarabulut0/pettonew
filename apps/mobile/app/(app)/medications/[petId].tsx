@@ -252,12 +252,23 @@ export default function MedicationsPage() {
       // their tap was heard, the second confirms the work succeeded.
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     },
-    onSuccess: () => {
+    onSuccess: (_data, medId) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["medications", petId] });
       // Refresh the per-pet dose aggregate so the strip indicator + the
       // selected day's "given" status update without a manual refresh.
       queryClient.invalidateQueries({ queryKey: ["medication-doses-by-pet"] });
+      // Live Activity: app içinden "verildi" işaretlendiğinde lock screen
+      // / Dynamic Island banner'ını da kapat. (LA buton tap'inde extension
+      // process'inde zaten dismiss ediliyor; burası app içi tap için.)
+      (async () => {
+        try {
+          const { endMedicationLiveActivity } = await import("@/lib/live-activities");
+          await endMedicationLiveActivity(medId);
+        } catch {
+          // best-effort
+        }
+      })();
     }
   });
 
