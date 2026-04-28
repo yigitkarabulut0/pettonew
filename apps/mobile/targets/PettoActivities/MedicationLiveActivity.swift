@@ -312,12 +312,13 @@ struct MedStatusBadge: View {
 
 // MARK: - Action row
 //
-// Sadece 2 buton: Verildi (primary, geniş) + Geç (secondary, kompakt).
-// İkisi de iOS 17+ Live Activity Intent — extension process'inde direkt
-// çalışır, app açmaz. iOS 16 fallback Link ile app'e yönlendirir.
+// Apple'ın standart `.borderedProminent` + `.bordered` button style'ları.
+// Custom Capsule + .buttonStyle(.plain) kombinasyonu Live Activity hit
+// test sisteminde tap'leri yakalamayı bazen başaramıyor; standart stilde
+// iOS button'u tam olarak interaktif eleman sayıyor, App Intent her tap
+// için tetikleniyor.
 //
-// `full: true` (lock screen) → büyük tap target'lar
-// `full: false` (DI expanded bottom) → tighter ama hâlâ yeterince geniş
+// Fallback: iOS 16'da Button(intent:) yok, deep link Link açar.
 
 @available(iOS 16.2, *)
 struct MedActionRow: View {
@@ -336,41 +337,24 @@ struct MedActionRow: View {
                     petId: petId,
                     medicationId: medicationId
                 )) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: full ? 16 : 13, weight: .heavy))
-                        Text(labels.given)
-                            .font(.system(size: full ? 15 : 12, weight: .heavy, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, full ? 11 : 8)
-                    .padding(.horizontal, full ? 14 : 10)
-                    .background(
-                        Capsule().fill(PettoTheme.accent(for: scheme))
-                    )
+                    Label(labels.given, systemImage: "checkmark.circle.fill")
+                        .font(.system(size: full ? 15 : 12, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .tint(PettoTheme.accent(for: scheme))
+                .buttonStyle(.borderedProminent)
+                .controlSize(full ? .large : .small)
 
                 Button(intent: SkipMedicationIntent(activityId: activityId)) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: full ? 13 : 11, weight: .heavy))
-                        Text(labels.skip)
-                            .font(.system(size: full ? 14 : 12, weight: .heavy, design: .rounded))
-                            .lineLimit(1)
-                    }
-                    .foregroundColor(PettoTheme.accent(for: scheme))
-                    .padding(.vertical, full ? 11 : 8)
-                    .padding(.horizontal, full ? 16 : 12)
-                    .background(
-                        Capsule()
-                            .fill(PettoTheme.accent(for: scheme).opacity(0.14))
-                    )
+                    Label(labels.skip, systemImage: "xmark")
+                        .font(.system(size: full ? 14 : 12, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
+                .tint(PettoTheme.accent(for: scheme))
+                .buttonStyle(.bordered)
+                .controlSize(full ? .large : .small)
             } else {
                 // iOS 16 fallback — app açar, log atar
                 Link(destination: URL(string: "petto://medications/\(medicationId)/given")!) {
