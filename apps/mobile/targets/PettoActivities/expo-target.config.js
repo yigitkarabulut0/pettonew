@@ -5,15 +5,12 @@ module.exports = {
   bundleIdentifier: "app.petto.mobile.PettoActivities",
   deploymentTarget: "16.2",
   // Apple requires the widget extension's CFBundleVersion / Short version
-  // to match the host app exactly. EAS auto-increments the host remotely
-  // (currently at 41 from prior production builds). apple-targets v4 reads
-  // these top-level `version` / `buildNumber` fields and writes them into
-  // the extension's Info.plist; using `infoPlist.CFBundleVersion` did NOT
-  // override the default of '1', producing the EAS Build mismatch warning.
-  // If the next production build pushes the host to 42, bump `buildNumber`
-  // here too — otherwise iOS will refuse to load the extension.
-  version: "0.14.8",
-  buildNumber: "44",
+  // to match the host app exactly. These values are placeholders — they
+  // are overwritten at prebuild time by `plugins/withSyncedExtensionVersions`
+  // which reads the host's actual Info.plist and copies the values here.
+  // Don't bother bumping these manually; the plugin keeps them in sync.
+  version: "0.0.0",
+  buildNumber: "0",
   entitlements: {
     "com.apple.security.application-groups": ["group.app.petto.shared"],
   },

@@ -56,7 +56,13 @@ export default {
     // expo-target.config.js. The local petto-live-activities Expo module
     // does NOT need a plugin entry — Expo autolinking picks it up from
     // apps/mobile/modules/ on prebuild.
-    "@bacons/apple-targets"
+    "@bacons/apple-targets",
+    // Auto-syncs CFBundleShortVersionString + CFBundleVersion from the
+    // host app's Info.plist into every targets/<name>/Info.plist. Apple
+    // requires extension version to match host exactly; with EAS remote
+    // build numbers we can't hardcode and stay sane. MUST run after
+    // @bacons/apple-targets so the extension Info.plists already exist.
+    "./plugins/withSyncedExtensionVersions"
   ],
   extra: {
     eas: {
