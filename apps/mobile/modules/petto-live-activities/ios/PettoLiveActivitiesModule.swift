@@ -247,6 +247,22 @@ public class PettoLiveActivitiesModule: Module {
                 d?.removeObject(forKey: "petto.apiBaseUrl")
             }
         }
+
+        // App Intent diagnostic log — extension process'inde Live Activity
+        // butonuna her basıldığında oraya bir kayıt yazılıyor. App tarafı
+        // bu log'u okuyup kullanıcıya gösterip butonların gerçekten
+        // tetiklenip tetiklenmediğini teyit edebilir.
+        AsyncFunction("getIntentLog") { () -> [String] in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            return (d?.array(forKey: "petto.intentLog") as? [String]) ?? []
+        }
+
+        AsyncFunction("clearIntentLog") { () -> Void in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            d?.removeObject(forKey: "petto.intentLog")
+        }
     }
 
     @available(iOS 17.2, *)

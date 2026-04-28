@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -199,6 +199,32 @@ export default function MedicationsPage() {
     })();
     return () => { cancelled = true; };
   }, [medsQuery.data, petName]);
+
+  // Diagnostic — Live Activity butonlarının (Verildi / Geç) gerçekten
+  // tetiklenip tetiklenmediğini doğrulamak için son App Intent log
+  // satırını okuyup gösteriyoruz. Sadece log mevcutsa görünür; problem
+  // çözüldükten sonra bu blok ve okuma silinebilir.
+  const [intentLog, setIntentLog] = useState<string[]>([]);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const refresh = async () => {
+        try {
+          const LiveActivities = (await import("petto-live-activities")).default;
+          const log = await LiveActivities.getIntentLog();
+          if (!cancelled) setIntentLog(log);
+        } catch {
+          // ignore
+        }
+      };
+      refresh();
+      const timer = setInterval(refresh, 2000);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }, [])
+  );
 
   // Aggregate dose history for the strip's window. We fetch a fixed
   // 30-day window (today-21 → today+8) so the strip + a bit of buffer is
@@ -423,6 +449,45 @@ export default function MedicationsPage() {
           <Plus size={18} color={theme.colors.primary} />
         </Pressable>
       </View>
+
+      {/* Live Activity intent diagnostic — sadece son 3 satır gösterilir.
+          Buton calisinca burada yeni satır olusur ([...] MarkMedicationGivenIntent → fired).
+          Sorun cozulup butonlar guvenle calisinca tum bu blok silinebilir. */}
+      {intentLog.length > 0 && (
+        <View
+          style={{
+            backgroundColor: "rgba(230, 105, 74, 0.08)",
+            borderBottomWidth: 1,
+            borderBottomColor: "rgba(230, 105, 74, 0.16)",
+            paddingHorizontal: mobileTheme.spacing.xl,
+            paddingVertical: 8,
+            gap: 2
+          }}
+        >
+          <Text style={{ fontSize: 10, fontWeight: "700", color: "#E6694A", letterSpacing: 0.5 }}>
+            LA INTENT LOG (debug)
+          </Text>
+          {intentLog.slice(-3).reverse().map((line, i) => (
+            <Text key={i} style={{ fontSize: 10, color: "#7A4530", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }} numberOfLines={1}>
+              {line}
+            </Text>
+          ))}
+          <Pressable
+            onPress={async () => {
+              try {
+                const LiveActivities = (await import("petto-live-activities")).default;
+                await LiveActivities.clearIntentLog();
+                setIntentLog([]);
+              } catch {}
+            }}
+            hitSlop={8}
+          >
+            <Text style={{ fontSize: 10, color: "#E6694A", fontWeight: "700", marginTop: 2 }}>
+              Logu temizle
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={{

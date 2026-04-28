@@ -194,6 +194,13 @@ interface NativeModule {
    *  on logout to clear. */
   setAppGroupAuth(accessToken: string | null, apiBaseUrl: string | null): Promise<void>;
 
+  /** Diagnostic: Live Activity App Intent'ları her tetiklendiğinde
+   *  App Group UserDefaults'a tek satır kayıt yazıyor. Bunu okumak,
+   *  butonların gerçekten fire'lanıp fire'lanmadığını doğrulamanın en
+   *  güvenilir yolu. */
+  getIntentLog(): Promise<string[]>;
+  clearIntentLog(): Promise<void>;
+
   addListener(eventName: string, listener: (...args: unknown[]) => void): EventSubscription;
 }
 
@@ -218,6 +225,8 @@ const noopModule: NativeModule = {
   endFeeding: async () => {},
   listActiveFeedings: async () => [],
   setAppGroupAuth: async () => {},
+  getIntentLog: async () => [],
+  clearIntentLog: async () => {},
   addListener: () => ({ remove: () => {} }),
 };
 
@@ -304,6 +313,9 @@ export const LiveActivities = {
 
   setAppGroupAuth: (accessToken: string | null, apiBaseUrl: string | null) =>
     native.setAppGroupAuth(accessToken, apiBaseUrl),
+
+  getIntentLog: () => native.getIntentLog(),
+  clearIntentLog: () => native.clearIntentLog(),
 
   addPushToStartTokenListener: (
     cb: (e: PushToStartTokenEvent) => void,

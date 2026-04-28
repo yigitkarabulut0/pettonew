@@ -3,16 +3,20 @@ import ActivityKit
 import Foundation
 
 @available(iOS 17.0, *)
-struct MarkFeedingDoneIntent: LiveActivityIntent {
+struct MarkFeedingDoneIntent: AppIntent, LiveActivityIntent {
     static var title: LocalizedStringResource = "Mark feeding as done"
-    static var openAppWhenRun: Bool = false
-    static var isDiscoverable: Bool = false
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
 
     @Parameter(title: "Activity ID") var activityId: String
     @Parameter(title: "Pet ID") var petId: String
     @Parameter(title: "Schedule ID") var scheduleId: String
 
-    init() {}
+    init() {
+        self.activityId = ""
+        self.petId = ""
+        self.scheduleId = ""
+    }
     init(activityId: String, petId: String, scheduleId: String) {
         self.activityId = activityId
         self.petId = petId
@@ -20,6 +24,11 @@ struct MarkFeedingDoneIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        AppGroupAuth.recordIntent(
+            name: "MarkFeedingDoneIntent",
+            status: "fired",
+            detail: "sched=\(scheduleId) pet=\(petId) act=\(activityId)"
+        )
         await BackendClient.post(
             path: "/v1/pets/\(petId)/feeding/\(scheduleId)/log-now"
         )
@@ -40,17 +49,22 @@ struct MarkFeedingDoneIntent: LiveActivityIntent {
 }
 
 @available(iOS 17.0, *)
-struct SkipFeedingIntent: LiveActivityIntent {
+struct SkipFeedingIntent: AppIntent, LiveActivityIntent {
     static var title: LocalizedStringResource = "Skip feeding"
-    static var openAppWhenRun: Bool = false
-    static var isDiscoverable: Bool = false
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
 
     @Parameter(title: "Activity ID") var activityId: String
 
-    init() {}
+    init() { self.activityId = "" }
     init(activityId: String) { self.activityId = activityId }
 
     func perform() async throws -> some IntentResult {
+        AppGroupAuth.recordIntent(
+            name: "SkipFeedingIntent",
+            status: "fired",
+            detail: "act=\(activityId)"
+        )
         guard
             let activity = Activity<FeedingAttributes>.activities.first(where: { $0.id == activityId })
         else { return .result() }

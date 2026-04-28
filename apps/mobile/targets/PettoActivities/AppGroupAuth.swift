@@ -1,17 +1,17 @@
 import Foundation
 
-/// Bridges auth + API base URL between the main Fetcht app and the Live
-/// Activity widget extension via the shared App Group container. Main app
-/// writes on login (and clears on logout); App Intents in the extension
-/// read here when they need to make backend requests on the user's behalf.
-///
-/// Keys are namespaced under `petto.*` so they don't collide with other
-/// future App Group entries.
+/// App Group bridge: ana Fetcht app'i ile Live Activity widget extension'ı
+/// arasında auth + diagnostic state'i taşır. Group identifier her iki
+/// target'in entitlements'ında bulunmak zorunda.
 enum AppGroupAuth {
     static let suiteName = "group.app.petto.shared"
 
     private static let kAccessToken = "petto.accessToken"
     private static let kApiBaseUrl = "petto.apiBaseUrl"
+    // Diagnostic: App Intent'lar her tetiklendiğinde buraya yazıyor.
+    // App tarafı bunu okuyup butonların gerçekten fire'lanıp fire'lanmadığını
+    // doğrulayabilir.
+    private static let kIntentLog = "petto.intentLog"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: suiteName)
@@ -25,7 +25,6 @@ enum AppGroupAuth {
         defaults?.string(forKey: kApiBaseUrl)
     }
 
-    /// Set both atomically. Called from the JS side via the native module.
     static func write(accessToken: String?, apiBaseUrl: String?) {
         let d = defaults
         if let t = accessToken {
@@ -40,24 +39,35 @@ enum AppGroupAuth {
         }
     }
 
-    static func clear() {
-        let d = defaults
-        d?.removeObject(forKey: kAccessToken)
-        d?.removeObject(forKey: kApiBaseUrl)
+    /// App Intent her perform()'unda buraya tek satır yazıyor: zaman + isim
+    /// + sonuç. App tarafı son N kaydı okuyup gösterebilir.
+    static func recordIntent(name: String, status: String, detail: String = "") {
+        guard let d = defaults else { return }
+        var log = d.array(forKey: kIntentLog) as? [String] ?? []
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(ts)] \(name) → \(status)\(detail.isEmpty ? "" : " — " + detail)"
+        log.append(line)
+        // Son 20 kayıt yeter.
+        if log.count > 20 { log = Array(log.suffix(20)) }
+        d.set(log, forKey: kIntentLog)
     }
 }
 
-/// Minimal HTTP client for App Intents. Intentionally tiny — no retries,
-/// no JSON decoding (we only need success/failure). Failure is silent —
-/// the main app will reconcile state on next foreground.
 enum BackendClient {
+    /// Returns true on 2xx response, false otherwise (or on transport error).
+    /// Diagnostic'i de App Group'a yazar.
     @discardableResult
     static func post(path: String, body: [String: Any] = [:]) async -> Bool {
-        guard
-            let token = AppGroupAuth.accessToken,
-            let baseUrl = AppGroupAuth.apiBaseUrl,
-            let url = URL(string: baseUrl + path)
-        else {
+        guard let token = AppGroupAuth.accessToken else {
+            AppGroupAuth.recordIntent(name: "BackendClient.post", status: "no_token", detail: path)
+            return false
+        }
+        guard let baseUrl = AppGroupAuth.apiBaseUrl else {
+            AppGroupAuth.recordIntent(name: "BackendClient.post", status: "no_baseurl", detail: path)
+            return false
+        }
+        guard let url = URL(string: baseUrl + path) else {
+            AppGroupAuth.recordIntent(name: "BackendClient.post", status: "bad_url", detail: baseUrl + path)
             return false
         }
 
@@ -73,10 +83,22 @@ enum BackendClient {
         do {
             let (_, response) = try await URLSession.shared.data(for: req)
             if let http = response as? HTTPURLResponse {
-                return (200...299).contains(http.statusCode)
+                let ok = (200...299).contains(http.statusCode)
+                AppGroupAuth.recordIntent(
+                    name: "BackendClient.post",
+                    status: ok ? "ok_\(http.statusCode)" : "fail_\(http.statusCode)",
+                    detail: path
+                )
+                return ok
             }
+            AppGroupAuth.recordIntent(name: "BackendClient.post", status: "no_http_response", detail: path)
             return false
         } catch {
+            AppGroupAuth.recordIntent(
+                name: "BackendClient.post",
+                status: "exception",
+                detail: "\(path) :: \(error.localizedDescription)"
+            )
             return false
         }
     }
