@@ -263,6 +263,34 @@ public class PettoLiveActivitiesModule: Module {
             let d = UserDefaults(suiteName: suite)
             d?.removeObject(forKey: "petto.intentLog")
         }
+
+        // Pending action queue — extension cross-process bug nedeniyle LA'yi
+        // dismiss edemediginde ana app foreground'a geldiginde isi tamamlamak
+        // icin kullanilir. JS taraf foreground'da bu queue'yu okur, her item
+        // icin endXxxLiveActivity + invalidateQueries calistirir, sonra clear.
+        AsyncFunction("getPendingMedicationActions") { () -> [[String: String]] in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            return (d?.array(forKey: "petto.pendingMedActions") as? [[String: String]]) ?? []
+        }
+
+        AsyncFunction("clearPendingMedicationActions") { () -> Void in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            d?.removeObject(forKey: "petto.pendingMedActions")
+        }
+
+        AsyncFunction("getPendingFeedingActions") { () -> [[String: String]] in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            return (d?.array(forKey: "petto.pendingFeedActions") as? [[String: String]]) ?? []
+        }
+
+        AsyncFunction("clearPendingFeedingActions") { () -> Void in
+            let suite = "group.app.petto.shared"
+            let d = UserDefaults(suiteName: suite)
+            d?.removeObject(forKey: "petto.pendingFeedActions")
+        }
     }
 
     @available(iOS 17.2, *)

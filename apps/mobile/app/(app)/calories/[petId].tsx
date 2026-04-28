@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -141,6 +141,37 @@ export default function CaloriesPage() {
     })();
     return () => { cancelled = true; };
   }, [feedingQuery.data, pet]);
+
+  // Live Activity fallback — extension'ın dismiss edemediği aksiyonları
+  // app içinde tamamla (bkz medications screen).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const LiveActivities = (await import("petto-live-activities")).default;
+          const queue = await LiveActivities.getPendingFeedingActions();
+          if (cancelled || queue.length === 0) return;
+          const { endFeedingLiveActivity } = await import("@/lib/live-activities");
+          for (const item of queue) {
+            if (item.action === "fed" && item.scheduleId && item.petId) {
+              try {
+                await logFeedingScheduleNow(token, item.petId, item.scheduleId);
+              } catch {}
+            }
+            if (item.scheduleId) {
+              try { await endFeedingLiveActivity(item.scheduleId); } catch {}
+            }
+          }
+          await LiveActivities.clearPendingFeedingActions();
+          queryClient.invalidateQueries({ queryKey: ["meals", petId] });
+          queryClient.invalidateQueries({ queryKey: ["meals-summary", petId] });
+          queryClient.invalidateQueries({ queryKey: ["feeding-schedules", petId] });
+        } catch {}
+      })();
+      return () => { cancelled = true; };
+    }, [token, petId, queryClient])
+  );
 
   const logScheduleMutation = useMutation({
     mutationFn: (scheduleId: string) => logFeedingScheduleNow(token, petId!, scheduleId),

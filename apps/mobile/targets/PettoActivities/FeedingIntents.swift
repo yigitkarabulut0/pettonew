@@ -30,6 +30,11 @@ struct MarkFeedingDoneIntent: AppIntent, LiveActivityIntent {
             detail: "sched='\(scheduleId)' pet='\(petId)' act='\(activityId)'"
         )
         let activity = Self.findActivity(activityId: activityId, scheduleId: scheduleId)
+        AppGroupAuth.enqueueFeedingAction(
+            action: "fed",
+            scheduleId: scheduleId.isEmpty ? (activity?.attributes.scheduleId ?? "") : scheduleId,
+            petId: petId.isEmpty ? (activity?.attributes.petId ?? "") : petId
+        )
 
         if !petId.isEmpty && !scheduleId.isEmpty {
             await BackendClient.post(
@@ -91,8 +96,13 @@ struct SkipFeedingIntent: AppIntent, LiveActivityIntent {
             detail: "act='\(activityId)'"
         )
         let activity = MarkFeedingDoneIntent.findActivity(activityId: activityId, scheduleId: "")
+        AppGroupAuth.enqueueFeedingAction(
+            action: "skipped",
+            scheduleId: activity?.attributes.scheduleId ?? "",
+            petId: activity?.attributes.petId ?? ""
+        )
         guard let activity = activity else {
-            AppGroupAuth.recordIntent(name: "endFeedingActivity", status: "not_found", detail: "skip")
+            AppGroupAuth.recordIntent(name: "endFeedingActivity", status: "not_found", detail: "skip (queued)")
             return .result()
         }
         let now = Date().timeIntervalSince1970

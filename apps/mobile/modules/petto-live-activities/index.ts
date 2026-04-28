@@ -201,6 +201,18 @@ interface NativeModule {
   getIntentLog(): Promise<string[]>;
   clearIntentLog(): Promise<void>;
 
+  /** Pending queue — extension iOS cross-process bug yüzünden LA'yı
+   *  dismiss edemediğinde main app foreground'da bu kuyruğu okuyup
+   *  işlemi tamamlar. */
+  getPendingMedicationActions(): Promise<
+    Array<{ action: string; medicationId: string; petId: string; ts: string }>
+  >;
+  clearPendingMedicationActions(): Promise<void>;
+  getPendingFeedingActions(): Promise<
+    Array<{ action: string; scheduleId: string; petId: string; ts: string }>
+  >;
+  clearPendingFeedingActions(): Promise<void>;
+
   addListener(eventName: string, listener: (...args: unknown[]) => void): EventSubscription;
 }
 
@@ -227,6 +239,10 @@ const noopModule: NativeModule = {
   setAppGroupAuth: async () => {},
   getIntentLog: async () => [],
   clearIntentLog: async () => {},
+  getPendingMedicationActions: async () => [],
+  clearPendingMedicationActions: async () => {},
+  getPendingFeedingActions: async () => [],
+  clearPendingFeedingActions: async () => {},
   addListener: () => ({ remove: () => {} }),
 };
 
@@ -316,6 +332,11 @@ export const LiveActivities = {
 
   getIntentLog: () => native.getIntentLog(),
   clearIntentLog: () => native.clearIntentLog(),
+
+  getPendingMedicationActions: () => native.getPendingMedicationActions(),
+  clearPendingMedicationActions: () => native.clearPendingMedicationActions(),
+  getPendingFeedingActions: () => native.getPendingFeedingActions(),
+  clearPendingFeedingActions: () => native.clearPendingFeedingActions(),
 
   addPushToStartTokenListener: (
     cb: (e: PushToStartTokenEvent) => void,

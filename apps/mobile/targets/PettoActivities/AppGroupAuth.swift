@@ -51,6 +51,40 @@ enum AppGroupAuth {
         if log.count > 20 { log = Array(log.suffix(20)) }
         d.set(log, forKey: kIntentLog)
     }
+
+    // App Intent fallback queue: extension cross-process Activity.activities'ten
+    // banner'i bulamayinca burada bir is birakir. Ana app foreground'a
+    // gelince bu kuyrugu okur, LA'lari kendi process'inde dismiss eder ve
+    // (gerekirse) backend'e tekrar mark-given POST atar (extension ATS
+    // veya network sorunu yasadiysa garanti olsun).
+    private static let kPendingMedActions = "petto.pendingMedActions"
+    private static let kPendingFeedActions = "petto.pendingFeedActions"
+
+    static func enqueueMedicationAction(action: String, medicationId: String, petId: String) {
+        guard let d = defaults else { return }
+        var queue = d.array(forKey: kPendingMedActions) as? [[String: String]] ?? []
+        queue.append([
+            "action": action,
+            "medicationId": medicationId,
+            "petId": petId,
+            "ts": ISO8601DateFormatter().string(from: Date()),
+        ])
+        if queue.count > 20 { queue = Array(queue.suffix(20)) }
+        d.set(queue, forKey: kPendingMedActions)
+    }
+
+    static func enqueueFeedingAction(action: String, scheduleId: String, petId: String) {
+        guard let d = defaults else { return }
+        var queue = d.array(forKey: kPendingFeedActions) as? [[String: String]] ?? []
+        queue.append([
+            "action": action,
+            "scheduleId": scheduleId,
+            "petId": petId,
+            "ts": ISO8601DateFormatter().string(from: Date()),
+        ])
+        if queue.count > 20 { queue = Array(queue.suffix(20)) }
+        d.set(queue, forKey: kPendingFeedActions)
+    }
 }
 
 enum BackendClient {

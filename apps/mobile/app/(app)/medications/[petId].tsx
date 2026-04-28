@@ -203,8 +203,7 @@ export default function MedicationsPage() {
 
   // Diagnostic — Live Activity butonlarının (Verildi / Geç) gerçekten
   // tetiklenip tetiklenmediğini doğrulamak için son App Intent log
-  // satırını okuyup gösteriyoruz. Sadece log mevcutsa görünür; problem
-  // çözüldükten sonra bu blok ve okuma silinebilir.
+  // satırını okuyup gösteriyoruz.
   const [intentLog, setIntentLog] = useState<string[]>([]);
   useFocusEffect(
     useCallback(() => {
@@ -225,6 +224,48 @@ export default function MedicationsPage() {
         clearInterval(timer);
       };
     }, [])
+  );
+
+  // Live Activity FALLBACK — extension iOS bug nedeniyle banner'ı
+  // dismiss edemediğinde App Group'a yazdığı pending action'ları işle.
+  // App foreground'a gelince çalışır:
+  //   • Backend POST tekrar dene (extension ATS/network sorunu yaşamış
+  //     olabilir, garanti olsun)
+  //   • LA'yı bu process'ten dismiss et
+  //   • React Query cache'ini invalidate et
+  //   • Pending queue'yu temizle
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const LiveActivities = (await import("petto-live-activities")).default;
+          const queue = await LiveActivities.getPendingMedicationActions();
+          if (cancelled || queue.length === 0) return;
+          const { endMedicationLiveActivity } = await import("@/lib/live-activities");
+          for (const item of queue) {
+            if (item.action === "given" && item.medicationId && item.petId) {
+              try {
+                await markMedicationGiven(token, item.petId, item.medicationId);
+              } catch {
+                // best-effort — backend zaten kayıt almış olabilir
+              }
+            }
+            if (item.medicationId) {
+              try {
+                await endMedicationLiveActivity(item.medicationId);
+              } catch {}
+            }
+          }
+          await LiveActivities.clearPendingMedicationActions();
+          queryClient.invalidateQueries({ queryKey: ["medications", petId] });
+          queryClient.invalidateQueries({ queryKey: ["medication-doses-by-pet"] });
+        } catch {
+          // best-effort
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [token, petId, queryClient])
   );
 
   // Aggregate dose history for the strip's window. We fetch a fixed

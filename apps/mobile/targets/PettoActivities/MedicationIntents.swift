@@ -30,19 +30,31 @@ struct MarkMedicationGivenIntent: AppIntent, LiveActivityIntent {
             detail: "med='\(medicationId)' pet='\(petId)' act='\(activityId)'"
         )
 
-        // Activity'yi bulmak için 3 yol dene: önce activityId, yoksa
-        // medicationId üzerinden attributes match, sonra "ilk aktif".
-        // iOS bazen @Parameter deserialize'ı başarısız ediyor; bu fallback
-        // o senaryoda da banner'ı dismiss etmemizi sağlıyor.
+        // Diagnostik — extension process Activity<>.activities'i görüyor mu?
+        let allActs = Activity<MedicationAttributes>.activities
+        AppGroupAuth.recordIntent(
+            name: "activities.count",
+            status: "\(allActs.count)",
+            detail: allActs.map { $0.id.prefix(8) }.joined(separator: ",")
+        )
+
         let activity = await Self.findActivity(activityId: activityId, medicationId: medicationId)
 
-        // Backend'e POST — petId/medicationId boşsa atlanır.
+        // Fallback queue: ana app foreground'da garanti dismiss + invalidate.
+        // Extension'ın doğrudan dismiss etmesi cross-process bug ile başarısız
+        // olsa bile bu kuyruk ile sonuç güvenceye alınıyor.
+        AppGroupAuth.enqueueMedicationAction(
+            action: "given",
+            medicationId: medicationId.isEmpty ? (activity?.attributes.medicationId ?? "") : medicationId,
+            petId: petId.isEmpty ? (activity?.attributes.petId ?? "") : petId
+        )
+
+        // Backend POST
         if !petId.isEmpty && !medicationId.isEmpty {
             await BackendClient.post(
                 path: "/v1/pets/\(petId)/medications/\(medicationId)/mark-given"
             )
         } else if let act = activity {
-            // Param boş ama activity'den okuyabiliyorsak oradan
             await BackendClient.post(
                 path: "/v1/pets/\(act.attributes.petId)/medications/\(act.attributes.medicationId)/mark-given"
             )
@@ -60,7 +72,7 @@ struct MarkMedicationGivenIntent: AppIntent, LiveActivityIntent {
             AppGroupAuth.recordIntent(
                 name: "endActivity",
                 status: "not_found",
-                detail: "id='\(activityId)' med='\(medicationId)'"
+                detail: "id='\(activityId)' med='\(medicationId)' (queued for app)"
             )
         }
         return .result()
@@ -111,8 +123,13 @@ struct SkipMedicationIntent: AppIntent, LiveActivityIntent {
             activityId: activityId,
             medicationId: ""
         )
+        AppGroupAuth.enqueueMedicationAction(
+            action: "skipped",
+            medicationId: activity?.attributes.medicationId ?? "",
+            petId: activity?.attributes.petId ?? ""
+        )
         guard let activity = activity else {
-            AppGroupAuth.recordIntent(name: "endActivity", status: "not_found", detail: "skip act='\(activityId)'")
+            AppGroupAuth.recordIntent(name: "endActivity", status: "not_found", detail: "skip act='\(activityId)' (queued)")
             return .result()
         }
         let now = Date().timeIntervalSince1970
