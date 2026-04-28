@@ -10,6 +10,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View
@@ -450,9 +451,10 @@ export default function MedicationsPage() {
         </Pressable>
       </View>
 
-      {/* Live Activity intent diagnostic — sadece son 3 satır gösterilir.
-          Buton calisinca burada yeni satır olusur ([...] MarkMedicationGivenIntent → fired).
-          Sorun cozulup butonlar guvenle calisinca tum bu blok silinebilir. */}
+      {/* Live Activity intent diagnostic — son 5 satır.
+          • Satıra UZUN BAS → iOS metin seçim popup'ı, "Copy" yapabilirsin
+          • "Tümünü paylaş" → iOS share sheet, oradan Copy/Notes/Mesajlar
+          • "Logu temizle" → kayıtları siler */}
       {intentLog.length > 0 && (
         <View
           style={{
@@ -464,28 +466,49 @@ export default function MedicationsPage() {
             gap: 2
           }}
         >
-          <Text style={{ fontSize: 10, fontWeight: "700", color: "#E6694A", letterSpacing: 0.5 }}>
-            LA INTENT LOG (debug)
-          </Text>
-          {intentLog.slice(-3).reverse().map((line, i) => (
-            <Text key={i} style={{ fontSize: 10, color: "#7A4530", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }} numberOfLines={1}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: 10, fontWeight: "700", color: "#E6694A", letterSpacing: 0.5 }}>
+              LA INTENT LOG (uzun bas → kopyala)
+            </Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const text = intentLog.slice(-10).join("\n");
+                    await Share.share({ message: text });
+                  } catch {}
+                }}
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 10, color: "#E6694A", fontWeight: "700" }}>
+                  Tümünü paylaş
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const LiveActivities = (await import("petto-live-activities")).default;
+                    await LiveActivities.clearIntentLog();
+                    setIntentLog([]);
+                  } catch {}
+                }}
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 10, color: "#E6694A", fontWeight: "700" }}>
+                  Temizle
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+          {intentLog.slice(-5).reverse().map((line, i) => (
+            <Text
+              key={i}
+              selectable
+              style={{ fontSize: 10, color: "#7A4530", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}
+            >
               {line}
             </Text>
           ))}
-          <Pressable
-            onPress={async () => {
-              try {
-                const LiveActivities = (await import("petto-live-activities")).default;
-                await LiveActivities.clearIntentLog();
-                setIntentLog([]);
-              } catch {}
-            }}
-            hitSlop={8}
-          >
-            <Text style={{ fontSize: 10, color: "#E6694A", fontWeight: "700", marginTop: 2 }}>
-              Logu temizle
-            </Text>
-          </Pressable>
         </View>
       )}
 

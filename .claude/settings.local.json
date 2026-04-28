@@ -425,7 +425,8 @@
       "Bash(node -e ' *)",
       "Bash(git -C /Users/yigitkarabulut/Desktop/Projects/Petto add apps/mobile/plugins apps/mobile/app.config.ts apps/mobile/targets/PettoActivities/expo-target.config.js)",
       "Bash(SSHPASS='Petto123123.' sshpass -e ssh -o StrictHostKeyChecking=no root@148.230.123.242 \"cp /opt/petto/petto-api /opt/petto/petto-api.bak.\\\\$\\(date -u +%Y%m%d-%H%M%S\\) && chmod +x /opt/petto/petto-api.new && mv /opt/petto/petto-api.new /opt/petto/petto-api && systemctl restart petto-api.service && sleep 12 && curl -s http://localhost:8080/healthz && echo\")",
-      "Bash(echo \"build:$?\")"
+      "Bash(echo \"build:$?\")",
+      "Bash(git -C /Users/yigitkarabulut/Desktop/Projects/Petto commit -m 'fix\\(mobile\\): LA log satirlari secilebilir + Tumunu Paylas *)"
     ]
   }
 }
